@@ -63,7 +63,7 @@ const InputField: React.FC<{ label: string; type?: string; defaultValue?: string
 );
 
 const SettingsPage: React.FC = () => {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [showPassword, setShowPassword] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -185,8 +185,8 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InputField label="Display Name" defaultValue="Demo User" />
-                    <InputField label="Username" defaultValue="demouser_99" prefix="@" />
+                    <InputField label="Display Name" defaultValue={user?.username || ''} />
+                    <InputField label="Username" defaultValue={user?.username || ''} prefix="@" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Bio</label>

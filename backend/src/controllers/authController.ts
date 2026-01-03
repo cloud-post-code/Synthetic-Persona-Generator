@@ -6,15 +6,27 @@ export async function register(req: Request, res: Response, next: NextFunction) 
   try {
     const data: RegisterRequest = req.body;
     
-    if (!data.username || !data.password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    // Trim and validate username
+    const username = data.username?.trim();
+    const password = data.password?.trim();
+    const email = data.email?.trim() || undefined;
+    
+    if (!username || username.length === 0) {
+      return res.status(400).json({ error: 'Username is required and cannot be empty' });
     }
 
-    if (data.password.length < 6) {
+    if (!password || password.length === 0) {
+      return res.status(400).json({ error: 'Password is required and cannot be empty' });
+    }
+
+    if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const result = await registerUser(data);
+    // Log registration attempt for debugging
+    console.log('Registration attempt:', { username, email: email || 'none', passwordLength: password.length });
+
+    const result = await registerUser({ username, password, email });
     res.status(201).json(result);
   } catch (error: any) {
     if (error.message === 'Username already exists') {
@@ -28,11 +40,19 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const data: LoginRequest = req.body;
     
-    if (!data.username || !data.password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    // Trim and validate inputs
+    const username = data.username?.trim();
+    const password = data.password?.trim();
+    
+    if (!username || username.length === 0) {
+      return res.status(400).json({ error: 'Username is required and cannot be empty' });
     }
 
-    const result = await loginUser(data);
+    if (!password || password.length === 0) {
+      return res.status(400).json({ error: 'Password is required and cannot be empty' });
+    }
+
+    const result = await loginUser({ username, password });
     res.json(result);
   } catch (error: any) {
     if (error.message === 'Invalid username or password') {
