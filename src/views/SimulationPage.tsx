@@ -326,6 +326,7 @@ const SimulationPage: React.FC = () => {
       createdAt: new Date().toISOString()
     };
 
+    const currentInput = chatInput;
     setMessages(prev => [...prev, userMsg]);
     // Note: Messages are stored locally for simulations
     // In production, you might want to create a chat session for each simulation
@@ -333,7 +334,8 @@ const SimulationPage: React.FC = () => {
     setIsTyping(true);
 
     try {
-      const history = messages.map(m => ({
+      // Build history from current messages + the new user message
+      const history = [...messages, userMsg].map(m => ({
         role: m.senderType === 'user' ? 'user' as const : 'model' as const,
         text: m.content
       }));
@@ -342,7 +344,7 @@ const SimulationPage: React.FC = () => {
         `Context of Simulation: ${bgInfo}.\n` +
         `Respond to the user naturally in your unique voice. Staying in character is mandatory.`;
       
-      const response = await geminiService.chat(systemPrompt, history, userMsg.content);
+      const response = await geminiService.chat(systemPrompt, history, currentInput);
       
       const aiMsg: Message = {
         id: crypto.randomUUID(),
@@ -644,15 +646,23 @@ const SimulationPage: React.FC = () => {
                     ref={textareaRef}
                     value={chatInput}
                     onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendFollowUp(); } }}
-                    placeholder="Ask a question or challenge this reaction..."
-                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-[2.5rem] font-medium focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white transition-all pr-20 shadow-inner resize-none min-h-[72px] overflow-hidden"
+                    onKeyDown={(e) => { 
+                      if(e.key === 'Enter' && !e.shiftKey) { 
+                        e.preventDefault(); 
+                        if (!isTyping && chatInput.trim() && selectedPersona && currentSessionId) {
+                          handleSendFollowUp(); 
+                        }
+                      } 
+                    }}
+                    placeholder={isTyping ? "Please wait for response..." : "Ask a question or challenge this reaction..."}
+                    disabled={isTyping || !selectedPersona || !currentSessionId}
+                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-[2.5rem] font-medium focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white transition-all pr-20 shadow-inner resize-none min-h-[72px] overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                     rows={1}
                   />
                   <button
                     type="submit"
-                    disabled={!chatInput.trim() || isTyping}
-                    className="absolute right-4 bottom-4 p-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:bg-gray-200"
+                    disabled={!chatInput.trim() || isTyping || !selectedPersona || !currentSessionId}
+                    className="absolute right-4 bottom-4 p-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
                   >
                     <Send className="w-5 h-5" />
                   </button>

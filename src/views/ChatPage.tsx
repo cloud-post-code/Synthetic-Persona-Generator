@@ -65,7 +65,7 @@ const FormattedContent: React.FC<{ content: string }> = ({ content }) => {
 const ChatPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [isSelectorOpen, setIsSelectorOpen] = useState(!searchParams.get('personaId'));
+  const [isSelectorOpen, setIsSelectorOpen] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -186,6 +186,7 @@ const ChatPage: React.FC = () => {
         }
         systemPrompt += `INSTRUCTIONS: Respond naturally to the user's message as this persona. Stay in character. Use bolding (**text**) for emphasis and bullet points for lists to ensure your message is easy to read and highly professional.`;
 
+        // Fetch messages from API to get full history, but ensure we include the user's latest message
         const allCurrentMessages = await chatApi.getMessages(session.id);
         // Normalize messages
         const normalizedMessages = allCurrentMessages.map(m => ({
@@ -195,8 +196,30 @@ const ChatPage: React.FC = () => {
           personaId: m.persona_id || m.personaId,
           createdAt: m.created_at || m.createdAt,
         }));
+        
+        // Ensure the user's latest message is included (in case it wasn't saved yet)
+        const hasLatestMessage = normalizedMessages.some(m => 
+          m.id === userMessage.id || 
+          (m.senderType === 'user' && m.content === currentInput && 
+           Math.abs(new Date(m.createdAt).getTime() - new Date(userMessage.createdAt).getTime()) < 5000)
+        );
+        
+        let messagesForHistory = normalizedMessages;
+        if (!hasLatestMessage) {
+          // Add the user message if it's not in the fetched messages (normalize it to match structure)
+          const normalizedUserMessage = {
+            ...userMessage,
+            sessionId: userMessage.sessionId,
+            senderType: userMessage.senderType,
+            personaId: userMessage.personaId,
+            createdAt: userMessage.createdAt,
+            content: userMessage.content,
+          };
+          messagesForHistory = [...normalizedMessages, normalizedUserMessage];
+        }
+        
         const historyLimit = 20;
-        const recentMessages = normalizedMessages.slice(-historyLimit);
+        const recentMessages = messagesForHistory.slice(-historyLimit);
         
         const history = recentMessages.map(m => ({
           role: m.senderType === 'user' ? 'user' as const : 'model' as const,

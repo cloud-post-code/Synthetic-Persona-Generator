@@ -35,10 +35,10 @@ const MenuBar: React.FC<{ user: any; onLogout: () => void }> = ({ user, onLogout
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 flex items-center gap-2">
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">P</span>
+                <span className="text-white font-bold">I</span>
               </div>
               <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-                PersonaGen
+                Instinct AI
               </span>
             </Link>
             <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
