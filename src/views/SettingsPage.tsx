@@ -19,10 +19,7 @@ import {
   Monitor,
   Plus
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext.js';
-import { personaApi } from '../services/personaApi.js';
-import { chatApi } from '../services/chatApi.js';
-import { simulationApi } from '../services/simulationApi.js';
+import { storageService } from '../services/storage';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language';
 
@@ -63,11 +60,9 @@ const InputField: React.FC<{ label: string; type?: string; defaultValue?: string
 );
 
 const SettingsPage: React.FC = () => {
-  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [showPassword, setShowPassword] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const [isClearing, setIsClearing] = useState(false);
 
   const handleSave = () => {
     setSaveStatus('Settings saved successfully!');
@@ -75,34 +70,10 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleClearAll = async () => {
-    if (window.confirm('Are you absolutely sure? This will delete all your personas, chats, and simulation history forever. This action cannot be undone.')) {
-      setIsClearing(true);
-      try {
-        // Delete all personas
-        const personas = await personaApi.getAll();
-        for (const persona of personas) {
-          await personaApi.delete(persona.id);
-        }
-
-        // Delete all chat sessions
-        const sessions = await chatApi.getSessions();
-        for (const session of sessions) {
-          await chatApi.deleteSession(session.id);
-        }
-
-        // Delete all simulation sessions
-        const simulations = await simulationApi.getAll();
-        for (const sim of simulations) {
-          await simulationApi.delete(sim.id);
-        }
-
-        alert('All data has been deleted successfully.');
-        window.location.reload();
-      } catch (error: any) {
-        alert(`Error deleting data: ${error.message}`);
-      } finally {
-        setIsClearing(false);
-      }
+    if (window.confirm('Are you absolutely sure? This will delete all your personas, chats, and simulation history forever.')) {
+      await storageService.clearAllData();
+      alert('All data has been wiped.');
+      window.location.reload();
     }
   };
 
@@ -155,10 +126,7 @@ const SettingsPage: React.FC = () => {
           />
           
           <div className="pt-8 border-t border-gray-100 mt-4">
-            <button 
-              onClick={logout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-all"
-            >
+            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-all">
               <LogOut className="w-5 h-5" />
               Sign Out
             </button>
@@ -185,8 +153,8 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InputField label="Display Name" defaultValue={user?.username || ''} />
-                    <InputField label="Username" defaultValue={user?.username || ''} prefix="@" />
+                    <InputField label="Display Name" defaultValue="Demo User" />
+                    <InputField label="Username" defaultValue="demouser_99" prefix="@" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Bio</label>
@@ -286,10 +254,9 @@ const SettingsPage: React.FC = () => {
                   </div>
                   <button 
                     onClick={handleClearAll}
-                    disabled={isClearing}
-                    className="w-full py-4 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-4 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100"
                   >
-                    {isClearing ? 'Deleting...' : 'Wipe Database'}
+                    Wipe Database
                   </button>
                 </div>
               </Section>

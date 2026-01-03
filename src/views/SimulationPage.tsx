@@ -474,6 +474,25 @@ const SimulationPage: React.FC = () => {
       
       // Save initial message to localStorage
       localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
+      
+      // Save full persona data (with files) to localStorage for quick restoration
+      const personaWithFiles = {
+        ...selectedPersona,
+        files: selectedPersona.files || [],
+      };
+      // Ensure files are loaded if not already
+      if (personaWithFiles.files.length === 0) {
+        try {
+          const files = await personaApi.getFiles(selectedPersona.id);
+          personaWithFiles.files = files.map(f => ({
+            ...f,
+            createdAt: f.created_at || f.createdAt,
+          }));
+        } catch (err) {
+          console.error('Failed to load persona files:', err);
+        }
+      }
+      localStorage.setItem(`simulationPersona_${newSessionId}`, JSON.stringify(personaWithFiles));
     } catch (err: any) {
       console.error('Simulation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -544,8 +563,71 @@ const SimulationPage: React.FC = () => {
     setStimulusImage(session.stimulusImage || null);
     setMimeType(session.mimeType || null);
     
-    const persona = personas.find(p => p.id === session.personaId);
-    setSelectedPersona(persona || null);
+    // Try to load persona from localStorage first (faster)
+    let persona: Persona | null = null;
+    const cachedPersona = localStorage.getItem(`simulationPersona_${session.id}`);
+    if (cachedPersona) {
+      try {
+        persona = JSON.parse(cachedPersona);
+      } catch (err) {
+        console.error('Failed to parse cached persona:', err);
+      }
+    }
+    
+    // If no cached persona, try to find in current personas list
+    if (!persona) {
+      persona = personas.find(p => p.id === session.personaId) || null;
+    }
+    
+    // If still no persona, fetch from API
+    if (!persona && session.personaId) {
+      try {
+        const fetchedPersona = await personaApi.getById(session.personaId);
+        // Normalize persona data
+        persona = {
+          ...fetchedPersona,
+          avatarUrl: fetchedPersona.avatar_url || fetchedPersona.avatarUrl,
+          createdAt: fetchedPersona.created_at || fetchedPersona.createdAt,
+          updatedAt: fetchedPersona.updated_at || fetchedPersona.updatedAt,
+          files: fetchedPersona.files || [],
+        };
+        
+        // Load files if not already loaded
+        if (!persona.files || persona.files.length === 0) {
+          try {
+            const files = await personaApi.getFiles(persona.id);
+            persona.files = files.map(f => ({
+              ...f,
+              createdAt: f.created_at || f.createdAt,
+            }));
+          } catch (err) {
+            console.error('Failed to load persona files:', err);
+          }
+        }
+        
+        // Save to localStorage for next time
+        localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+      } catch (err) {
+        console.error('Failed to fetch persona:', err);
+      }
+    }
+    
+    // If we have a persona but files aren't loaded, load them
+    if (persona && (!persona.files || persona.files.length === 0)) {
+      try {
+        const files = await personaApi.getFiles(persona.id);
+        persona.files = files.map(f => ({
+          ...f,
+          createdAt: f.created_at || f.createdAt,
+        }));
+        // Update localStorage with files
+        localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+      } catch (err) {
+        console.error('Failed to load persona files:', err);
+      }
+    }
+    
+    setSelectedPersona(persona);
 
     // Load messages from localStorage
     try {

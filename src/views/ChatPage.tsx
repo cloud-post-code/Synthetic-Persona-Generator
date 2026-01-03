@@ -221,9 +221,58 @@ const ChatPage: React.FC = () => {
         createdAt: m.created_at || m.createdAt,
       }));
       setMessages(normalized);
-      const personaIds = s.personaIds || s.persona_ids || [];
-      const ps = allPersonas.filter(p => personaIds.includes(p.id));
-      setSelectedPersonas(ps);
+      
+      // Try to load personas from localStorage first (faster)
+      let personasWithFiles: Persona[] = [];
+      const cachedPersonas = localStorage.getItem(`chatPersonas_${s.id}`);
+      if (cachedPersonas) {
+        try {
+          personasWithFiles = JSON.parse(cachedPersonas);
+        } catch (err) {
+          console.error('Failed to parse cached personas:', err);
+        }
+      }
+      
+      // If no cached personas or cache is empty, load from backend
+      if (personasWithFiles.length === 0) {
+        // Load full persona data from backend (includes all persona info)
+        const sessionPersonas = await chatApi.getSessionPersonas(s.id);
+        // Normalize persona data
+        const normalizedPersonas = sessionPersonas.map(p => ({
+          ...p,
+          avatarUrl: p.avatar_url || p.avatarUrl,
+          createdAt: p.created_at || p.createdAt,
+          updatedAt: p.updated_at || p.updatedAt,
+          files: p.files || [],
+        }));
+        
+        // Load files for each persona if not already loaded
+        personasWithFiles = await Promise.all(
+          normalizedPersonas.map(async (persona) => {
+            if (!persona.files || persona.files.length === 0) {
+              try {
+                const files = await personaApi.getFiles(persona.id);
+                return {
+                  ...persona,
+                  files: files.map(f => ({
+                    ...f,
+                    createdAt: f.created_at || f.createdAt,
+                  })),
+                };
+              } catch (err) {
+                console.error(`Failed to load files for persona ${persona.id}:`, err);
+                return persona;
+              }
+            }
+            return persona;
+          })
+        );
+        
+        // Save persona data to localStorage for quick restoration
+        localStorage.setItem(`chatPersonas_${s.id}`, JSON.stringify(personasWithFiles));
+      }
+      
+      setSelectedPersonas(personasWithFiles);
       setIsSelectorOpen(false);
     } catch (err) {
       console.error('Failed to load session:', err);
@@ -234,9 +283,31 @@ const ChatPage: React.FC = () => {
   const handleStartChat = async (personas: Persona[]) => {
     if (personas.length === 0) return;
     try {
+      // Ensure personas have their files loaded
+      const personasWithFiles = await Promise.all(
+        personas.map(async (persona) => {
+          if (!persona.files || persona.files.length === 0) {
+            try {
+              const files = await personaApi.getFiles(persona.id);
+              return {
+                ...persona,
+                files: files.map(f => ({
+                  ...f,
+                  createdAt: f.created_at || f.createdAt,
+                })),
+              };
+            } catch (err) {
+              console.error(`Failed to load files for persona ${persona.id}:`, err);
+              return persona;
+            }
+          }
+          return persona;
+        })
+      );
+      
       const newSession = await chatApi.createSession(
-        `Chat with ${personas.map(p => p.name).join(', ')}`,
-        personas.map(p => p.id)
+        `Chat with ${personasWithFiles.map(p => p.name).join(', ')}`,
+        personasWithFiles.map(p => p.id)
       );
       // Normalize session data
       const normalized = {
@@ -245,8 +316,13 @@ const ChatPage: React.FC = () => {
         personaIds: newSession.persona_ids || newSession.personaIds,
       };
       setSession(normalized);
+      setSelectedPersonas(personasWithFiles);
       setMessages([]);
       setIsSelectorOpen(false);
+      
+      // Save persona data to localStorage for quick restoration
+      localStorage.setItem(`chatPersonas_${normalized.id}`, JSON.stringify(personasWithFiles));
+      
       fetchSessions();
     } catch (err) {
       console.error('Failed to create chat session:', err);
