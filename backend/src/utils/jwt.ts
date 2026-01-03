@@ -1,16 +1,17 @@
 import jwt from 'jsonwebtoken';
+import { Secret, SignOptions } from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_fallback';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+// 🛡️ NUCLEAR FIX: We explicitly tell TypeScript "This is a Secret" and "This is a string"
+// This prevents the "Overload" errors completely.
+const JWT_SECRET = (process.env.JWT_SECRET || 'default_secret_fallback') as Secret;
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as string;
 
-// RENAMED back to generateToken to match your authService
-export const generateToken = (payload: any) => {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN
-  });
+export const generateToken = (payload: any): string => {
+  // We define options separately to ensure types match
+  const options: SignOptions = { expiresIn: JWT_EXPIRES_IN };
+  return jwt.sign(payload, JWT_SECRET, options);
 };
 
-export const verifyToken = (token: string) => {
+export const verifyToken = (token: string): any => {
   return jwt.verify(token, JWT_SECRET);
 };
-
