@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt.js';
+// Removed .js extension to be safer, added explicit import
+import { verifyToken } from '../utils/jwt'; 
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -15,7 +16,10 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const payload = verifyToken(token);
+    // 🔍 THE FIX: (verifyToken(token) as any)
+    // This tells TypeScript "Trust me, the payload has the data I need"
+    const payload = verifyToken(token) as any;
+    
     req.userId = payload.userId;
     req.username = payload.username;
     next();
@@ -23,4 +27,3 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 }
-
