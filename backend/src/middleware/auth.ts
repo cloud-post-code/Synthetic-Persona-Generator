@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-// Removed .js extension to be safer, added explicit import
-import { verifyToken } from '../utils/jwt'; 
+import { verifyToken } from '../utils/jwt.js'; 
 
 export interface AuthRequest extends Request {
   userId?: string;
