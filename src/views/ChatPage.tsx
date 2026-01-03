@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { Send, Plus, User, Bot, Loader2, ArrowLeft, MoreVertical, Trash2, History, Users, X, MessageSquare } from 'lucide-react';
+import { Send, Plus, User, Bot, Loader2, ArrowLeft, MoreVertical, Trash2, History, Users, X, MessageSquare, XCircle } from 'lucide-react';
 import { usePersonas } from '../hooks/usePersonas.js';
 import { useChatSessions } from '../hooks/useChatSessions.js';
 import { chatApi } from '../services/chatApi.js';
@@ -13,51 +13,120 @@ import { Persona, ChatSession, Message } from '../models/types.js';
  * A simple internal component to render basic markdown-style formatting
  * without adding heavy external dependencies.
  */
-const FormattedContent: React.FC<{ content: string }> = ({ content }) => {
+const FormattedContent: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
   // Split into paragraphs/lines while preserving intentional breaks
   const lines = content.split('\n');
   
-  return (
-    <div className="space-y-2 whitespace-pre-wrap break-words">
-      {lines.map((line, idx) => {
-        // Handle bold: **text**
-        let processedLine: React.ReactNode[] = [line];
-        
-        // Very basic bold replacement logic
-        const boldRegex = /\*\*(.*?)\*\*/g;
-        const matches = [...line.matchAll(boldRegex)];
-        
-        if (matches.length > 0) {
-          processedLine = [];
-          let lastIndex = 0;
-          matches.forEach((match, mIdx) => {
-            const index = match.index!;
-            // Text before bold
-            if (index > lastIndex) {
-              processedLine.push(line.substring(lastIndex, index));
-            }
-            // Bolded text
-            processedLine.push(<strong key={`${idx}-${mIdx}`} className="font-black text-gray-900">{match[1]}</strong>);
-            lastIndex = index + match[0].length;
-          });
-          // Text after last bold
-          if (lastIndex < line.length) {
-            processedLine.push(line.substring(lastIndex));
-          }
-        }
+  const processLine = (line: string, lineIdx: number): React.ReactNode => {
+    // Handle headers (## or ###)
+    if (line.trim().startsWith('###')) {
+      const headerText = line.replace(/^###+\s*/, '');
+      return (
+        <h3 key={lineIdx} className={`font-black text-lg mb-2 mt-4 ${isUser ? 'text-white' : 'text-gray-900'}`}>
+          {processInlineFormatting(headerText, lineIdx)}
+        </h3>
+      );
+    }
+    
+    if (line.trim().startsWith('##')) {
+      const headerText = line.replace(/^##+\s*/, '');
+      return (
+        <h2 key={lineIdx} className={`font-black text-xl mb-2 mt-4 ${isUser ? 'text-white' : 'text-gray-900'}`}>
+          {processInlineFormatting(headerText, lineIdx)}
+        </h2>
+      );
+    }
 
-        // Handle simple lists (lines starting with - or *)
-        const isList = line.trim().startsWith('- ') || line.trim().startsWith('* ');
-        
-        return (
-          <div key={idx} className={isList ? "pl-4 relative" : ""}>
-            {isList && <span className="absolute left-0 top-0 text-indigo-500 font-bold">•</span>}
-            <span className="leading-relaxed">
-              {processedLine}
-            </span>
-          </div>
+    // Handle simple lists (lines starting with - or * or numbered)
+    const listMatch = line.match(/^(\s*)([-*]|\d+\.)\s+(.+)$/);
+    if (listMatch) {
+      const indent = listMatch[1].length;
+      const content = listMatch[3];
+      const indentClass = indent === 0 ? 'pl-0' : indent <= 2 ? 'pl-4' : indent <= 4 ? 'pl-8' : 'pl-12';
+      return (
+        <div key={lineIdx} className={`${indentClass} relative flex items-start gap-2`}>
+          <span className={`shrink-0 mt-1 ${isUser ? 'text-white' : 'text-indigo-600'} font-bold`}>
+            {listMatch[2].match(/\d+/) ? `${listMatch[2]}` : '•'}
+          </span>
+          <span className={`leading-relaxed flex-1 ${isUser ? 'text-white' : 'text-gray-800'}`}>
+            {processInlineFormatting(content, lineIdx)}
+          </span>
+        </div>
+      );
+    }
+
+    // Regular paragraph
+    if (line.trim()) {
+      return (
+        <p key={lineIdx} className={`leading-relaxed ${isUser ? 'text-white' : 'text-gray-800'}`}>
+          {processInlineFormatting(line, lineIdx)}
+        </p>
+      );
+    }
+
+    // Empty line
+    return <br key={lineIdx} />;
+  };
+
+  const processInlineFormatting = (text: string, lineIdx: number): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let partKey = 0;
+
+    // Match all formatting: **bold**, *italic*, or combined
+    const formatRegex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g;
+    const matches = [...text.matchAll(formatRegex)];
+
+    if (matches.length === 0) {
+      return text;
+    }
+
+    matches.forEach((match) => {
+      const index = match.index!;
+      
+      // Add text before the match
+      if (index > lastIndex) {
+        parts.push(text.substring(lastIndex, index));
+      }
+
+      // Process the matched formatting
+      if (match[1].startsWith('**')) {
+        // Bold
+        parts.push(
+          <strong key={`${lineIdx}-${partKey++}`} className={isUser ? 'text-white' : 'text-gray-900'}>
+            {match[2]}
+          </strong>
         );
-      })}
+      } else if (match[1].startsWith('*') && !match[1].startsWith('**')) {
+        // Italic
+        parts.push(
+          <em key={`${lineIdx}-${partKey++}`} className={isUser ? 'text-white/90' : 'text-gray-700'}>
+            {match[3]}
+          </em>
+        );
+      } else if (match[1].startsWith('`')) {
+        // Code
+        parts.push(
+          <code key={`${lineIdx}-${partKey++}`} className={`px-1.5 py-0.5 rounded text-sm font-mono ${isUser ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-900'}`}>
+            {match[4]}
+          </code>
+        );
+      }
+
+      lastIndex = index + match[0].length;
+    });
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+  
+  return (
+    <div className="space-y-1.5 break-words">
+      {lines.map((line, idx) => processLine(line, idx))}
     </div>
   );
 };
@@ -77,10 +146,42 @@ const ChatPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Save session to localStorage when it changes
+  useEffect(() => {
+    if (session) {
+      localStorage.setItem('chatActiveSessionId', session.id);
+    } else {
+      localStorage.removeItem('chatActiveSessionId');
+    }
+  }, [session]);
+
   useEffect(() => {
     const init = async () => {
       fetchSessions();
       const initialPersonaId = searchParams.get('personaId');
+      
+      // Try to restore last active session if no personaId in URL
+      if (!initialPersonaId && allPersonas.length > 0) {
+        const savedSessionId = localStorage.getItem('chatActiveSessionId');
+        if (savedSessionId) {
+          try {
+            const savedSession = await chatApi.getSession(savedSessionId);
+            if (savedSession) {
+              const normalized = {
+                ...savedSession,
+                createdAt: savedSession.created_at || savedSession.createdAt,
+                personaIds: savedSession.persona_ids || savedSession.personaIds || [],
+              };
+              await handleLoadSession(normalized);
+              return;
+            }
+          } catch (err) {
+            console.error('Failed to restore session:', err);
+            localStorage.removeItem('chatActiveSessionId');
+          }
+        }
+      }
+      
       if (initialPersonaId && allPersonas.length > 0) {
         const p = allPersonas.find(x => x.id === initialPersonaId);
         if (p) {
@@ -92,6 +193,7 @@ const ChatPage: React.FC = () => {
     if (allPersonas.length > 0) {
       init();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, allPersonas]);
 
   useEffect(() => {
@@ -105,6 +207,29 @@ const ChatPage: React.FC = () => {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [input]);
+
+  const handleLoadSession = async (s: ChatSession) => {
+    setSession(s);
+    try {
+      const msgs = await chatApi.getMessages(s.id);
+      // Normalize messages
+      const normalized = msgs.map(m => ({
+        ...m,
+        sessionId: m.session_id || m.sessionId,
+        senderType: m.sender_type || m.senderType,
+        personaId: m.persona_id || m.personaId,
+        createdAt: m.created_at || m.createdAt,
+      }));
+      setMessages(normalized);
+      const personaIds = s.personaIds || s.persona_ids || [];
+      const ps = allPersonas.filter(p => personaIds.includes(p.id));
+      setSelectedPersonas(ps);
+      setIsSelectorOpen(false);
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      alert('Failed to load chat session. Please try again.');
+    }
+  };
 
   const handleStartChat = async (personas: Persona[]) => {
     if (personas.length === 0) return;
@@ -265,26 +390,15 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  const handleLoadSession = async (s: ChatSession) => {
-    setSession(s);
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!session) return;
+    
     try {
-      const msgs = await chatApi.getMessages(s.id);
-      // Normalize messages
-      const normalized = msgs.map(m => ({
-        ...m,
-        sessionId: m.session_id || m.sessionId,
-        senderType: m.sender_type || m.senderType,
-        personaId: m.persona_id || m.personaId,
-        createdAt: m.created_at || m.createdAt,
-      }));
-      setMessages(normalized);
-      const personaIds = s.personaIds || s.persona_ids || [];
-      const ps = allPersonas.filter(p => personaIds.includes(p.id));
-      setSelectedPersonas(ps);
-      setIsSelectorOpen(false);
+      await chatApi.deleteMessage(session.id, messageId);
+      setMessages(prev => prev.filter(m => m.id !== messageId));
     } catch (err) {
-      console.error('Failed to load session:', err);
-      alert('Failed to load chat session. Please try again.');
+      console.error('Failed to delete message:', err);
+      alert('Failed to delete message. Please try again.');
     }
   };
 
@@ -340,7 +454,7 @@ const ChatPage: React.FC = () => {
                 onClick={() => setIsSelectorOpen(true)}
                 className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-2xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest text-sm"
               >
-                Open Persona Library
+                New Session
               </button>
             </div>
           </div>
@@ -398,7 +512,7 @@ const ChatPage: React.FC = () => {
                 return (
                   <div
                     key={m.id}
-                    className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}
+                    className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500 group`}
                   >
                     <div className={`flex gap-4 max-w-[90%] sm:max-w-[75%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                       <div className={`shrink-0 mt-1`}>
@@ -414,14 +528,21 @@ const ChatPage: React.FC = () => {
                           />
                         )}
                       </div>
-                      <div className="space-y-1 min-w-0 flex-grow">
+                      <div className="space-y-1 min-w-0 flex-grow relative">
                         {!isUser && (
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                             {persona?.name || 'Assistant'}
                           </p>
                         )}
-                        <div className={`p-5 rounded-3xl shadow-sm text-base ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
-                          <FormattedContent content={m.content} />
+                        <div className={`p-5 rounded-3xl shadow-sm text-base relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                          <FormattedContent content={m.content} isUser={isUser} />
+                          <button
+                            onClick={() => handleDeleteMessage(m.id)}
+                            className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
+                            title="Delete message"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
                         </div>
                         <p className={`text-[10px] text-gray-300 font-medium ${isUser ? 'text-right mr-1' : 'ml-1'}`}>
                           {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

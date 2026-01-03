@@ -16,7 +16,8 @@ import {
   History,
   Trash2,
   Plus,
-  X as CloseIcon
+  X as CloseIcon,
+  XCircle
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
 import { usePersonas } from '../hooks/usePersonas.js';
@@ -119,12 +120,119 @@ Start the simulation. You have just reviewed the deck. Address the founder (User
   }
 ];
 
-const FormattedSimulationResponse: React.FC<{ content: string }> = ({ content }) => {
+const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
+  const lines = content.split('\n');
+  
+  const processLine = (line: string, lineIdx: number): React.ReactNode => {
+    // Handle headers (## or ###)
+    if (line.trim().startsWith('###')) {
+      const headerText = line.replace(/^###+\s*/, '');
+      return (
+        <h3 key={lineIdx} className={`font-black text-lg mb-2 mt-4 ${isUser ? 'text-white' : 'text-gray-900'}`}>
+          {processInlineFormatting(headerText, lineIdx)}
+        </h3>
+      );
+    }
+    
+    if (line.trim().startsWith('##')) {
+      const headerText = line.replace(/^##+\s*/, '');
+      return (
+        <h2 key={lineIdx} className={`font-black text-xl mb-2 mt-4 ${isUser ? 'text-white' : 'text-gray-900'}`}>
+          {processInlineFormatting(headerText, lineIdx)}
+        </h2>
+      );
+    }
+
+    // Handle simple lists (lines starting with - or * or numbered)
+    const listMatch = line.match(/^(\s*)([-*]|\d+\.)\s+(.+)$/);
+    if (listMatch) {
+      const indent = listMatch[1].length;
+      const content = listMatch[3];
+      const indentClass = indent === 0 ? 'pl-0' : indent <= 2 ? 'pl-4' : indent <= 4 ? 'pl-8' : 'pl-12';
+      return (
+        <div key={lineIdx} className={`${indentClass} relative flex items-start gap-2`}>
+          <span className={`shrink-0 mt-1 ${isUser ? 'text-white' : 'text-indigo-600'} font-bold`}>
+            {listMatch[2].match(/\d+/) ? `${listMatch[2]}` : '•'}
+          </span>
+          <span className={`leading-relaxed flex-1 ${isUser ? 'text-white' : 'text-gray-800'}`}>
+            {processInlineFormatting(content, lineIdx)}
+          </span>
+        </div>
+      );
+    }
+
+    // Regular paragraph
+    if (line.trim()) {
+      return (
+        <p key={lineIdx} className={`leading-relaxed ${isUser ? 'text-white' : 'text-gray-800'}`}>
+          {processInlineFormatting(line, lineIdx)}
+        </p>
+      );
+    }
+
+    // Empty line
+    return <br key={lineIdx} />;
+  };
+
+  const processInlineFormatting = (text: string, lineIdx: number): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let partKey = 0;
+
+    // Match all formatting: **bold**, *italic*, or combined
+    const formatRegex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g;
+    const matches = [...text.matchAll(formatRegex)];
+
+    if (matches.length === 0) {
+      return text;
+    }
+
+    matches.forEach((match) => {
+      const index = match.index!;
+      
+      // Add text before the match
+      if (index > lastIndex) {
+        parts.push(text.substring(lastIndex, index));
+      }
+
+      // Process the matched formatting
+      if (match[1].startsWith('**')) {
+        // Bold
+        parts.push(
+          <strong key={`${lineIdx}-${partKey++}`} className={isUser ? 'text-white' : 'text-gray-900'}>
+            {match[2]}
+          </strong>
+        );
+      } else if (match[1].startsWith('*') && !match[1].startsWith('**')) {
+        // Italic
+        parts.push(
+          <em key={`${lineIdx}-${partKey++}`} className={isUser ? 'text-white/90' : 'text-gray-700'}>
+            {match[3]}
+          </em>
+        );
+      } else if (match[1].startsWith('`')) {
+        // Code
+        parts.push(
+          <code key={`${lineIdx}-${partKey++}`} className={`px-1.5 py-0.5 rounded text-sm font-mono ${isUser ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-900'}`}>
+            {match[4]}
+          </code>
+        );
+      }
+
+      lastIndex = index + match[0].length;
+    });
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+  
   return (
-    <div className="prose prose-indigo max-w-none space-y-4 text-gray-800 leading-relaxed font-medium">
-      {content.split('\n').map((line, i) => (
-        <p key={i} className="whitespace-pre-wrap">{line}</p>
-      ))}
+    <div className="space-y-1.5 break-words">
+      {lines.map((line, idx) => processLine(line, idx))}
     </div>
   );
 };
@@ -152,10 +260,68 @@ const SimulationPage: React.FC = () => {
 
   const { personas: allPersonas } = usePersonas();
 
+  // Save messages to localStorage when they change
+  useEffect(() => {
+    if (currentSessionId && messages.length > 0) {
+      localStorage.setItem(`simulationMessages_${currentSessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, currentSessionId]);
+
+  // Save active session to localStorage
+  useEffect(() => {
+    if (currentSessionId) {
+      localStorage.setItem('simulationActiveSessionId', currentSessionId);
+    } else {
+      localStorage.removeItem('simulationActiveSessionId');
+    }
+  }, [currentSessionId]);
+
   useEffect(() => {
     setPersonas(allPersonas);
     loadHistory();
   }, [allPersonas]);
+
+  // Restore last active simulation session after history is loaded
+  useEffect(() => {
+    const restoreSession = async () => {
+      const savedSessionId = localStorage.getItem('simulationActiveSessionId');
+      if (savedSessionId && allPersonas.length > 0 && simulationHistory.length > 0 && !currentSessionId) {
+        const savedSession = simulationHistory.find(s => s.id === savedSessionId);
+        if (savedSession) {
+          // Use the resumeSimulation function defined below
+          setIsLoading(true);
+          setCurrentSessionId(savedSession.id);
+          setMode(savedSession.mode);
+          setBgInfo(savedSession.bgInfo);
+          setOpeningLine(savedSession.openingLine || '');
+          setStimulusImage(savedSession.stimulusImage || null);
+          setMimeType(savedSession.mimeType || null);
+          
+          const persona = allPersonas.find(p => p.id === savedSession.personaId);
+          setSelectedPersona(persona || null);
+
+          // Load messages from localStorage
+          try {
+            const savedMessages = localStorage.getItem(`simulationMessages_${savedSession.id}`);
+            if (savedMessages) {
+              const parsed = JSON.parse(savedMessages);
+              setMessages(parsed);
+            } else {
+              setMessages([]);
+            }
+          } catch (err) {
+            console.error('Failed to load messages from localStorage:', err);
+            setMessages([]);
+          }
+          
+          setStage('result');
+          setIsLoading(false);
+        }
+      }
+    };
+    restoreSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulationHistory, allPersonas]);
 
   const loadHistory = async () => {
     try {
@@ -305,6 +471,9 @@ const SimulationPage: React.FC = () => {
       setMessages([initialMessage]);
       setStage('result');
       loadHistory();
+      
+      // Save initial message to localStorage
+      localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
     } catch (err: any) {
       console.error('Simulation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -356,7 +525,7 @@ const SimulationPage: React.FC = () => {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-      // Note: Messages are stored locally for simulations
+      // Messages are saved to localStorage via useEffect
     } catch (err: any) {
       console.error('Chat error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -378,9 +547,20 @@ const SimulationPage: React.FC = () => {
     const persona = personas.find(p => p.id === session.personaId);
     setSelectedPersona(persona || null);
 
-    // Note: For now, simulation messages are stored in component state
-    // In production, you might want to load from a chat session linked to the simulation
-    setMessages([]);
+    // Load messages from localStorage
+    try {
+      const savedMessages = localStorage.getItem(`simulationMessages_${session.id}`);
+      if (savedMessages) {
+        const parsed = JSON.parse(savedMessages);
+        setMessages(parsed);
+      } else {
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('Failed to load messages from localStorage:', err);
+      setMessages([]);
+    }
+    
     setStage('result');
     setIsLoading(false);
   };
@@ -400,6 +580,17 @@ const SimulationPage: React.FC = () => {
         alert('Failed to delete simulation. Please try again.');
       }
     }
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    setMessages(prev => {
+      const updated = prev.filter(m => m.id !== messageId);
+      // Update localStorage
+      if (currentSessionId) {
+        localStorage.setItem(`simulationMessages_${currentSessionId}`, JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
   const startNewSim = () => {
@@ -615,7 +806,7 @@ const SimulationPage: React.FC = () => {
               {messages.map((m) => {
                 const isUser = m.senderType === 'user';
                 return (
-                  <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4`}>
+                  <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 group`}>
                     <div className={`flex gap-5 max-w-[85%] sm:max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                       <div className="shrink-0 mt-1">
                         {isUser ? (
@@ -624,10 +815,17 @@ const SimulationPage: React.FC = () => {
                           <img src={selectedPersona?.avatarUrl} className="w-10 h-10 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100" />
                         )}
                       </div>
-                      <div className="space-y-1 min-w-0">
+                      <div className="space-y-1 min-w-0 relative">
                         {!isUser && <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{selectedPersona?.name}</p>}
-                        <div className={`p-6 rounded-3xl shadow-sm text-lg ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
-                          <FormattedSimulationResponse content={m.content} />
+                        <div className={`p-6 rounded-3xl shadow-sm text-lg relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                          <FormattedSimulationResponse content={m.content} isUser={isUser} />
+                          <button
+                            onClick={() => handleDeleteMessage(m.id)}
+                            className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
+                            title="Delete message"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     </div>

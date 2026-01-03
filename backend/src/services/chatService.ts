@@ -153,3 +153,25 @@ export async function createMessage(sessionId: string, userId: string, messageDa
   return result.rows[0];
 }
 
+export async function deleteMessage(messageId: string, sessionId: string, userId: string): Promise<boolean> {
+  // Verify session belongs to user
+  const session = await getChatSessionById(sessionId, userId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const result = await pool.query(
+    `DELETE FROM messages 
+     WHERE id = $1 AND session_id = $2`,
+    [messageId, sessionId]
+  );
+
+  // Update session updated_at
+  await pool.query(
+    `UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    [sessionId]
+  );
+
+  return result.rowCount !== null && result.rowCount > 0;
+}
+

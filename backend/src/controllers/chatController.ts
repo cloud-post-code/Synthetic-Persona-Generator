@@ -121,3 +121,21 @@ export async function createMessage(req: AuthRequest, res: Response, next: NextF
   }
 }
 
+export async function deleteMessage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { sessionId, messageId } = req.params;
+    const deleted = await chatService.deleteMessage(messageId, sessionId, req.userId!);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    
+    res.status(204).send();
+  } catch (error: any) {
+    if (error.message === 'Session not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+}
+

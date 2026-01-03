@@ -39,5 +39,9 @@ export const chatApi = {
     };
     return apiClient.post<Message>(`/chat/sessions/${sessionId}/messages`, payload);
   },
+
+  deleteMessage: async (sessionId: string, messageId: string): Promise<void> => {
+    return apiClient.delete<void>(`/chat/sessions/${sessionId}/messages/${messageId}`);
+  },
 };
 
