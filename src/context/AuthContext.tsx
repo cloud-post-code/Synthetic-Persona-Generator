@@ -30,9 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const parsedUser = JSON.parse(savedUser);
           // Ensure isAdmin is set for backwards compatibility
-          if (parsedUser && !parsedUser.isAdmin && parsedUser.is_admin !== undefined) {
-            parsedUser.isAdmin = parsedUser.is_admin;
-          }
+          const isAdminValue = parsedUser.is_admin === true || parsedUser.is_admin === 'true' || parsedUser.is_admin === 1 || parsedUser.isAdmin === true;
+          parsedUser.isAdmin = isAdminValue;
+          parsedUser.is_admin = isAdminValue;
           setUser(parsedUser);
         } catch (e) {
           console.error('Failed to parse saved user', e);
@@ -44,9 +44,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (data: LoginRequest) => {
     const response = await authApi.login(data);
+    const isAdminValue = response.user.is_admin === true || response.user.is_admin === 'true' || response.user.is_admin === 1;
     const userData = {
       ...response.user,
-      isAdmin: response.user.is_admin || false,
+      isAdmin: isAdminValue,
+      is_admin: isAdminValue,
     };
     setUser(userData);
     localStorage.setItem('auth_user', JSON.stringify(userData));
@@ -54,9 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (data: RegisterRequest) => {
     const response = await authApi.register(data);
+    const isAdminValue = response.user.is_admin === true || response.user.is_admin === 'true' || response.user.is_admin === 1;
     const userData = {
       ...response.user,
-      isAdmin: response.user.is_admin || false,
+      isAdmin: isAdminValue,
+      is_admin: isAdminValue,
     };
     setUser(userData);
     localStorage.setItem('auth_user', JSON.stringify(userData));
@@ -77,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         isAuthenticated: !!user,
-        isAdmin: user?.isAdmin || user?.is_admin || false,
+        isAdmin: user?.isAdmin === true || user?.is_admin === true || false,
       }}
     >
       {children}

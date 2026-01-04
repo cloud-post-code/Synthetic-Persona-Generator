@@ -172,6 +172,8 @@ const SimulationPage: React.FC = () => {
   const [inputFields, setInputFields] = useState<Record<string, string>>({});
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingSimulations, setIsLoadingSimulations] = useState(true);
+  const [simulationsError, setSimulationsError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -187,11 +189,17 @@ const SimulationPage: React.FC = () => {
   // Load simulations on mount
   useEffect(() => {
     const loadSimulations = async () => {
+      setIsLoadingSimulations(true);
+      setSimulationsError(null);
       try {
         const sims = await simulationTemplateApi.getAll();
         setSimulations(sims);
       } catch (error) {
         console.error('Failed to load simulations:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load simulations';
+        setSimulationsError(errorMessage);
+      } finally {
+        setIsLoadingSimulations(false);
       }
     };
     loadSimulations();
@@ -685,10 +693,42 @@ const SimulationPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
-              {simulations.length === 0 ? (
+              {isLoadingSimulations ? (
                 <div className="col-span-full text-center py-12">
                   <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
                   <p className="text-gray-500">Loading simulations...</p>
+                </div>
+              ) : simulationsError ? (
+                <div className="col-span-full text-center py-12">
+                  <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
+                  <p className="text-red-600 font-bold mb-2">Failed to load simulations</p>
+                  <p className="text-gray-500 text-sm">{simulationsError}</p>
+                  <button
+                    onClick={() => {
+                      const loadSimulations = async () => {
+                        setIsLoadingSimulations(true);
+                        setSimulationsError(null);
+                        try {
+                          const sims = await simulationTemplateApi.getAll();
+                          setSimulations(sims);
+                        } catch (error) {
+                          console.error('Failed to load simulations:', error);
+                          const errorMessage = error instanceof Error ? error.message : 'Failed to load simulations';
+                          setSimulationsError(errorMessage);
+                        } finally {
+                          setIsLoadingSimulations(false);
+                        }
+                      };
+                      loadSimulations();
+                    }}
+                    className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : simulations.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <p className="text-gray-500">No simulations available</p>
                 </div>
               ) : (
                 simulations.map((sim) => {
