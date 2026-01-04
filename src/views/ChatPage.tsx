@@ -161,7 +161,7 @@ const ChatPage: React.FC = () => {
       const initialPersonaId = searchParams.get('personaId');
       
       // Try to restore last active session if no personaId in URL
-      if (!initialPersonaId && allPersonas.length > 0) {
+      if (!initialPersonaId) {
         const savedSessionId = localStorage.getItem('chatActiveSessionId');
         if (savedSessionId) {
           try {
@@ -172,7 +172,17 @@ const ChatPage: React.FC = () => {
                 createdAt: savedSession.created_at || savedSession.createdAt,
                 personaIds: savedSession.persona_ids || savedSession.personaIds || [],
               };
-              await handleLoadSession(normalized);
+              // Wait for allPersonas to be loaded before restoring session
+              if (allPersonas.length > 0) {
+                await handleLoadSession(normalized);
+              } else {
+                // If personas aren't loaded yet, wait a bit and try again
+                setTimeout(async () => {
+                  if (allPersonas.length > 0) {
+                    await handleLoadSession(normalized);
+                  }
+                }, 500);
+              }
               return;
             }
           } catch (err) {
@@ -228,6 +238,7 @@ const ChatPage: React.FC = () => {
       if (cachedPersonas) {
         try {
           personasWithFiles = JSON.parse(cachedPersonas);
+          console.log('Loaded personas from cache:', personasWithFiles.length);
         } catch (err) {
           console.error('Failed to parse cached personas:', err);
         }
@@ -235,43 +246,59 @@ const ChatPage: React.FC = () => {
       
       // If no cached personas or cache is empty, load from backend
       if (personasWithFiles.length === 0) {
+        console.log('Loading personas from backend for session:', s.id);
         // Load full persona data from backend (includes all persona info)
         const sessionPersonas = await chatApi.getSessionPersonas(s.id);
-        // Normalize persona data
-        const normalizedPersonas = sessionPersonas.map(p => ({
-          ...p,
-          avatarUrl: p.avatar_url || p.avatarUrl,
-          createdAt: p.created_at || p.createdAt,
-          updatedAt: p.updated_at || p.updatedAt,
-          files: p.files || [],
-        }));
+        console.log('Session personas from API:', sessionPersonas.length);
         
-        // Load files for each persona if not already loaded
-        personasWithFiles = await Promise.all(
-          normalizedPersonas.map(async (persona) => {
-            if (!persona.files || persona.files.length === 0) {
-              try {
-                const files = await personaApi.getFiles(persona.id);
-                return {
-                  ...persona,
-                  files: files.map(f => ({
-                    ...f,
-                    createdAt: f.created_at || f.createdAt,
-                  })),
-                };
-              } catch (err) {
-                console.error(`Failed to load files for persona ${persona.id}:`, err);
-                return persona;
+        if (sessionPersonas.length === 0) {
+          console.warn('No personas found for session:', s.id);
+          // Try to get persona IDs from the session itself
+          const personaIds = s.personaIds || s.persona_ids || [];
+          if (personaIds.length > 0) {
+            console.log('Found persona IDs in session, loading from allPersonas:', personaIds);
+            // Fallback: try to find personas from allPersonas list
+            personasWithFiles = allPersonas.filter(p => personaIds.includes(p.id));
+            console.log('Found personas from allPersonas:', personasWithFiles.length);
+          }
+        } else {
+          // Normalize persona data
+          const normalizedPersonas = sessionPersonas.map(p => ({
+            ...p,
+            avatarUrl: p.avatar_url || p.avatarUrl,
+            createdAt: p.created_at || p.createdAt,
+            updatedAt: p.updated_at || p.updatedAt,
+            files: p.files || [],
+          }));
+          
+          // Load files for each persona if not already loaded
+          personasWithFiles = await Promise.all(
+            normalizedPersonas.map(async (persona) => {
+              if (!persona.files || persona.files.length === 0) {
+                try {
+                  const files = await personaApi.getFiles(persona.id);
+                  return {
+                    ...persona,
+                    files: files.map(f => ({
+                      ...f,
+                      createdAt: f.created_at || f.createdAt,
+                    })),
+                  };
+                } catch (err) {
+                  console.error(`Failed to load files for persona ${persona.id}:`, err);
+                  return persona;
+                }
               }
-            }
-            return persona;
-          })
-        );
-        
-        // Save persona data to localStorage for quick restoration
-        localStorage.setItem(`chatPersonas_${s.id}`, JSON.stringify(personasWithFiles));
+              return persona;
+            })
+          );
+          
+          // Save persona data to localStorage for quick restoration
+          localStorage.setItem(`chatPersonas_${s.id}`, JSON.stringify(personasWithFiles));
+        }
       }
       
+      console.log('Setting selectedPersonas:', personasWithFiles.length);
       setSelectedPersonas(personasWithFiles);
       setIsSelectorOpen(false);
     } catch (err) {
