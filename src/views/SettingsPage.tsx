@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Shield, 
@@ -20,6 +20,7 @@ import {
   Plus
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
+import { useAuth } from '../context/AuthContext.js';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language';
 
@@ -44,7 +45,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </div>
 );
 
-const InputField: React.FC<{ label: string; type?: string; defaultValue?: string; icon?: any; prefix?: string }> = ({ label, type = 'text', defaultValue, icon: Icon, prefix }) => (
+const InputField: React.FC<{ label: string; type?: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; icon?: any; prefix?: string }> = ({ label, type = 'text', value, onChange, icon: Icon, prefix }) => (
   <div className="space-y-2">
     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
     <div className="relative">
@@ -52,7 +53,8 @@ const InputField: React.FC<{ label: string; type?: string; defaultValue?: string
       {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
       <input
         type={type}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={onChange}
         className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
       />
     </div>
@@ -60,9 +62,25 @@ const InputField: React.FC<{ label: string; type?: string; defaultValue?: string
 );
 
 const SettingsPage: React.FC = () => {
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [showPassword, setShowPassword] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  
+  // Profile form state
+  const [displayName, setDisplayName] = useState(user?.username || '');
+  const [username, setUsername] = useState(user?.username || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [bio, setBio] = useState('');
+
+  // Update form when user changes
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.username || '');
+      setUsername(user.username || '');
+      setEmail(user.email || '');
+    }
+  }, [user]);
 
   const handleSave = () => {
     setSaveStatus('Settings saved successfully!');
@@ -126,7 +144,10 @@ const SettingsPage: React.FC = () => {
           />
           
           <div className="pt-8 border-t border-gray-100 mt-4">
-            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-all">
+            <button 
+              onClick={logout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-all"
+            >
               <LogOut className="w-5 h-5" />
               Sign Out
             </button>
@@ -153,12 +174,32 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InputField label="Display Name" defaultValue="Demo User" />
-                    <InputField label="Username" defaultValue="demouser_99" prefix="@" />
+                    <InputField 
+                      label="Display Name" 
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                    />
+                    <InputField 
+                      label="Username" 
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      prefix="@" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Email</label>
+                    <InputField 
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      icon={Mail}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Bio</label>
                     <textarea 
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
                       className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none h-32 resize-none"
                       placeholder="Tell the synthetic world about yourself..."
                     />
