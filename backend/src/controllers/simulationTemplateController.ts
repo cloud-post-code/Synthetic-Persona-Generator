@@ -8,7 +8,20 @@ export async function getActiveSimulations(req: AuthRequest, res: Response, next
   try {
     const simulations = await simulationTemplateService.getAllSimulations(false);
     res.json(simulations);
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error fetching active simulations:', error);
+    console.error('Error stack:', error.stack);
+    // Provide more detailed error information
+    if (error.code === '42P01') {
+      // Table doesn't exist
+      console.error('Simulations table does not exist. Please run database migrations.');
+      return res.status(500).json({ 
+        error: 'Database table not found. Please ensure migrations have been run.',
+        details: error.message 
+      });
+    }
+    // Log the full error for debugging
+    console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     next(error);
   }
 }
