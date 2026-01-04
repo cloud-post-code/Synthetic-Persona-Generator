@@ -19,7 +19,7 @@ import {
   Monitor,
   Plus
 } from 'lucide-react';
-import { storageService } from '../services/storage';
+import { storageService } from '../../services/storage';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language';
 
