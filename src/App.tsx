@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, MessageSquare, PlayCircle, Settings, LogOut, Menu, X } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, MessageSquare, PlayCircle, Settings, LogOut, Menu, X, Shield } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
@@ -9,13 +9,14 @@ import SimulationPage from './views/SimulationPage.js';
 import GalleryPage from './views/GalleryPage.js';
 import LoginPage from './views/LoginPage.js';
 import SettingsPage from './views/SettingsPage.js';
+import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
 import PracticePersonDetail from './views/info/PracticePersonDetail.js';
 
 const MenuBar: React.FC = () => {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [isOpen, setIsOpen] = React.useState(false);
 
   const navItems = [
@@ -25,6 +26,7 @@ const MenuBar: React.FC = () => {
     { label: 'Simulation', path: '/simulate', icon: PlayCircle },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Settings', path: '/settings', icon: Settings },
+    ...(isAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield }] : []),
   ];
 
   if (!user) return null;
@@ -141,6 +143,28 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading, isAdmin } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
 
@@ -209,6 +233,14 @@ const AppRoutes: React.FC = () => {
           <ProtectedRoute>
             <SettingsPage />
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <AdminPage />
+          </AdminRoute>
         }
       />
       <Route

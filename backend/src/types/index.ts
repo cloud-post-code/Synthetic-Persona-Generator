@@ -5,6 +5,7 @@ export interface User {
   username: string;
   email?: string;
   password_hash: string;
+  is_admin?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -90,6 +91,45 @@ export interface AuthResponse {
     id: string;
     username: string;
     email?: string;
+    is_admin?: boolean;
   };
+}
+
+export interface SimulationInputField {
+  name: string;
+  type: 'text' | 'textarea' | 'image';
+  label: string;
+  placeholder?: string;
+  required: boolean;
+}
+
+export interface SimulationTemplate {
+  id: string;
+  title: string;
+  description?: string;
+  icon?: string;
+  required_input_fields: SimulationInputField[];
+  system_prompt: string;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateSimulationRequest {
+  title: string;
+  description?: string;
+  icon?: string;
+  required_input_fields: SimulationInputField[];
+  system_prompt: string;
+  is_active?: boolean;
+}
+
+export interface UpdateSimulationRequest {
+  title?: string;
+  description?: string;
+  icon?: string;
+  required_input_fields?: SimulationInputField[];
+  system_prompt?: string;
+  is_active?: boolean;
 }
 

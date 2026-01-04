@@ -17,108 +17,29 @@ import {
   Trash2,
   Plus,
   X as CloseIcon,
-  XCircle
+  XCircle,
+  LucideIcon
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
 import { usePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
+import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 
-const MODES: { id: SimulationMode; label: string; icon: any; color: string; promptTemplate: string }[] = [
-  {
-    id: 'web_page',
-    label: 'Web Page Response',
-    icon: Monitor,
-    color: 'indigo',
-    promptTemplate: `### CORE DIRECTIVE
-You must completely embody the persona defined in {{SELECTED_PROFILE}}. Do not break character. Do not act as an AI assistant.
+// Icon mapping helper
+const iconMap: Record<string, LucideIcon> = {
+  Monitor,
+  Megaphone,
+  TrendingUp,
+  Briefcase,
+  // Add more icons as needed
+};
 
-### INPUTS
-1. **Who You Are (Profile):** {{SELECTED_PROFILE_FULL}}
-2. **Context:** {{BACKGROUND_INFO}}
-3. **Visual Stimulus:** [User has uploaded an image of a webpage].
-
-### INSTRUCTIONS
-1. Analyze the uploaded image through the eyes of your Profile.
-2. Considering your Profile's specific pain points, age, tech-savviness, and goals:
-   - Does this page make sense to you?
-   - Is the text readable for you?
-   - Does the design appeal to your specific taste?
-3. Simulate your internal monologue or a user-testing feedback session.
-
-### INTERACTION
-Begin by stating your first impression of the page shown in the image, speaking strictly in the voice and tone of {{SELECTED_PROFILE}}.`
-  },
-  {
-    id: 'marketing',
-    label: 'Marketing Material',
-    icon: Megaphone,
-    color: 'pink',
-    promptTemplate: `### CORE DIRECTIVE
-You are NOT a marketing expert. You are the target audience member described in {{SELECTED_PROFILE}}. React instinctively.
-
-### INPUTS
-1. **Who You Are (Profile):** {{SELECTED_PROFILE_FULL}}
-2. **Product Context:** {{BACKGROUND_INFO}}
-3. **Marketing Asset:** [User has uploaded an image/file].
-
-### INSTRUCTIONS
-1. Look at the uploaded marketing material.
-2. Based *strictly* on your Profile's interests, budget, and personality:
-   - Would you stop scrolling to look at this?
-   - Do you understand what is being sold?
-   - Does the visual style trust or annoy you?
-3. If the ad doesn't fit your specific worldview, reject it. If it does, show interest.
-
-### INTERACTION
-Provide a raw, unfiltered reaction to the image as if you just saw it on your feed/email, using the slang and vocabulary of {{SELECTED_PROFILE}}.`
-  },
-  {
-    id: 'sales_pitch',
-    label: 'Sales Pitch',
-    icon: TrendingUp,
-    color: 'green',
-    promptTemplate: `### CORE DIRECTIVE
-Immerse yourself in the persona of {{SELECTED_PROFILE}}. The user is trying to sell to you. Respond exactly how this person would in real life.
-
-### INPUTS
-1. **Who You Are (Profile):** {{SELECTED_PROFILE_FULL}}
-2. **Context:** {{BACKGROUND_INFO}}
-3. **User's Opening Line:** {{OPENING_LINE}}
-
-### INSTRUCTIONS
-1. Analyze the User's opening line.
-2. Consult your Profile: Are you busy? Are you skeptical? Do you have budget authority? What are your specific triggers?
-3. Respond to the opening line.
-   - If the line is weak or irrelevant to your Profile, shut them down or be dismissive.
-   - If the line hooks your specific interests, engage cautiously.
-
-### INTERACTION
-Reply to the {{OPENING_LINE}} immediately in character. Do not provide feedback; simply *be* the prospect.`
-  },
-  {
-    id: 'investor_pitch',
-    label: 'Investor Pitch',
-    icon: Briefcase,
-    color: 'violet',
-    promptTemplate: `### CORE DIRECTIVE
-You are the Investor defined in {{SELECTED_PROFILE}}. You evaluate opportunities strictly based on your specific investment thesis and personality traits.
-
-### INPUTS
-1. **Who You Are (Profile):** {{SELECTED_PROFILE_FULL}}
-2. **Startup Info:** {{BACKGROUND_INFO}}
-3. **Pitch Deck/Data:** {{OPENING_LINE}}
-
-### INSTRUCTIONS
-1. Review the startup materials provided.
-2. Compare the startup against your Profile's specific criteria.
-3. Identify the gap between what was pitched and what *you* care about.
-
-### INTERACTION
-Start the simulation. You have just reviewed the deck. Address the founder (User) and state your primary concern or question based on your Profile.`
-  }
-];
+const getIcon = (iconName?: string): LucideIcon => {
+  if (!iconName) return Monitor;
+  return iconMap[iconName] || Monitor;
+};
 
 const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
   const lines = content.split('\n');
@@ -239,13 +160,16 @@ const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean 
 
 const SimulationPage: React.FC = () => {
   const [stage, setStage] = useState<'selection' | 'inputs' | 'result'>('selection');
-  const [mode, setMode] = useState<SimulationMode | null>(null);
+  const [selectedSimulation, setSelectedSimulation] = useState<SimulationTemplate | null>(null);
+  const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
+  const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string | null>(null);
+  const [inputFields, setInputFields] = useState<Record<string, string>>({});
   
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -259,6 +183,19 @@ const SimulationPage: React.FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { personas: allPersonas } = usePersonas();
+
+  // Load simulations on mount
+  useEffect(() => {
+    const loadSimulations = async () => {
+      try {
+        const sims = await simulationTemplateApi.getAll();
+        setSimulations(sims);
+      } catch (error) {
+        console.error('Failed to load simulations:', error);
+      }
+    };
+    loadSimulations();
+  }, []);
 
   // Save messages to localStorage when they change
   useEffect(() => {
@@ -386,23 +323,20 @@ const SimulationPage: React.FC = () => {
       return;
     }
     
-    if (!mode) {
-      alert('Please select a simulation mode');
+    if (!selectedSimulation) {
+      alert('Please select a simulation');
       return;
     }
     
-    // Ensure bgInfo is at least an empty string (required by backend)
-    if (bgInfo === undefined || bgInfo === null) {
-      setBgInfo('');
+    // Validate required input fields
+    for (const field of selectedSimulation.required_input_fields) {
+      if (field.required && !inputFields[field.name]?.trim()) {
+        alert(`Please fill in the required field: ${field.label}`);
+        return;
+      }
     }
     
     setIsLoading(true);
-
-    const modeData = MODES.find(m => m.id === mode);
-    if (!modeData) {
-      setIsLoading(false);
-      return;
-    }
 
     // Build profile context
     let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
@@ -423,11 +357,23 @@ const SimulationPage: React.FC = () => {
       profileData += `--- FILE: ${f.name} ---\n${f.content.substring(0, 15000)}\n\n`;
     });
 
-    const prompt = modeData.promptTemplate
+    // Map input fields to template variables
+    const fieldMap: Record<string, string> = {
+      bgInfo: bgInfo,
+      openingLine: openingLine,
+      ...inputFields,
+    };
+
+    let prompt = selectedSimulation.system_prompt
       .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
       .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
-      .replace(/{{BACKGROUND_INFO}}/g, bgInfo)
-      .replace(/{{OPENING_LINE}}/g, openingLine);
+      .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
+      .replace(/{{OPENING_LINE}}/g, fieldMap.openingLine || openingLine || '');
+    
+    // Replace any other template variables from input fields
+    for (const [key, value] of Object.entries(fieldMap)) {
+      prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+    }
 
     try {
       const result = await geminiService.runSimulation(prompt, stimulusImage || undefined, mimeType || undefined);
@@ -436,22 +382,21 @@ const SimulationPage: React.FC = () => {
       if (!selectedPersona.id) {
         throw new Error('Persona ID is missing');
       }
-      if (!mode) {
-        throw new Error('Simulation mode is missing');
-      }
-      if (!bgInfo.trim() && (mode === 'web_page' || mode === 'marketing')) {
-        // bgInfo can be empty for sales_pitch and investor_pitch, but should be provided for web_page and marketing
-        console.warn('Background info is empty for', mode);
-      }
+      // Determine mode for backward compatibility (use first 4 chars of simulation title or default)
+      let sessionMode: SimulationMode = 'web_page';
+      const modeTitle = selectedSimulation.title.toLowerCase();
+      if (modeTitle.includes('marketing')) sessionMode = 'marketing';
+      else if (modeTitle.includes('sales')) sessionMode = 'sales_pitch';
+      else if (modeTitle.includes('investor')) sessionMode = 'investor_pitch';
       
       const newSession = await simulationApi.create({
         personaId: selectedPersona.id,
-        mode: mode,
-        bgInfo: bgInfo.trim() || '', // Ensure it's at least an empty string
-        openingLine: openingLine || undefined,
+        mode: sessionMode,
+        bgInfo: fieldMap.bgInfo?.trim() || bgInfo.trim() || '',
+        openingLine: fieldMap.openingLine || openingLine || undefined,
         stimulusImage: stimulusImage || undefined,
         mimeType: mimeType || undefined,
-        name: `${selectedPersona.name} - ${modeData.label}`
+        name: `${selectedPersona.name} - ${selectedSimulation.title}`
       });
       
       const newSessionId = newSession.id;
@@ -678,12 +623,14 @@ const SimulationPage: React.FC = () => {
   const startNewSim = () => {
     setStage('selection');
     setCurrentSessionId(null);
+    setSelectedSimulation(null);
     setMode(null);
     setSelectedPersona(null);
     setBgInfo('');
     setOpeningLine('');
     setStimulusImage(null);
     setMimeType(null);
+    setInputFields({});
     setMessages([]);
   };
 
@@ -738,31 +685,37 @@ const SimulationPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
-              {MODES.map((m) => {
-                const Icon = m.icon;
-                const colors: Record<string, string> = {
-                  indigo: 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600',
-                  pink: 'bg-pink-50 text-pink-600 group-hover:bg-pink-600',
-                  green: 'bg-green-50 text-green-600 group-hover:bg-green-600',
-                  violet: 'bg-violet-50 text-violet-600 group-hover:bg-violet-600',
-                };
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => { setMode(m.id); setStage('inputs'); }}
-                    className="group p-8 bg-white border border-gray-100 rounded-[2.5rem] text-left hover:shadow-2xl hover:-translate-y-2 transition-all border-b-8 hover:border-indigo-600 flex flex-col h-full"
-                  >
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-8 shadow-lg transition-all group-hover:scale-110 group-hover:text-white ${colors[m.color]}`}>
-                      <Icon className="w-7 h-7" />
-                    </div>
-                    <h3 className="text-xl font-black text-gray-900 mb-2">{m.label}</h3>
-                    <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow">Stress-test your strategy using this specialized simulation prompt.</p>
-                    <div className="mt-8 flex items-center text-[10px] font-black uppercase tracking-[0.2em] text-gray-300 group-hover:text-indigo-600">
-                      Configure Test <ChevronRight className="ml-2 w-3 h-3" />
-                    </div>
-                  </button>
-                );
-              })}
+              {simulations.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
+                  <p className="text-gray-500">Loading simulations...</p>
+                </div>
+              ) : (
+                simulations.map((sim) => {
+                  const Icon = getIcon(sim.icon);
+                  return (
+                    <button
+                      key={sim.id}
+                      onClick={() => { 
+                        setSelectedSimulation(sim);
+                        setStage('inputs');
+                        // Reset input fields when selecting new simulation
+                        setInputFields({});
+                      }}
+                      className="group p-8 bg-white border border-gray-100 rounded-[2.5rem] text-left hover:shadow-2xl hover:-translate-y-2 transition-all border-b-8 hover:border-indigo-600 flex flex-col h-full"
+                    >
+                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-8 shadow-lg transition-all group-hover:scale-110 group-hover:text-white bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600">
+                        <Icon className="w-7 h-7" />
+                      </div>
+                      <h3 className="text-xl font-black text-gray-900 mb-2">{sim.title}</h3>
+                      <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow">{sim.description || 'Stress-test your strategy using this specialized simulation prompt.'}</p>
+                      <div className="mt-8 flex items-center text-[10px] font-black uppercase tracking-[0.2em] text-gray-300 group-hover:text-indigo-600">
+                        Configure Test <ChevronRight className="ml-2 w-3 h-3" />
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -776,10 +729,10 @@ const SimulationPage: React.FC = () => {
             <div className="bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-gray-100 p-8 sm:p-14 space-y-12">
               <div className="flex items-center gap-6 pb-8 border-b border-gray-50">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg bg-indigo-600 text-white`}>
-                  {MODES.find(m => m.id === mode)?.icon && React.createElement(MODES.find(m => m.id === mode)!.icon, { className: "w-8 h-8" })}
+                  {selectedSimulation && React.createElement(getIcon(selectedSimulation.icon), { className: "w-8 h-8" })}
                 </div>
                 <div>
-                  <h2 className="text-3xl font-black text-gray-900">{MODES.find(m => m.id === mode)?.label}</h2>
+                  <h2 className="text-3xl font-black text-gray-900">{selectedSimulation?.title || 'Simulation'}</h2>
                   <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Input Data & Stimulus</p>
                 </div>
               </div>
@@ -810,52 +763,102 @@ const SimulationPage: React.FC = () => {
                   )}
                 </div>
 
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">2. Background Context</label>
-                  <textarea
-                    value={bgInfo}
-                    onChange={e => setBgInfo(e.target.value)}
-                    placeholder="Describe the product or situation context..."
-                    className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
-                  />
-                </div>
-
-                {(mode === 'web_page' || mode === 'marketing') && (
-                  <div className="space-y-4">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">3. Upload Visual Stimulus</label>
-                    <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50 overflow-hidden">
-                      {stimulusImage ? (
-                        <div className="relative inline-block">
-                           <img src={stimulusImage} className="max-h-64 mx-auto rounded-xl shadow-2xl border border-white" />
-                           <button onClick={(e) => {e.stopPropagation(); setStimulusImage(null);}} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg"><CloseIcon className="w-4 h-4" /></button>
+                {/* Dynamic input fields based on simulation template */}
+                {selectedSimulation?.required_input_fields.map((field, index) => {
+                  const fieldNumber = index + 2;
+                  if (field.type === 'image') {
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.label} {field.required && '*'}
+                        </label>
+                        <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50 overflow-hidden">
+                          {inputFields[field.name] || stimulusImage ? (
+                            <div className="relative inline-block">
+                              <img src={inputFields[field.name] || stimulusImage || ''} className="max-h-64 mx-auto rounded-xl shadow-2xl border border-white" />
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInputFields({ ...inputFields, [field.name]: '' });
+                                  setStimulusImage(null);
+                                }} 
+                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg"
+                              >
+                                <CloseIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
+                                <Upload className="w-8 h-8" />
+                              </div>
+                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload Image'}</p>
+                            </div>
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setMimeType(file.type);
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                  const result = ev.target?.result as string;
+                                  setInputFields({ ...inputFields, [field.name]: result });
+                                  setStimulusImage(result);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }} 
+                            className="absolute inset-0 opacity-0 cursor-pointer" 
+                          />
                         </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
-                            <Upload className="w-8 h-8" />
-                          </div>
-                          <p className="text-gray-500 font-bold">Upload Web Page or Ad Image</p>
-                        </div>
-                      )}
-                      <input type="file" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                    </div>
-                  </div>
-                )}
-
-                {(mode === 'sales_pitch' || mode === 'investor_pitch') && (
-                  <div className="space-y-4">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">3. Opening Line / Content</label>
-                    <textarea
-                      value={openingLine}
-                      onChange={e => setOpeningLine(e.target.value)}
-                      placeholder="Paste your opening line or pitch deck summary..."
-                      className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
-                    />
-                  </div>
-                )}
+                      </div>
+                    );
+                  } else {
+                    const isTextarea = field.type === 'textarea';
+                    const value = inputFields[field.name] || (field.name === 'bgInfo' ? bgInfo : field.name === 'openingLine' ? openingLine : '');
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.label} {field.required && '*'}
+                        </label>
+                        {isTextarea ? (
+                          <textarea
+                            value={value}
+                            onChange={(e) => {
+                              const newValue = e.target.value;
+                              setInputFields({ ...inputFields, [field.name]: newValue });
+                              if (field.name === 'bgInfo') setBgInfo(newValue);
+                              if (field.name === 'openingLine') setOpeningLine(newValue);
+                            }}
+                            placeholder={field.placeholder}
+                            required={field.required}
+                            className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={value}
+                            onChange={(e) => {
+                              const newValue = e.target.value;
+                              setInputFields({ ...inputFields, [field.name]: newValue });
+                              if (field.name === 'bgInfo') setBgInfo(newValue);
+                              if (field.name === 'openingLine') setOpeningLine(newValue);
+                            }}
+                            placeholder={field.placeholder}
+                            required={field.required}
+                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                          />
+                        )}
+                      </div>
+                    );
+                  }
+                })}
 
                 <button
-                  disabled={isLoading || !selectedPersona}
+                  disabled={isLoading || !selectedPersona || !selectedSimulation}
                   onClick={startSimulation}
                   className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                 >
@@ -960,7 +963,7 @@ const SimulationPage: React.FC = () => {
              <img src={selectedPersona?.avatarUrl} className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white" />
              <div>
                <h3 className="font-black text-gray-900 leading-none mb-1">{selectedPersona?.name}</h3>
-               <p className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">{MODES.find(m => m.id === mode)?.label}</p>
+               <p className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">{selectedSimulation?.title || 'Simulation'}</p>
              </div>
           </div>
           <div className="space-y-3">

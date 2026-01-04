@@ -56,6 +56,8 @@ export interface User {
   id: string;
   username: string;
   email?: string;
+  is_admin?: boolean;
+  isAdmin?: boolean;
 }
 
 export type SimulationMode = 

@@ -9,6 +9,7 @@ interface AuthContextType {
   register: (data: RegisterRequest) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const savedUser = localStorage.getItem('auth_user');
       if (savedUser) {
         try {
-          setUser(JSON.parse(savedUser));
+          const parsedUser = JSON.parse(savedUser);
+          // Ensure isAdmin is set for backwards compatibility
+          if (parsedUser && !parsedUser.isAdmin && parsedUser.is_admin !== undefined) {
+            parsedUser.isAdmin = parsedUser.is_admin;
+          }
+          setUser(parsedUser);
         } catch (e) {
           console.error('Failed to parse saved user', e);
         }
@@ -38,14 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (data: LoginRequest) => {
     const response = await authApi.login(data);
-    setUser(response.user);
-    localStorage.setItem('auth_user', JSON.stringify(response.user));
+    const userData = {
+      ...response.user,
+      isAdmin: response.user.is_admin || false,
+    };
+    setUser(userData);
+    localStorage.setItem('auth_user', JSON.stringify(userData));
   };
 
   const register = async (data: RegisterRequest) => {
     const response = await authApi.register(data);
-    setUser(response.user);
-    localStorage.setItem('auth_user', JSON.stringify(response.user));
+    const userData = {
+      ...response.user,
+      isAdmin: response.user.is_admin || false,
+    };
+    setUser(userData);
+    localStorage.setItem('auth_user', JSON.stringify(userData));
   };
 
   const logout = () => {
@@ -63,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         isAuthenticated: !!user,
+        isAdmin: user?.isAdmin || user?.is_admin || false,
       }}
     >
       {children}

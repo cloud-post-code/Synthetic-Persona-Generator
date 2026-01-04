@@ -1,0 +1,88 @@
+import { Response, NextFunction } from 'express';
+import { AuthRequest } from '../middleware/auth.js';
+import * as simulationTemplateService from '../services/simulationTemplateService.js';
+import { CreateSimulationRequest, UpdateSimulationRequest } from '../types/index.js';
+
+// Public endpoint - get active simulations
+export async function getActiveSimulations(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const simulations = await simulationTemplateService.getAllSimulations(false);
+    res.json(simulations);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Admin endpoint - get all simulations (including inactive)
+export async function getAllSimulations(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const includeInactive = req.query.includeInactive === 'true';
+    const simulations = await simulationTemplateService.getAllSimulations(includeInactive);
+    res.json(simulations);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSimulationById(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const simulation = await simulationTemplateService.getSimulationById(id);
+    
+    if (!simulation) {
+      return res.status(404).json({ error: 'Simulation not found' });
+    }
+    
+    res.json(simulation);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createSimulation(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data: CreateSimulationRequest = req.body;
+    
+    if (!data.title || !data.system_prompt) {
+      return res.status(400).json({ error: 'Title and system_prompt are required' });
+    }
+
+    const simulation = await simulationTemplateService.createSimulation(data);
+    res.status(201).json(simulation);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateSimulation(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const data: UpdateSimulationRequest = req.body;
+    
+    const simulation = await simulationTemplateService.updateSimulation(id, data);
+    
+    if (!simulation) {
+      return res.status(404).json({ error: 'Simulation not found' });
+    }
+    
+    res.json(simulation);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteSimulation(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const deleted = await simulationTemplateService.deleteSimulation(id);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Simulation not found' });
+    }
+    
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}
+

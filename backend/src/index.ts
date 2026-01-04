@@ -5,7 +5,10 @@ import authRoutes from './routes/authRoutes.js';
 import personaRoutes from './routes/personaRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import simulationRoutes from './routes/simulationRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { authenticateToken } from './middleware/auth.js';
+import * as simulationTemplateController from './controllers/simulationTemplateController.js';
 
 dotenv.config();
 
@@ -32,6 +35,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/personas', personaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/simulations', simulationRoutes);
+// Public endpoint for active simulation templates (for SimulationPage)
+app.get('/api/simulations/templates', authenticateToken, simulationTemplateController.getActiveSimulations);
+// Admin routes
+app.use('/api/admin', adminRoutes);
 
 // Error handling
 app.use(errorHandler);

@@ -25,7 +25,7 @@ export async function registerUser(data: RegisterRequest): Promise<{ user: Omit<
   const result = await pool.query(
     `INSERT INTO users (id, username, email, password_hash)
      VALUES ($1, $2, $3, $4)
-     RETURNING id, username, email, created_at, updated_at`,
+     RETURNING id, username, email, is_admin, created_at, updated_at`,
     [id, username, email || null, passwordHash]
   );
 
@@ -39,6 +39,7 @@ export async function registerUser(data: RegisterRequest): Promise<{ user: Omit<
       id: user.id,
       username: user.username,
       email: user.email,
+      is_admin: user.is_admin || false,
       created_at: user.created_at,
       updated_at: user.updated_at,
     },
@@ -51,7 +52,7 @@ export async function loginUser(data: LoginRequest): Promise<{ user: Omit<User, 
 
   // Find user by username
   const result = await pool.query(
-    'SELECT id, username, email, password_hash, created_at, updated_at FROM users WHERE username = $1',
+    'SELECT id, username, email, password_hash, is_admin, created_at, updated_at FROM users WHERE username = $1',
     [username]
   );
 
@@ -76,6 +77,7 @@ export async function loginUser(data: LoginRequest): Promise<{ user: Omit<User, 
       id: user.id,
       username: user.username,
       email: user.email,
+      is_admin: user.is_admin || false,
       created_at: user.created_at,
       updated_at: user.updated_at,
     },
