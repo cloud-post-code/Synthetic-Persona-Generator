@@ -219,20 +219,8 @@ const ChatPage: React.FC = () => {
   }, [input]);
 
   const handleLoadSession = async (s: ChatSession) => {
-    setSession(s);
     try {
-      const msgs = await chatApi.getMessages(s.id);
-      // Normalize messages
-      const normalized = msgs.map(m => ({
-        ...m,
-        sessionId: m.session_id || m.sessionId,
-        senderType: m.sender_type || m.senderType,
-        personaId: m.persona_id || m.personaId,
-        createdAt: m.created_at || m.createdAt,
-      }));
-      setMessages(normalized);
-      
-      // Try to load personas from localStorage first (faster)
+      // Load personas FIRST before setting session to avoid showing "0 Agents Active"
       let personasWithFiles: Persona[] = [];
       const cachedPersonas = localStorage.getItem(`chatPersonas_${s.id}`);
       if (cachedPersonas) {
@@ -260,6 +248,30 @@ const ChatPage: React.FC = () => {
             // Fallback: try to find personas from allPersonas list
             personasWithFiles = allPersonas.filter(p => personaIds.includes(p.id));
             console.log('Found personas from allPersonas:', personasWithFiles.length);
+            
+            // Load files for personas found from allPersonas
+            if (personasWithFiles.length > 0) {
+              personasWithFiles = await Promise.all(
+                personasWithFiles.map(async (persona) => {
+                  if (!persona.files || persona.files.length === 0) {
+                    try {
+                      const files = await personaApi.getFiles(persona.id);
+                      return {
+                        ...persona,
+                        files: files.map(f => ({
+                          ...f,
+                          createdAt: f.created_at || f.createdAt,
+                        })),
+                      };
+                    } catch (err) {
+                      console.error(`Failed to load files for persona ${persona.id}:`, err);
+                      return persona;
+                    }
+                  }
+                  return persona;
+                })
+              );
+            }
           }
         } else {
           // Normalize persona data
@@ -298,8 +310,24 @@ const ChatPage: React.FC = () => {
         }
       }
       
+      // Set personas FIRST, then session and messages
       console.log('Setting selectedPersonas:', personasWithFiles.length);
       setSelectedPersonas(personasWithFiles);
+      
+      // Now load messages
+      const msgs = await chatApi.getMessages(s.id);
+      // Normalize messages
+      const normalized = msgs.map(m => ({
+        ...m,
+        sessionId: m.session_id || m.sessionId,
+        senderType: m.sender_type || m.senderType,
+        personaId: m.persona_id || m.personaId,
+        createdAt: m.created_at || m.createdAt,
+      }));
+      setMessages(normalized);
+      
+      // Set session last to ensure personas are already set
+      setSession(s);
       setIsSelectorOpen(false);
     } catch (err) {
       console.error('Failed to load session:', err);
