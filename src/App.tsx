@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, MessageSquare, PlayCircle, Settings, LogOut, Menu, X, Shield } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
@@ -14,15 +14,14 @@ import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
 import PracticePersonDetail from './views/info/PracticePersonDetail.js';
 
-const MenuBar: React.FC = () => {
+const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user, logout, isAdmin } = useAuth();
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [isMobileOpen, setIsMobileOpen] = React.useState(false);
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
     { label: 'Build Persona', path: '/build', icon: UserPlus },
-    { label: 'Chat', path: '/chat', icon: MessageSquare },
     { label: 'Simulation', path: '/simulate', icon: PlayCircle },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Settings', path: '/settings', icon: Settings },
@@ -32,96 +31,90 @@ const MenuBar: React.FC = () => {
   if (!user) return null;
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <Link to="/" className="flex-shrink-0 flex items-center gap-2">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">I</span>
-              </div>
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-                Instinct AI
-              </span>
-            </Link>
-            <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`inline-flex items-center px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                      isActive 
-                        ? 'bg-indigo-50 text-indigo-700' 
-                        : 'text-gray-600 hover:text-indigo-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 mr-2" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-          <div className="hidden sm:flex sm:items-center sm:ml-6">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">{user.username}</span>
-              <button
-                onClick={logout}
-                className="p-2 text-gray-500 hover:text-red-600 transition-colors"
-                title="Logout"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center sm:hidden">
-            <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
-            >
-              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-          </div>
-        </div>
-      </div>
+    <>
+      {/* Mobile menu button */}
+      <button
+        onClick={() => setIsMobileOpen(true)}
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-md bg-white border border-gray-200 shadow-md text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+      >
+        <Menu className="w-6 h-6" />
+      </button>
 
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="sm:hidden bg-white border-t border-gray-100">
-          <div className="pt-2 pb-3 space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setIsOpen(false)}
-                  className={`flex items-center px-4 py-3 text-base font-medium ${
-                    isActive
-                      ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-700'
-                      : 'text-gray-600 hover:bg-gray-50 border-l-4 border-transparent'
-                  }`}
-                >
-                  <Icon className="w-5 h-5 mr-3" />
-                  {item.label}
-                </Link>
-              );
-            })}
-            <button
-              onClick={logout}
-              className="w-full flex items-center px-4 py-3 text-base font-medium text-gray-600 hover:bg-red-50 hover:text-red-700 transition-colors border-l-4 border-transparent"
-            >
-              <LogOut className="w-5 h-5 mr-3" />
-              Logout
-            </button>
-          </div>
-        </div>
+      {/* Mobile overlay */}
+      {isMobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+          onClick={() => setIsMobileOpen(false)}
+        />
       )}
-    </nav>
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-200 z-40 flex flex-col transform transition-transform duration-300 ease-in-out ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        {/* Logo */}
+        <div className="p-6 border-b border-gray-200">
+          <Link to="/" className="flex items-center gap-2" onClick={() => setIsMobileOpen(false)}>
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold">I</span>
+            </div>
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
+              Instinct AI
+            </span>
+          </Link>
+        </div>
+
+        {/* Navigation items */}
+        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setIsMobileOpen(false)}
+                className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600'
+                }`}
+              >
+                <Icon className="w-5 h-5 mr-3" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* User section */}
+        <div className="p-4 border-t border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-gray-700 truncate">{user.username}</span>
+          </div>
+          <button
+            onClick={() => {
+              setIsMobileOpen(false);
+              logout();
+            }}
+            className="w-full flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-700 transition-colors"
+          >
+            <LogOut className="w-5 h-5 mr-2" />
+            Logout
+          </button>
+        </div>
+
+        {/* Close button for mobile */}
+        <button
+          onClick={() => setIsMobileOpen(false)}
+          className="lg:hidden absolute top-4 right-4 p-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </aside>
+    </>
   );
 };
 
@@ -276,9 +269,9 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen flex flex-col">
-          <MenuBar />
-          <main className="flex-grow flex flex-col">
+        <div className="min-h-screen flex">
+          <Sidebar />
+          <main className="flex-1 lg:ml-64 flex flex-col">
             <AppRoutes />
           </main>
         </div>

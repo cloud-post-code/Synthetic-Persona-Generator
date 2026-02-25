@@ -345,3 +345,4 @@ All errors follow this format:
 - `409` - Conflict (e.g., username already exists)
 - `500` - Internal Server Error
 
+

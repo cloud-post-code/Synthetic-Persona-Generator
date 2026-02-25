@@ -115,3 +115,4 @@ export async function deleteSimulationSession(sessionId: string, userId: string)
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+

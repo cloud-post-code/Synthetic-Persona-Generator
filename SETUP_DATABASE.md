@@ -95,3 +95,4 @@ Just get the connection string and use it in your `.env` file as `DATABASE_URL`.
 
 The backend server needs to be restarted after creating the .env file.
 
+
