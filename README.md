@@ -199,6 +199,8 @@ The database includes the following tables:
 
 All tables include proper foreign key constraints and indexes for performance.
 
+_Last updated: February 2025_
+
 ## Security
 
 - Passwords are hashed using bcrypt
