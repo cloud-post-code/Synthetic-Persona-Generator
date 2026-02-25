@@ -13,6 +13,7 @@ import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
 import PracticePersonDetail from './views/info/PracticePersonDetail.js';
+import { ApiErrorBanner } from './components/ApiErrorBanner.js';
 
 const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -275,6 +276,7 @@ const App: React.FC = () => {
             <AppRoutes />
           </main>
         </div>
+        <ApiErrorBanner />
       </Router>
     </AuthProvider>
   );

@@ -1,5 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+const API_ERROR_EVENT = 'api-network-error';
+let apiErrorDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function notifyApiError(message: string) {
+  if (typeof window === 'undefined') return;
+  if (apiErrorDebounce) clearTimeout(apiErrorDebounce);
+  apiErrorDebounce = setTimeout(() => {
+    apiErrorDebounce = null;
+    window.dispatchEvent(new CustomEvent(API_ERROR_EVENT, { detail: { message } }));
+  }, 300);
+}
+
+export function getApiErrorEventName() {
+  return API_ERROR_EVENT;
+}
+
 // In production, VITE_API_URL must be set or requests will try localhost and fail with "Failed to fetch"
 if (import.meta.env.PROD && (!import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL.includes('localhost'))) {
   console.error(
@@ -52,7 +68,9 @@ class ApiClient {
         const hint = import.meta.env.PROD && (!base || base.includes('localhost'))
           ? ' Set VITE_API_URL to your backend URL in the frontend environment (e.g. on Render) and redeploy.'
           : ' Check that the backend is running and CORS allows this origin.';
-        throw new Error('Cannot reach the API.' + hint);
+        const userMessage = 'Cannot reach the API.' + hint;
+        notifyApiError(userMessage);
+        throw new Error(userMessage);
       }
       throw err;
     });

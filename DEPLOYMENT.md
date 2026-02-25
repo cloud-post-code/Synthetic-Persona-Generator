@@ -203,6 +203,31 @@ VITE_GEMINI_API_KEY=your-key
 
 ## 🆘 Troubleshooting
 
+### Cancel stuck deploys (Render) and retry
+
+If **persona-builder-backend** or **persona-builder-frontend** show **"Online · Queued (XX:XX)"** or the dashboard says **"issue is upstream in GitHub"**:
+
+1. **Cancel the stuck deploy**
+   - Go to [dashboard.render.com](https://dashboard.render.com)
+   - Open **persona-builder-backend** → **Events** (or **Logs**)
+   - Find the deploy that is **Queued** or **Building** and click it
+   - Click **Cancel** or **Cancel deploy**
+   - Repeat for **persona-builder-frontend**
+
+2. **Retry with a fresh deploy**
+   - **Option A:** In each service, open **Manual Deploy** → **Deploy latest commit**
+   - **Option B:** Push a new commit to your GitHub branch (e.g. a small doc or comment change); Render will start a new deploy and the queue will clear
+
+3. **If GitHub is the “upstream” problem**
+   - Check [GitHub Status](https://www.githubstatus.com/) for incidents
+   - In Render, ensure the service is connected to the correct repo and branch
+   - If the branch was force-pushed or rebased, try **Manual Deploy** so Render fetches the latest commit again
+
+4. **Free tier queue**
+   - On Render’s free tier, build workers are shared. If the queue stays long, wait a bit or retry later; cancelling and **Manual Deploy** often gets a new slot.
+
+---
+
 ### Backend won't start
 - Check environment variables are set correctly
 - Verify DATABASE_URL is correct
