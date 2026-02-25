@@ -1,5 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+// In production, VITE_API_URL must be set or requests will try localhost and fail with "Failed to fetch"
+if (import.meta.env.PROD && (!import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL.includes('localhost'))) {
+  console.error(
+    'VITE_API_URL is not set for production. Set it in your host (e.g. Render) to your backend URL, e.g. https://persona-builder-backend.onrender.com/api'
+  );
+}
+
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
@@ -38,6 +45,16 @@ class ApiClient {
     const response = await fetch(url, {
       ...options,
       headers,
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('Load failed')) {
+        const base = import.meta.env.VITE_API_URL || '';
+        const hint = import.meta.env.PROD && (!base || base.includes('localhost'))
+          ? ' Set VITE_API_URL to your backend URL in the frontend environment (e.g. on Render) and redeploy.'
+          : ' Check that the backend is running and CORS allows this origin.';
+        throw new Error('Cannot reach the API.' + hint);
+      }
+      throw err;
     });
 
     if (!response.ok) {

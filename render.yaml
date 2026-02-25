@@ -1,5 +1,10 @@
 # Render.com deployment configuration
 # This file makes it easy to deploy both services on Render
+#
+# REQUIRED: After first deploy, set these in the Render dashboard to fix "Failed to fetch":
+#   persona-builder-frontend → VITE_API_URL = https://persona-builder-backend.onrender.com/api
+#   persona-builder-backend  → CORS_ORIGIN  = https://persona-builder-frontend.onrender.com
+# Then redeploy the frontend so the new API URL is baked into the build.
 
 services:
   # Backend API Service
@@ -20,7 +25,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        sync: false  # Set this manually after frontend is deployed
+        sync: false  # REQUIRED: set to your frontend URL, e.g. https://persona-builder-frontend.onrender.com
       - key: GEMINI_API_KEY
         sync: false  # Set this manually with your API key
     # Link to PostgreSQL database
@@ -34,7 +39,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        sync: false  # Set this to your backend URL after deployment
+        sync: false  # REQUIRED: set to backend API URL, e.g. https://persona-builder-backend.onrender.com/api
       - key: VITE_GEMINI_API_KEY
         sync: false  # Set this manually with your API key
 
