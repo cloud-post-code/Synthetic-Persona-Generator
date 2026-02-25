@@ -174,6 +174,11 @@ const SimulationPage: React.FC = () => {
 
   const { personas: allPersonas } = usePersonas();
 
+  const allowedPersonasForSimulation =
+    selectedSimulation?.allowed_persona_types?.length
+      ? personas.filter((p) => selectedSimulation.allowed_persona_types.includes(p.type))
+      : personas;
+
   // Load simulations on mount
   useEffect(() => {
     const loadSimulations = async () => {
@@ -213,6 +218,12 @@ const SimulationPage: React.FC = () => {
     setPersonas(allPersonas);
     loadHistory();
   }, [allPersonas]);
+
+  useEffect(() => {
+    if (stage !== 'inputs' || !selectedSimulation || !selectedPersona) return;
+    const allowed = selectedSimulation.allowed_persona_types;
+    if (allowed?.length && !allowed.includes(selectedPersona.type)) setSelectedPersona(null);
+  }, [selectedSimulation, selectedPersona, stage, personas]);
 
   // Restore last active simulation session after history is loaded
   useEffect(() => {
@@ -795,14 +806,21 @@ const SimulationPage: React.FC = () => {
               <div className="space-y-10">
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">1. Select Target Persona</label>
-                  {personas.length === 0 ? (
+                  {selectedSimulation?.allowed_persona_types?.length ? (
+                    <p className="text-xs text-gray-500">Only personas of type: {(selectedSimulation.allowed_persona_types as string[]).map(t => t.replace(/_/g, ' ')).join(', ')}</p>
+                  ) : null}
+                  {allowedPersonasForSimulation.length === 0 ? (
                     <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-amber-700 text-sm font-bold flex gap-3">
                        <AlertCircle className="w-5 h-5" />
-                       You haven't built any personas yet.
+                       {personas.length === 0
+                         ? "You haven't built any personas yet."
+                         : selectedSimulation?.allowed_persona_types?.length
+                           ? `No personas match this simulation's allowed types (${(selectedSimulation.allowed_persona_types as string[]).map(t => t.replace(/_/g, ' ')).join(', ')}). Create a persona of one of these types to run it.`
+                           : "You haven't built any personas yet."}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {personas.map(p => (
+                      {allowedPersonasForSimulation.map(p => (
                         <button
                           key={p.id}
                           onClick={() => setSelectedPersona(p)}
@@ -1094,6 +1112,9 @@ const SimulationPage: React.FC = () => {
           const isReport = simulationOutputType === 'report';
           const isSurvey = simulationOutputType === 'survey';
           const isAdvice = simulationOutputType === 'advice';
+          const isIdeation = simulationOutputType === 'ideation';
+          const isResponseSim = simulationOutputType === 'response_simulation';
+          const isChatLike = simulationOutputType === 'chat' || simulationOutputType === 'conversational_simulation';
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
           const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
 
@@ -1153,11 +1174,11 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl font-black text-gray-900">
-                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : simulationOutputType === 'ideation' ? 'Ideation' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
-                {!isReport && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
+                {isChatLike && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
                 {(isReport || isSurvey) && (
                   <button onClick={isReport ? handleDownloadReport : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
                     <Download className="w-4 h-4" /> {isReport ? 'Download Report' : 'Download CSV'}
@@ -1167,7 +1188,8 @@ const SimulationPage: React.FC = () => {
               </div>
             </header>
 
-            {/* Chat Area */}
+            {/* Main content: chat UI for chat/conversational, single-output for others */}
+            {isChatLike ? (
             <div className="flex-grow overflow-y-auto p-10 space-y-10 bg-gray-50/20">
               {messages.map((m) => {
                 const isUser = m.senderType === 'user';
@@ -1201,9 +1223,54 @@ const SimulationPage: React.FC = () => {
               {isTyping && <div className="flex justify-start"><div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div></div>}
               <div ref={scrollRef} />
             </div>
+            ) : (
+            <div className="flex-grow overflow-y-auto p-10 bg-gray-50/20">
+              {isReport && (
+                <>
+                  <p className="text-sm text-gray-600 mb-4 font-medium">Summary</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 whitespace-pre-wrap">
+                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  </div>
+                </>
+              )}
+              {isSurvey && (
+                <>
+                  <p className="text-sm text-gray-600 mb-2 font-medium">Summary & key points</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  </div>
+                </>
+              )}
+              {isAdvice && (
+                <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                  <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                </div>
+              )}
+              {isIdeation && (
+                <>
+                  <p className="text-sm text-gray-600 mb-2 font-medium">Ideas</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  </div>
+                </>
+              )}
+              {isResponseSim && (
+                <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                  <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                </div>
+              )}
+              {!isReport && !isSurvey && !isAdvice && !isIdeation && !isResponseSim && (
+                <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                  <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                </div>
+              )}
+              {isTyping && <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>}
+              <div ref={scrollRef} />
+            </div>
+            )}
 
-            {/* Follow-up input - hidden for report */}
-            {!isReport && (
+            {/* Follow-up input - only for chat and conversational_simulation */}
+            {isChatLike && (
             <div className="p-10 border-t border-gray-100 bg-white">
               <form onSubmit={handleSendFollowUp} className="max-w-4xl mx-auto">
                 <div className="relative">
