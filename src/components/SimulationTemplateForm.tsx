@@ -9,6 +9,7 @@ import {
   UpdateSimulationRequest,
 } from '../services/simulationTemplateApi.js';
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
+import { geminiService } from '../services/gemini.js';
 import { IconPicker } from './IconPicker.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string }[] = [
@@ -210,8 +211,14 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             persona_count_max: personaCountMax,
             type_specific_config: Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined,
           };
-          const { system_prompt } = await simulationTemplateApi.previewPrompt(payload);
-          setReviewedSystemPrompt(system_prompt);
+          let systemPromptText: string;
+          try {
+            systemPromptText = await geminiService.generateSystemPromptFromConfig(payload);
+          } catch (aiError: any) {
+            const fallback = await simulationTemplateApi.previewPrompt(payload);
+            systemPromptText = fallback.system_prompt;
+          }
+          setReviewedSystemPrompt(systemPromptText);
           setShowPromptReview(true);
         }
       } catch (error: any) {

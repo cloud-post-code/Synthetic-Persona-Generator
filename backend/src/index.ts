@@ -12,11 +12,11 @@ dotenv.config();
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173').split(',');
 
 // Middleware
 app.use(cors({
-  origin: CORS_ORIGIN,
+  origin: CORS_ORIGINS,
   credentials: true,
 }));
 // Increase body size limit to handle base64-encoded images (50MB limit)
@@ -42,6 +42,6 @@ app.use(errorHandler);
 // Start server - bind to 0.0.0.0 to accept external connections (required for Railway)
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 CORS enabled for: ${CORS_ORIGIN}`);
+  console.log(`📡 CORS enabled for: ${CORS_ORIGINS.join(', ')}`);
 });
 

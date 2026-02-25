@@ -308,6 +308,51 @@ export const geminiService = {
       
       throw new Error(`Gemini API error: ${error?.message || 'Failed to generate chat response. Please check your API key and quota.'}`);
     }
+  },
+
+  /**
+   * Generate a system prompt for a simulation from its full configuration.
+   * Pass the entire create-simulation payload; the AI returns the system prompt text to use.
+   */
+  generateSystemPromptFromConfig: async (config: {
+    title: string;
+    description?: string;
+    simulation_type?: string;
+    allowed_persona_types?: string[];
+    persona_count_min?: number;
+    persona_count_max?: number;
+    type_specific_config?: Record<string, unknown>;
+    required_input_fields?: Array<{ name: string; type: string; label: string; placeholder?: string; required: boolean; options?: string[] }>;
+  }): Promise<string> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Set VITE_GEMINI_API_KEY to generate the system prompt with AI.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `You are helping create the system prompt for a simulation. Below is the full configuration the admin entered. Generate the exact system prompt text that will be used when running this simulation. The prompt will be shown to the user for editing before saving.
+
+REQUIREMENTS:
+- The system prompt must instruct the AI/persona how to behave during the simulation.
+- You MUST include and document these template variables exactly as specified; they will be replaced at runtime:
+  {{SELECTED_PROFILE}} - name of the selected persona
+  {{SELECTED_PROFILE_FULL}} - full profile and blueprint content
+  {{BACKGROUND_INFO}} - background/context from the user running the simulation
+  {{OPENING_LINE}} - opening line or initial content from the user
+- Write in clear sections (e.g. with ### headers). Include: what this simulation is, how the persona should act, and how to use the variables.
+- Do not add any preamble or explanation—output ONLY the system prompt text that will be stored and used.
+
+CONFIGURATION (JSON):
+${JSON.stringify(config, null, 2)}
+
+Output only the system prompt text, nothing else.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: truncate(prompt, MAX_PART_CHARS),
+    });
+    const text = (response.text || '').trim();
+    if (!text) throw new Error('AI did not return a system prompt.');
+    return text;
   }
 };
 
