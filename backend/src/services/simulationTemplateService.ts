@@ -2,6 +2,41 @@ import pool from '../config/database.js';
 import { SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
+function parseJsonField(val: unknown): any[] | Record<string, unknown> | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return undefined;
+    }
+  }
+  if (Array.isArray(val) || (typeof val === 'object' && val !== null)) return val as any;
+  return undefined;
+}
+
+function mapRowToTemplate(row: any): SimulationTemplate {
+  const requiredInputFields = parseJsonField(row.required_input_fields) ?? [];
+  const allowedPersonaTypes = parseJsonField(row.allowed_persona_types);
+  const typeSpecificConfig = parseJsonField(row.type_specific_config);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description || undefined,
+    icon: row.icon || undefined,
+    required_input_fields: Array.isArray(requiredInputFields) ? requiredInputFields : [],
+    system_prompt: row.system_prompt,
+    is_active: row.is_active !== undefined ? row.is_active : true,
+    simulation_type: row.simulation_type || undefined,
+    allowed_persona_types: Array.isArray(allowedPersonaTypes) ? allowedPersonaTypes as any : undefined,
+    persona_count_min: row.persona_count_min != null ? Number(row.persona_count_min) : undefined,
+    persona_count_max: row.persona_count_max != null ? Number(row.persona_count_max) : undefined,
+    type_specific_config: typeSpecificConfig && typeof typeSpecificConfig === 'object' && !Array.isArray(typeSpecificConfig) ? typeSpecificConfig : undefined,
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+  };
+}
+
 export async function getAllSimulations(includeInactive: boolean = false): Promise<SimulationTemplate[]> {
   try {
     let query = 'SELECT * FROM simulations';
@@ -15,38 +50,7 @@ export async function getAllSimulations(includeInactive: boolean = false): Promi
 
     const result = await pool.query(query, params);
 
-    return result.rows.map(row => {
-      // Handle JSONB field - PostgreSQL pg library should parse it automatically
-      // But handle cases where it might be null, string, or already parsed
-      let requiredInputFields: any[] = [];
-      if (row.required_input_fields !== null && row.required_input_fields !== undefined) {
-        if (typeof row.required_input_fields === 'string') {
-          try {
-            requiredInputFields = JSON.parse(row.required_input_fields);
-          } catch (e) {
-            console.error('Failed to parse required_input_fields:', e);
-            requiredInputFields = [];
-          }
-        } else if (Array.isArray(row.required_input_fields)) {
-          requiredInputFields = row.required_input_fields;
-        } else if (typeof row.required_input_fields === 'object') {
-          // If it's already an object (parsed JSONB), use it directly
-          requiredInputFields = row.required_input_fields;
-        }
-      }
-      
-      return {
-        id: row.id,
-        title: row.title,
-        description: row.description || undefined,
-        icon: row.icon || undefined,
-        required_input_fields: requiredInputFields,
-        system_prompt: row.system_prompt,
-        is_active: row.is_active !== undefined ? row.is_active : true,
-        created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-        updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-      };
-    });
+    return result.rows.map(row => mapRowToTemplate(row));
   } catch (error: any) {
     console.error('Error in getAllSimulations:', error);
     console.error('Error details:', {
@@ -70,78 +74,57 @@ export async function getSimulationById(id: string): Promise<SimulationTemplate 
   }
 
   const sim = result.rows[0];
-  // Parse JSONB field if it's a string, otherwise use as-is
-  let requiredInputFields = sim.required_input_fields || [];
-  if (typeof requiredInputFields === 'string') {
-    try {
-      requiredInputFields = JSON.parse(requiredInputFields);
-    } catch (e) {
-      console.error('Failed to parse required_input_fields:', e);
-      requiredInputFields = [];
-    }
-  }
-  
-  return {
-    id: sim.id,
-    title: sim.title,
-    description: sim.description || undefined,
-    icon: sim.icon || undefined,
-    required_input_fields: requiredInputFields,
-    system_prompt: sim.system_prompt,
-    is_active: sim.is_active !== undefined ? sim.is_active : true,
-    created_at: sim.created_at instanceof Date ? sim.created_at.toISOString() : sim.created_at,
-    updated_at: sim.updated_at instanceof Date ? sim.updated_at.toISOString() : sim.updated_at,
-  };
+  return mapRowToTemplate(sim);
 }
 
 export async function createSimulation(data: CreateSimulationRequest): Promise<SimulationTemplate> {
   const id = uuidv4();
-
-  // PostgreSQL JSONB accepts JSON objects directly, no need to stringify
+  const systemPrompt = (data.system_prompt?.trim() && !data.simulation_type)
+    ? data.system_prompt.trim()
+    : buildSystemPromptFromConfig(data);
   const result = await pool.query(
-    `INSERT INTO simulations (id, title, description, icon, required_input_fields, system_prompt, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO simulations (id, title, description, icon, required_input_fields, system_prompt, is_active, simulation_type, allowed_persona_types, persona_count_min, persona_count_max, type_specific_config)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       id,
       data.title,
       data.description || null,
       data.icon || null,
-      JSON.stringify(data.required_input_fields || []), // Keep stringify for consistency
-      data.system_prompt,
+      JSON.stringify(data.required_input_fields || []),
+      systemPrompt,
       data.is_active !== undefined ? data.is_active : true,
+      data.simulation_type || 'chat',
+      JSON.stringify(data.allowed_persona_types ?? ['synthetic_user', 'advisor', 'practice_person']),
+      data.persona_count_min ?? 1,
+      data.persona_count_max ?? 1,
+      JSON.stringify(data.type_specific_config ?? {}),
     ]
   );
 
   const sim = result.rows[0];
-  // Parse JSONB field if it's a string, otherwise use as-is
-  let requiredInputFields: any[] = [];
-  if (sim.required_input_fields !== null && sim.required_input_fields !== undefined) {
-    if (typeof sim.required_input_fields === 'string') {
-      try {
-        requiredInputFields = JSON.parse(sim.required_input_fields);
-      } catch (e) {
-        console.error('Failed to parse required_input_fields:', e);
-        requiredInputFields = [];
-      }
-    } else if (Array.isArray(sim.required_input_fields)) {
-      requiredInputFields = sim.required_input_fields;
-    } else if (typeof sim.required_input_fields === 'object') {
-      requiredInputFields = sim.required_input_fields;
-    }
-  }
-  
-  return {
-    id: sim.id,
-    title: sim.title,
-    description: sim.description || undefined,
-    icon: sim.icon || undefined,
-    required_input_fields: requiredInputFields,
-    system_prompt: sim.system_prompt,
-    is_active: sim.is_active !== undefined ? sim.is_active : true,
-    created_at: sim.created_at instanceof Date ? sim.created_at.toISOString() : sim.created_at,
-    updated_at: sim.updated_at instanceof Date ? sim.updated_at.toISOString() : sim.updated_at,
-  };
+  return mapRowToTemplate(sim);
+}
+
+function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
+  const desc = data.description?.trim() || 'No description provided.';
+  const type = data.simulation_type || 'chat';
+  const config = data.type_specific_config || {};
+  return `You are running a ${type} simulation.
+
+### What this simulation is
+${desc}
+
+### Variables you can use
+- {{SELECTED_PROFILE}} - Name of the selected persona
+- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint
+- {{BACKGROUND_INFO}} - Background context from user
+- {{OPENING_LINE}} - Opening line or content from user
+
+### Type-specific config
+${JSON.stringify(config)}
+
+Stay in character and use the profile and inputs to respond.`;
 }
 
 export async function updateSimulation(id: string, data: UpdateSimulationRequest): Promise<SimulationTemplate | null> {
@@ -173,6 +156,26 @@ export async function updateSimulation(id: string, data: UpdateSimulationRequest
     fields.push(`is_active = $${paramCount++}`);
     values.push(data.is_active);
   }
+  if (data.simulation_type !== undefined) {
+    fields.push(`simulation_type = $${paramCount++}`);
+    values.push(data.simulation_type);
+  }
+  if (data.allowed_persona_types !== undefined) {
+    fields.push(`allowed_persona_types = $${paramCount++}`);
+    values.push(JSON.stringify(data.allowed_persona_types));
+  }
+  if (data.persona_count_min !== undefined) {
+    fields.push(`persona_count_min = $${paramCount++}`);
+    values.push(data.persona_count_min);
+  }
+  if (data.persona_count_max !== undefined) {
+    fields.push(`persona_count_max = $${paramCount++}`);
+    values.push(data.persona_count_max);
+  }
+  if (data.type_specific_config !== undefined) {
+    fields.push(`type_specific_config = $${paramCount++}`);
+    values.push(JSON.stringify(data.type_specific_config));
+  }
 
   if (fields.length === 0) {
     return getSimulationById(id);
@@ -194,34 +197,7 @@ export async function updateSimulation(id: string, data: UpdateSimulationRequest
   }
 
   const sim = result.rows[0];
-  // Parse JSONB field if it's a string, otherwise use as-is
-  let requiredInputFields: any[] = [];
-  if (sim.required_input_fields !== null && sim.required_input_fields !== undefined) {
-    if (typeof sim.required_input_fields === 'string') {
-      try {
-        requiredInputFields = JSON.parse(sim.required_input_fields);
-      } catch (e) {
-        console.error('Failed to parse required_input_fields:', e);
-        requiredInputFields = [];
-      }
-    } else if (Array.isArray(sim.required_input_fields)) {
-      requiredInputFields = sim.required_input_fields;
-    } else if (typeof sim.required_input_fields === 'object') {
-      requiredInputFields = sim.required_input_fields;
-    }
-  }
-  
-  return {
-    id: sim.id,
-    title: sim.title,
-    description: sim.description || undefined,
-    icon: sim.icon || undefined,
-    required_input_fields: requiredInputFields,
-    system_prompt: sim.system_prompt,
-    is_active: sim.is_active !== undefined ? sim.is_active : true,
-    created_at: sim.created_at instanceof Date ? sim.created_at.toISOString() : sim.created_at,
-    updated_at: sim.updated_at instanceof Date ? sim.updated_at.toISOString() : sim.updated_at,
-  };
+  return mapRowToTemplate(sim);
 }
 
 export async function deleteSimulation(id: string): Promise<boolean> {

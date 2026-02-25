@@ -97,11 +97,21 @@ export interface AuthResponse {
 
 export interface SimulationInputField {
   name: string;
-  type: 'text' | 'textarea' | 'image';
+  type: 'text' | 'textarea' | 'image' | 'table' | 'pdf' | 'multiple_choice';
   label: string;
   placeholder?: string;
   required: boolean;
+  options?: string[];
 }
+
+export type SimulationType =
+  | 'chat'
+  | 'advice'
+  | 'report'
+  | 'conversational_simulation'
+  | 'response_simulation'
+  | 'survey'
+  | 'ideation';
 
 export interface SimulationTemplate {
   id: string;
@@ -111,6 +121,11 @@ export interface SimulationTemplate {
   required_input_fields: SimulationInputField[];
   system_prompt: string;
   is_active: boolean;
+  simulation_type?: SimulationType;
+  allowed_persona_types?: PersonaType[];
+  persona_count_min?: number;
+  persona_count_max?: number;
+  type_specific_config?: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
 }
@@ -122,6 +137,11 @@ export interface CreateSimulationRequest {
   required_input_fields: SimulationInputField[];
   system_prompt: string;
   is_active?: boolean;
+  simulation_type?: SimulationType;
+  allowed_persona_types?: PersonaType[];
+  persona_count_min?: number;
+  persona_count_max?: number;
+  type_specific_config?: Record<string, unknown>;
 }
 
 export interface UpdateSimulationRequest {
@@ -131,5 +151,10 @@ export interface UpdateSimulationRequest {
   required_input_fields?: SimulationInputField[];
   system_prompt?: string;
   is_active?: boolean;
+  simulation_type?: SimulationType;
+  allowed_persona_types?: PersonaType[];
+  persona_count_min?: number;
+  persona_count_max?: number;
+  type_specific_config?: Record<string, unknown>;
 }
 

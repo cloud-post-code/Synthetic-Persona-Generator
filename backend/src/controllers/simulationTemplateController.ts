@@ -56,8 +56,15 @@ export async function createSimulation(req: AuthRequest, res: Response, next: Ne
   try {
     const data: CreateSimulationRequest = req.body;
     
-    if (!data.title || !data.system_prompt) {
-      return res.status(400).json({ error: 'Title and system_prompt are required' });
+    if (!data.title?.trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+    if (data.simulation_type) {
+      if (!data.description?.trim()) {
+        return res.status(400).json({ error: 'Description (what this simulation is) is required when using simulation type' });
+      }
+    } else if (!data.system_prompt?.trim()) {
+      return res.status(400).json({ error: 'Either system_prompt or simulation_type with description is required' });
     }
 
     const simulation = await simulationTemplateService.createSimulation(data);

@@ -1,10 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Monitor, 
-  Megaphone, 
-  TrendingUp, 
-  Briefcase, 
   ChevronRight, 
   Upload, 
   User, 
@@ -18,7 +14,8 @@ import {
   Plus,
   X as CloseIcon,
   XCircle,
-  LucideIcon
+  LucideIcon,
+  Download,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
 import { usePersonas } from '../hooks/usePersonas.js';
@@ -26,20 +23,9 @@ import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
+import { getSimulationIcon } from '../utils/simulationIcons.js';
 
-// Icon mapping helper
-const iconMap: Record<string, LucideIcon> = {
-  Monitor,
-  Megaphone,
-  TrendingUp,
-  Briefcase,
-  // Add more icons as needed
-};
-
-const getIcon = (iconName?: string): LucideIcon => {
-  if (!iconName) return Monitor;
-  return iconMap[iconName] || Monitor;
-};
+const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
 
 const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
   const lines = content.split('\n');
@@ -856,45 +842,159 @@ const SimulationPage: React.FC = () => {
                         </div>
                       </div>
                     );
-                  } else {
-                    const isTextarea = field.type === 'textarea';
-                    const value = inputFields[field.name] || (field.name === 'bgInfo' ? bgInfo : field.name === 'openingLine' ? openingLine : '');
+                  }
+                  if (field.type === 'table') {
                     return (
                       <div key={field.name} className="space-y-4">
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           {fieldNumber}. {field.label} {field.required && '*'}
                         </label>
-                        {isTextarea ? (
-                          <textarea
-                            value={value}
-                            onChange={(e) => {
-                              const newValue = e.target.value;
-                              setInputFields({ ...inputFields, [field.name]: newValue });
-                              if (field.name === 'bgInfo') setBgInfo(newValue);
-                              if (field.name === 'openingLine') setOpeningLine(newValue);
-                            }}
-                            placeholder={field.placeholder}
-                            required={field.required}
-                            className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
-                          />
-                        ) : (
+                        <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50">
+                          {inputFields[field.name] ? (
+                            <div className="relative">
+                              <p className="text-sm text-gray-700 font-medium">File uploaded (table data)</p>
+                              <button
+                                type="button"
+                                onClick={() => setInputFields({ ...inputFields, [field.name]: '' })}
+                                className="mt-2 text-red-600 hover:text-red-800 text-sm font-bold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
+                                <Upload className="w-8 h-8" />
+                              </div>
+                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload CSV or Excel'}</p>
+                            </div>
+                          )}
                           <input
-                            type="text"
-                            value={value}
+                            type="file"
+                            accept=".csv,.xlsx,.xls"
+                            className="absolute inset-0 opacity-0 cursor-pointer"
                             onChange={(e) => {
-                              const newValue = e.target.value;
-                              setInputFields({ ...inputFields, [field.name]: newValue });
-                              if (field.name === 'bgInfo') setBgInfo(newValue);
-                              if (field.name === 'openingLine') setOpeningLine(newValue);
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                const result = ev.target?.result as string;
+                                setInputFields({ ...inputFields, [field.name]: result });
+                              };
+                              if (file.name.toLowerCase().endsWith('.csv')) {
+                                reader.readAsText(file);
+                              } else {
+                                reader.readAsDataURL(file);
+                              }
                             }}
-                            placeholder={field.placeholder}
-                            required={field.required}
-                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
                           />
-                        )}
+                        </div>
                       </div>
                     );
                   }
+                  if (field.type === 'pdf') {
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.label} {field.required && '*'}
+                        </label>
+                        <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50">
+                          {inputFields[field.name] ? (
+                            <div className="relative">
+                              <p className="text-sm text-gray-700 font-medium">PDF uploaded</p>
+                              <button
+                                type="button"
+                                onClick={() => setInputFields({ ...inputFields, [field.name]: '' })}
+                                className="mt-2 text-red-600 hover:text-red-800 text-sm font-bold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
+                                <Upload className="w-8 h-8" />
+                              </div>
+                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload PDF'}</p>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                setInputFields({ ...inputFields, [field.name]: ev.target?.result as string });
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (field.type === 'multiple_choice') {
+                    const options = (field.options || []).filter(Boolean);
+                    const value = inputFields[field.name] ?? '';
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.label} {field.required && '*'}
+                        </label>
+                        <select
+                          value={value}
+                          onChange={(e) => setInputFields({ ...inputFields, [field.name]: e.target.value })}
+                          required={field.required}
+                          className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                        >
+                          <option value="">Select...</option>
+                          {options.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  }
+                  const isTextarea = field.type === 'textarea';
+                  const value = inputFields[field.name] || (field.name === 'bgInfo' ? bgInfo : field.name === 'openingLine' ? openingLine : '');
+                  return (
+                    <div key={field.name} className="space-y-4">
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        {fieldNumber}. {field.label} {field.required && '*'}
+                      </label>
+                      {isTextarea ? (
+                        <textarea
+                          value={value}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setInputFields({ ...inputFields, [field.name]: newValue });
+                            if (field.name === 'bgInfo') setBgInfo(newValue);
+                            if (field.name === 'openingLine') setOpeningLine(newValue);
+                          }}
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={value}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setInputFields({ ...inputFields, [field.name]: newValue });
+                            if (field.name === 'bgInfo') setBgInfo(newValue);
+                            if (field.name === 'openingLine') setOpeningLine(newValue);
+                          }}
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                        />
+                      )}
+                    </div>
+                  );
                 })}
 
                 <button
@@ -909,19 +1009,58 @@ const SimulationPage: React.FC = () => {
           </div>
         )}
 
-        {stage === 'result' && (
+        {stage === 'result' && (() => {
+          const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
+          const isReport = simulationOutputType === 'report';
+          const isSurvey = simulationOutputType === 'survey';
+          const isAdvice = simulationOutputType === 'advice';
+          const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
+          const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
+
+          const handleDownloadReport = () => {
+            const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report-${selectedSimulation?.title || 'simulation'}-${new Date().toISOString().slice(0,10)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          const handleDownloadSurveyCsv = () => {
+            const rows = messages.map(m => [
+              m.senderType === 'user' ? 'User' : (selectedPersona?.name || 'Persona'),
+              m.content.replace(/"/g, '""'),
+            ]);
+            const csv = ['"Participant","Response"', ...rows.map(r => `"${r[0]}","${r[1]}"`)].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `survey-${selectedSimulation?.title || 'survey'}-${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          return (
           <div className="flex flex-col h-full bg-white relative">
-            {/* Header */}
             <header className="px-10 py-6 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-xl z-10">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg">
                   <Sparkles className="w-5 h-5" />
                 </div>
-                <h2 className="text-xl font-black text-gray-900">Simulation Workspace</h2>
+                <h2 className="text-xl font-black text-gray-900">
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : simulationOutputType === 'ideation' ? 'Ideation' : 'Simulation Workspace'}
+                </h2>
               </div>
               <div className="flex items-center gap-4">
-                <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>
-                {/* Fixed: Added missing 'Plus' icon import */}
+                {!isReport && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
+                {(isReport || isSurvey) && (
+                  <button onClick={isReport ? handleDownloadReport : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
+                    <Download className="w-4 h-4" /> {isReport ? 'Download Report' : 'Download CSV'}
+                  </button>
+                )}
                 <button onClick={startNewSim} className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"><Plus className="w-5 h-5" /></button>
               </div>
             </header>
@@ -961,7 +1100,8 @@ const SimulationPage: React.FC = () => {
               <div ref={scrollRef} />
             </div>
 
-            {/* Follow-up input */}
+            {/* Follow-up input - hidden for report */}
+            {!isReport && (
             <div className="p-10 border-t border-gray-100 bg-white">
               <form onSubmit={handleSendFollowUp} className="max-w-4xl mx-auto">
                 <div className="relative">
@@ -992,13 +1132,27 @@ const SimulationPage: React.FC = () => {
                 </div>
               </form>
             </div>
+            )}
           </div>
-        )}
+          );
+        })()}
       </main>
 
       {/* Info Context Bar (Only shown in Result Stage) */}
-      {stage === 'result' && (
+      {stage === 'result' && selectedSimulation && (() => {
+        const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
+        const isAdvice = simulationOutputType === 'advice';
+        const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
+        const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
+        return (
         <aside className="hidden lg:flex w-96 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-8 space-y-10">
+          {isAdvice && (
+            <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Evaluation Score</h4>
+              <p className="text-3xl font-black text-indigo-600">{parsedScore ?? '—'}{parsedScore ? '/10' : ''}</p>
+              <p className="text-xs text-gray-500 mt-1">Based on persona and user inputs</p>
+            </div>
+          )}
           <div className="flex items-center gap-4 pb-8 border-b border-gray-100">
              <img src={selectedPersona?.avatarUrl} className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white" />
              <div>
@@ -1017,7 +1171,8 @@ const SimulationPage: React.FC = () => {
             </div>
           )}
         </aside>
-      )}
+        );
+      })()}
     </div>
   );
 };

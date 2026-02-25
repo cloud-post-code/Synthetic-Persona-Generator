@@ -23,6 +23,22 @@ async function migrate() {
         throw err;
       }
     }
+
+    // Add simulation type and config columns if they don't exist
+    const simColumns = [
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS simulation_type VARCHAR(50) DEFAULT 'chat'`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS allowed_persona_types JSONB DEFAULT '["synthetic_user","advisor","practice_person"]'`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_min INTEGER DEFAULT 1`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_max INTEGER DEFAULT 1`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS type_specific_config JSONB DEFAULT '{}'`,
+    ];
+    for (const sql of simColumns) {
+      try {
+        await pool.query(sql);
+      } catch (err: any) {
+        if (err.code !== '42701') throw err;
+      }
+    }
     
     console.log('Seeding default simulations...');
     
