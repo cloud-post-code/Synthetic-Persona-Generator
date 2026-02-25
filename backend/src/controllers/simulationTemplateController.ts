@@ -74,6 +74,16 @@ export async function createSimulation(req: AuthRequest, res: Response, next: Ne
   }
 }
 
+export async function previewSystemPrompt(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data: CreateSimulationRequest = req.body;
+    const systemPrompt = simulationTemplateService.buildSystemPromptFromConfig(data);
+    res.json({ system_prompt: systemPrompt });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function updateSimulation(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;

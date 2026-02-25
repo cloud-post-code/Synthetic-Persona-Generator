@@ -79,7 +79,7 @@ export async function getSimulationById(id: string): Promise<SimulationTemplate 
 
 export async function createSimulation(data: CreateSimulationRequest): Promise<SimulationTemplate> {
   const id = uuidv4();
-  const systemPrompt = (data.system_prompt?.trim() && !data.simulation_type)
+  const systemPrompt = data.system_prompt?.trim()
     ? data.system_prompt.trim()
     : buildSystemPromptFromConfig(data);
   const result = await pool.query(
@@ -106,7 +106,7 @@ export async function createSimulation(data: CreateSimulationRequest): Promise<S
   return mapRowToTemplate(sim);
 }
 
-function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
+export function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
   const desc = data.description?.trim() || 'No description provided.';
   const type = data.simulation_type || 'chat';
   const config = data.type_specific_config || {};
@@ -129,6 +129,17 @@ function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
     const decisionCriteria = (config.decision_criteria as string)?.trim();
     if (decisionPoint) lines.push('### Decision point\n' + decisionPoint + '\n');
     if (decisionCriteria) lines.push('### Decision criteria (evaluate the persona\'s decision using)\n' + decisionCriteria + '\n');
+  }
+
+  if (type === 'report') {
+    const reportStructure = (config.report_structure as string)?.trim();
+    if (reportStructure) lines.push('### Report structure\n' + reportStructure + '\n');
+    const exampleFileName = (config.report_example_file_name as string)?.trim();
+    if (exampleFileName) {
+      lines.push('### Example/reference document');
+      lines.push('Filename: ' + exampleFileName);
+      lines.push('(Content is stored and can be used as reference for the report.)\n');
+    }
   }
 
   if (type === 'survey') {

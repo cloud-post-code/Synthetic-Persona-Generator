@@ -8,6 +8,7 @@ import {
   CreateSimulationRequest,
   UpdateSimulationRequest,
 } from '../services/simulationTemplateApi.js';
+import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { IconPicker } from './IconPicker.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string }[] = [
@@ -51,6 +52,8 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
   const [inputFields, setInputFields] = useState<SimulationInputField[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPromptReview, setShowPromptReview] = useState(false);
+  const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
 
   const setConfig = (key: string, value: unknown) =>
     setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
@@ -68,6 +71,8 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setPersonaCountMax(simulation.persona_count_max ?? 1);
       setTypeSpecificConfig(simulation.type_specific_config || {});
       setInputFields(simulation.required_input_fields || []);
+      setShowPromptReview(false);
+      setReviewedSystemPrompt('');
     }
   }, [simulation]);
 
@@ -151,6 +156,73 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       }
     }
 
+    // Already in review step: save with the edited prompt
+    if (showPromptReview) {
+      setIsSubmitting(true);
+      try {
+        const data: CreateSimulationRequest | UpdateSimulationRequest = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          icon: icon.trim() || undefined,
+          required_input_fields: inputFields,
+          is_active: isActive,
+          system_prompt: reviewedSystemPrompt.trim(),
+        };
+        if (simulation) {
+          (data as UpdateSimulationRequest).simulation_type = simulationType || undefined;
+          (data as UpdateSimulationRequest).allowed_persona_types = allowedPersonaTypes;
+          (data as UpdateSimulationRequest).persona_count_min = personaCountMin;
+          (data as UpdateSimulationRequest).persona_count_max = personaCountMax;
+          (data as UpdateSimulationRequest).type_specific_config = Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined;
+        } else {
+          (data as CreateSimulationRequest).simulation_type = (simulationType as SimulationType) || undefined;
+          (data as CreateSimulationRequest).allowed_persona_types = allowedPersonaTypes;
+          (data as CreateSimulationRequest).persona_count_min = personaCountMin;
+          (data as CreateSimulationRequest).persona_count_max = personaCountMax;
+          (data as CreateSimulationRequest).type_specific_config = Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined;
+        }
+        await onSubmit(data);
+      } catch (error: any) {
+        alert(`Failed to save: ${error.message || 'Unknown error'}`);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // With a type selected: generate prompt and show review step
+    if (simulationType) {
+      setIsSubmitting(true);
+      try {
+        if (simulation) {
+          setReviewedSystemPrompt(simulation.system_prompt || '');
+          setShowPromptReview(true);
+        } else {
+          const payload: CreateSimulationRequest = {
+            title: title.trim(),
+            description: description.trim() || undefined,
+            icon: icon.trim() || undefined,
+            required_input_fields: inputFields,
+            is_active: isActive,
+            simulation_type: simulationType as SimulationType,
+            allowed_persona_types: allowedPersonaTypes,
+            persona_count_min: personaCountMin,
+            persona_count_max: personaCountMax,
+            type_specific_config: Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined,
+          };
+          const { system_prompt } = await simulationTemplateApi.previewPrompt(payload);
+          setReviewedSystemPrompt(system_prompt);
+          setShowPromptReview(true);
+        }
+      } catch (error: any) {
+        alert(`Failed to generate prompt: ${error.message || 'Unknown error'}`);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Legacy: no type, submit with raw system prompt
     setIsSubmitting(true);
     try {
       const data: CreateSimulationRequest | UpdateSimulationRequest = {
@@ -159,16 +231,8 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
         icon: icon.trim() || undefined,
         required_input_fields: inputFields,
         is_active: isActive,
+        system_prompt: systemPrompt.trim(),
       };
-      if (simulationType) {
-        data.simulation_type = simulationType;
-        data.allowed_persona_types = allowedPersonaTypes;
-        data.persona_count_min = personaCountMin;
-        data.persona_count_max = personaCountMax;
-        data.type_specific_config = Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined;
-      } else {
-        data.system_prompt = systemPrompt.trim();
-      }
       await onSubmit(data);
     } catch (error: any) {
       alert(`Failed to save: ${error.message || 'Unknown error'}`);
@@ -178,6 +242,39 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   };
 
   const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
+
+  if (showPromptReview) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
+        <p className="text-sm text-gray-600">Edit the generated prompt if needed, then click Save to finalize.</p>
+        <textarea
+          value={reviewedSystemPrompt}
+          onChange={(e) => setReviewedSystemPrompt(e.target.value)}
+          rows={14}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-indigo-500"
+          placeholder="System prompt..."
+        />
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setShowPromptReview(false)}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); handleSubmit(e as unknown as React.FormEvent); }}
+            disabled={isSubmitting}
+            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
+          >
+            {isSubmitting ? 'Saving...' : 'Save to finalize'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
@@ -228,6 +325,12 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           placeholder="Describe what this simulation is and what it tests..."
         />
+      </section>
+
+      {/* Icon — directly below description, compact */}
+      <section className="border-t border-gray-200 pt-6">
+        <IconPicker value={icon} onChange={setIcon} label="Icon" compact />
+        <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (side menu).</p>
       </section>
 
       {/* 4. Persona configuration */}
@@ -313,21 +416,68 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                   placeholder="e.g., Executive Summary, Methodology, Findings..."
                 />
               </div>
-              <p className="text-xs text-gray-500">Document upload for report basis can be added in Runner input fields below.</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Example document (optional)</label>
+                <p className="text-xs text-gray-500 mb-2">Upload a PDF or document to use as an example/reference for the report.</p>
+                {(typeSpecificConfig.report_example_file_name as string) ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700 truncate flex-1">{(typeSpecificConfig.report_example_file_name as string)}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfig('report_example_file_name', undefined);
+                        setConfig('report_example_content_base64', undefined);
+                      }}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-100 text-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const base64 = (reader.result as string)?.split(',')[1];
+                        if (base64) {
+                          setConfig('report_example_file_name', file.name);
+                          setConfig('report_example_content_base64', base64);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }}
+                    className="w-full text-sm text-gray-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  />
+                )}
+              </div>
             </>
           )}
 
           {simulationType === 'conversational_simulation' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Context label (for user)</label>
-                <input
-                  type="text"
-                  value={(typeSpecificConfig.context_label as string) || 'Context'}
-                  onChange={(e) => setConfig('context_label', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="e.g., Context"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Context label (for user, optional — can be cleared)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={(typeSpecificConfig.context_label as string) || ''}
+                    onChange={(e) => setConfig('context_label', e.target.value)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="e.g., Context"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setConfig('context_label', '')}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-100 text-sm whitespace-nowrap"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Decision point (what decision the persona makes) *</label>
@@ -638,12 +788,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             <Plus className="w-4 h-4" /> Add input field
           </button>
         </div>
-      </section>
-
-      {/* 7. Icon */}
-      <section className="border-t border-gray-200 pt-8">
-        <IconPicker value={icon} onChange={setIcon} label="Icon" />
-        <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (same as side menu).</p>
       </section>
 
       {/* 8. Active + 9. Submit / Cancel */}

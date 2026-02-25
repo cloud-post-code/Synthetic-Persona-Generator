@@ -94,6 +94,11 @@ export const simulationTemplateApi = {
     return apiClient.put<SimulationTemplate>(`/admin/simulations/${id}`, data);
   },
 
+  /** Generate system prompt from config (for review/edit before save) */
+  previewPrompt: async (data: CreateSimulationRequest): Promise<{ system_prompt: string }> => {
+    return apiClient.post<{ system_prompt: string }>('/admin/simulations/preview-prompt', data);
+  },
+
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/admin/simulations/${id}`);
   },
