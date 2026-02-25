@@ -110,21 +110,51 @@ function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
   const desc = data.description?.trim() || 'No description provided.';
   const type = data.simulation_type || 'chat';
   const config = data.type_specific_config || {};
-  return `You are running a ${type} simulation.
+  const lines: string[] = [
+    `You are running a ${type} simulation.`,
+    '',
+    '### What this simulation is',
+    desc,
+    '',
+    '### Variables you can use',
+    '- {{SELECTED_PROFILE}} - Name of the selected persona',
+    '- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint',
+    '- {{BACKGROUND_INFO}} - Background context from user',
+    '- {{OPENING_LINE}} - Opening line or content from user',
+    '',
+  ];
 
-### What this simulation is
-${desc}
+  if (type === 'conversational_simulation') {
+    const decisionPoint = (config.decision_point as string)?.trim();
+    const decisionCriteria = (config.decision_criteria as string)?.trim();
+    if (decisionPoint) lines.push('### Decision point\n' + decisionPoint + '\n');
+    if (decisionCriteria) lines.push('### Decision criteria (evaluate the persona\'s decision using)\n' + decisionCriteria + '\n');
+  }
 
-### Variables you can use
-- {{SELECTED_PROFILE}} - Name of the selected persona
-- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint
-- {{BACKGROUND_INFO}} - Background context from user
-- {{OPENING_LINE}} - Opening line or content from user
+  if (type === 'survey') {
+    const surveyMode = (config.survey_mode as string) || 'generated';
+    lines.push('### Survey mode: ' + surveyMode + '\n');
+    if (surveyMode === 'generated') {
+      const purpose = (config.survey_purpose as string)?.trim();
+      if (purpose) lines.push('### Survey purpose\n' + purpose + '\n');
+      const questions = config.survey_questions as Array<{ type: string; question: string; options?: string[] }> | undefined;
+      if (questions?.length) {
+        lines.push('### Survey questions (in order)');
+        questions.forEach((q, i) => {
+          lines.push(`${i + 1}. [${q.type}] ${q.question}`);
+          if (q.type === 'multiple_choice' && q.options?.length) lines.push('   Options: ' + q.options.filter(Boolean).join(', '));
+        });
+        lines.push('');
+      }
+    }
+  }
 
-### Type-specific config
-${JSON.stringify(config)}
+  lines.push('### Additional config');
+  lines.push(JSON.stringify(config));
+  lines.push('');
+  lines.push('Stay in character and use the profile and inputs to respond.');
 
-Stay in character and use the profile and inputs to respond.`;
+  return lines.join('\n');
 }
 
 export async function updateSimulation(id: string, data: UpdateSimulationRequest): Promise<SimulationTemplate | null> {

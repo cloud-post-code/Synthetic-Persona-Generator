@@ -113,6 +113,21 @@ export type SimulationType =
   | 'survey'
   | 'ideation';
 
+/** Survey question shape for generated survey mode (type_specific_config.survey_questions). */
+export interface SurveyQuestion {
+  type: 'text' | 'numeric' | 'multiple_choice';
+  question: string;
+  options?: string[];
+}
+
+/**
+ * type_specific_config (JSONB) can contain:
+ * - conversational_simulation: decision_point, decision_criteria
+ * - survey: survey_mode ('generated'|'custom'), survey_purpose, survey_questions (SurveyQuestion[] when generated)
+ * - report: report_structure, etc.
+ * - response_simulation: decision_type, question, possible_outputs, etc.
+ * - ideation: prompts, num_ideas, etc.
+ */
 export interface SimulationTemplate {
   id: string;
   title: string;

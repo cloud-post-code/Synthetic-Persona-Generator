@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import {
   SimulationTemplate,
   SimulationInputField,
   SimulationType,
+  SurveyQuestion,
   CreateSimulationRequest,
   UpdateSimulationRequest,
 } from '../services/simulationTemplateApi.js';
@@ -13,8 +14,8 @@ const SIMULATION_TYPES: { id: SimulationType; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'advice', label: 'Advice' },
   { id: 'report', label: 'Report' },
-  { id: 'conversational_simulation', label: 'Conversational simulation' },
-  { id: 'response_simulation', label: 'Response simulation' },
+  { id: 'conversational_simulation', label: 'Conversational Simulation' },
+  { id: 'response_simulation', label: 'Response Simulation' },
   { id: 'survey', label: 'Survey' },
   { id: 'ideation', label: 'Ideation' },
 ];
@@ -25,7 +26,7 @@ const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'practice_person', label: 'Practice Person' },
 ];
 
-type FormStep = 'type' | 'common' | 'config' | 'fields';
+type SurveyMode = 'generated' | 'custom';
 
 interface SimulationTemplateFormProps {
   simulation?: SimulationTemplate | null;
@@ -38,13 +39,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   onSubmit,
   onCancel,
 }) => {
-  const [step, setStep] = useState<FormStep>(() => {
-    if (simulation) {
-      if (simulation.simulation_type) return 'common';
-      return 'fields'; // legacy edit: go to fields and show system prompt
-    }
-    return 'type';
-  });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [icon, setIcon] = useState('');
@@ -57,6 +51,9 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
   const [inputFields, setInputFields] = useState<SimulationInputField[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const setConfig = (key: string, value: unknown) =>
+    setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
 
   useEffect(() => {
     if (simulation) {
@@ -97,6 +94,17 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     );
   };
 
+  // Survey Generated: questions list
+  const surveyQuestions = (typeSpecificConfig.survey_questions as SurveyQuestion[]) || [];
+  const setSurveyQuestions = (qs: SurveyQuestion[]) => setConfig('survey_questions', qs);
+  const addSurveyQuestion = () => setSurveyQuestions([...surveyQuestions, { type: 'text', question: '' }]);
+  const removeSurveyQuestion = (idx: number) => setSurveyQuestions(surveyQuestions.filter((_, i) => i !== idx));
+  const updateSurveyQuestion = (idx: number, patch: Partial<SurveyQuestion>) => {
+    const next = [...surveyQuestions];
+    next[idx] = { ...next[idx], ...patch };
+    setSurveyQuestions(next);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -104,14 +112,14 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       return;
     }
     if (simulationType && !description.trim()) {
-      alert('Description (what is this simulation) is required');
+      alert('What is this simulation about? is required');
       return;
     }
     if (!simulationType && !systemPrompt.trim()) {
       alert('System prompt is required for legacy simulations');
       return;
     }
-    if (allowedPersonaTypes.length === 0) {
+    if (simulationType && !allowedPersonaTypes.length) {
       alert('Select at least one persona type');
       return;
     }
@@ -119,9 +127,22 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       alert('Min personas cannot exceed max personas');
       return;
     }
+    if (simulationType === 'survey' && (typeSpecificConfig.survey_mode as SurveyMode) === 'generated') {
+      if (!surveyQuestions.length || surveyQuestions.some((q) => !q.question.trim())) {
+        alert('Generated survey must have at least one question with text');
+        return;
+      }
+      for (let i = 0; i < surveyQuestions.length; i++) {
+        const q = surveyQuestions[i];
+        if (q.type === 'multiple_choice' && (!q.options || q.options.filter(Boolean).length === 0)) {
+          alert(`Question ${i + 1} (multiple choice) must have at least one option`);
+          return;
+        }
+      }
+    }
     for (const field of inputFields) {
       if (!field.name.trim() || !field.label.trim()) {
-        alert('All input fields must have a name and label');
+        alert('All runner input fields must have a name and label');
         return;
       }
       if (field.type === 'multiple_choice' && (!field.options || field.options.length === 0)) {
@@ -156,41 +177,35 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     }
   };
 
-  const renderTypeStep = () => (
-    <div className="space-y-6">
-      <p className="text-sm text-gray-600">Choose the type of simulation you want to create.</p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {SIMULATION_TYPES.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => {
-              setSimulationType(id);
-              setStep('common');
-            }}
-            className="p-4 border-2 border-gray-200 rounded-lg text-left hover:border-indigo-500 hover:bg-indigo-50 font-medium"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg">
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
+  const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
 
-  const renderCommonStep = () => (
-    <div className="space-y-6">
-      {!simulation && (
-        <button type="button" onClick={() => setStep('type')} className="text-sm text-indigo-600 flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Back to type
-        </button>
-      )}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+  return (
+    <form onSubmit={handleSubmit} className="space-y-10">
+      {/* 1. Simulation type */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-900">Simulation type</h2>
+        <p className="text-sm text-gray-600">Choose the type of simulation. This determines how it runs and what outputs users see.</p>
+        <div className="flex flex-wrap gap-2">
+          {SIMULATION_TYPES.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSimulationType(id)}
+              className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
+                simulationType === id
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 2. Title */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-gray-900">Title</h2>
         <input
           type="text"
           value={title}
@@ -199,11 +214,12 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           placeholder="e.g., Web Page Response"
         />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          What is this simulation? (open-ended) *
-        </label>
+      </section>
+
+      {/* 3. What is this simulation about? */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-gray-900">What is this simulation about?</h2>
+        <p className="text-sm text-gray-600">Open-ended description used to generate the simulation behavior. Required when a type is selected.</p>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -212,209 +228,310 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           placeholder="Describe what this simulation is and what it tests..."
         />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Persona types that can run this</label>
-        <div className="flex flex-wrap gap-4">
-          {PERSONA_TYPE_OPTIONS.map(({ value, label }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={allowedPersonaTypes.includes(value)}
-                onChange={() => togglePersonaType(value)}
-                className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-              />
-              <span className="text-sm">{label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Min number of personas</label>
-          <select
-            value={personaCountMin}
-            onChange={(e) => setPersonaCountMin(Number(e.target.value))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-          >
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Max number of personas</label>
-          <select
-            value={personaCountMax}
-            onChange={(e) => setPersonaCountMax(Number(e.target.value))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-          >
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={() => setStep('type')} className="px-4 py-2 border border-gray-300 rounded-lg flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
-        <button type="button" onClick={() => setStep('config')} className="px-4 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-1">
-          Next <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
+      </section>
 
-  const renderConfigStep = () => {
-    const setConfig = (key: string, value: unknown) =>
-      setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
-    return (
-      <div className="space-y-6">
-        <button type="button" onClick={() => setStep('common')} className="text-sm text-indigo-600 flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
-        {simulationType === 'chat' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Opening line (optional)</label>
-            <input
-              type="text"
-              value={(typeSpecificConfig.opening_line as string) || ''}
-              onChange={(e) => setConfig('opening_line', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              placeholder="Default opening line for the chat"
-            />
+      {/* 4. Persona configuration */}
+      <section className="space-y-4 border-t border-gray-200 pt-8">
+        <h2 className="text-lg font-semibold text-gray-900">Who can run this simulation</h2>
+        <p className="text-sm text-gray-600">Select which persona types are allowed to run this simulation, and how many personas the user must select.</p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Persona types</label>
+          <div className="flex flex-wrap gap-4">
+            {PERSONA_TYPE_OPTIONS.map(({ value, label }) => (
+              <label key={value} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allowedPersonaTypes.includes(value)}
+                  onChange={() => togglePersonaType(value)}
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                />
+                <span className="text-sm">{label}</span>
+              </label>
+            ))}
           </div>
-        )}
-        {simulationType === 'report' && (
-          <>
+        </div>
+        <div className="grid grid-cols-2 gap-4 max-w-xs">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Min number of personas</label>
+            <select
+              value={personaCountMin}
+              onChange={(e) => setPersonaCountMin(Number(e.target.value))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            >
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Max number of personas</label>
+            <select
+              value={personaCountMax}
+              onChange={(e) => setPersonaCountMax(Number(e.target.value))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            >
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. Type-specific configuration */}
+      {simulationType && (
+        <section className="space-y-4 border-t border-gray-200 pt-8">
+          <h2 className="text-lg font-semibold text-gray-900">Configuration for {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label}</h2>
+          <p className="text-sm text-gray-600">Settings that define how this simulation type behaves. These are not shown to the person running the simulation.</p>
+
+          {simulationType === 'chat' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Report structure (sections/headings) *</label>
-              <textarea
-                value={(typeSpecificConfig.report_structure as string) || ''}
-                onChange={(e) => setConfig('report_structure', e.target.value)}
-                rows={4}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="e.g., Executive Summary, Methodology, Findings..."
-              />
-            </div>
-            <p className="text-xs text-gray-500">Document upload for report basis can be added as an input field below.</p>
-          </>
-        )}
-        {simulationType === 'conversational_simulation' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Context prompt (for user)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Default opening line for the chat (optional)</label>
               <input
                 type="text"
-                value={(typeSpecificConfig.context_label as string) || 'Context'}
-                onChange={(e) => setConfig('context_label', e.target.value)}
+                value={(typeSpecificConfig.opening_line as string) || ''}
+                onChange={(e) => setConfig('opening_line', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                placeholder="First message the persona says"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Decision point (creator description) *</label>
-              <textarea
-                value={(typeSpecificConfig.decision_point as string) || ''}
-                onChange={(e) => setConfig('decision_point', e.target.value)}
-                rows={2}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="What decision does the user/persona make?"
-              />
-            </div>
-          </>
-        )}
-        {simulationType === 'response_simulation' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Decision type</label>
-              <select
-                value={(typeSpecificConfig.decision_type as string) || 'numeric'}
-                onChange={(e) => setConfig('decision_type', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="numeric">Numeric (e.g. time, $)</option>
-                <option value="action">Action (multiple choice)</option>
-                <option value="text">Text (answer to a question)</option>
-              </select>
-            </div>
-            {(typeSpecificConfig.decision_type as string) === 'action' && (
+          )}
+
+          {simulationType === 'advice' && (
+            <p className="text-sm text-gray-500">Advice simulation uses the description above. Scoring and feedback are applied at runtime.</p>
+          )}
+
+          {simulationType === 'report' && (
+            <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Possible outputs (comma-separated)</label>
-                <input
-                  type="text"
-                  value={(typeSpecificConfig.action_options as string) || ''}
-                  onChange={(e) => setConfig('action_options', e.target.value)}
+                <label className="block text-sm font-medium text-gray-700 mb-2">Report structure (sections/headings) *</label>
+                <textarea
+                  value={(typeSpecificConfig.report_structure as string) || ''}
+                  onChange={(e) => setConfig('report_structure', e.target.value)}
+                  rows={4}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="e.g., Click, Don't click"
+                  placeholder="e.g., Executive Summary, Methodology, Findings..."
                 />
               </div>
-            )}
-          </>
-        )}
-        {simulationType === 'survey' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Survey format (one question per line; prefix with type: text, numeric, or choice)</label>
-            <textarea
-              value={(typeSpecificConfig.survey_format as string) || ''}
-              onChange={(e) => setConfig('survey_format', e.target.value)}
-              rows={6}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-              placeholder="text: What is your name?\nnumeric: How many years?\nchoice: Preferred option? (A|B|C)"
-            />
-          </div>
-        )}
-        {simulationType === 'ideation' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Ideation prompts/questions</label>
-              <textarea
-                value={(typeSpecificConfig.ideation_prompts as string) || ''}
-                onChange={(e) => setConfig('ideation_prompts', e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="Questions or prompts for brainstorming..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Number of ideas (default)</label>
-              <select
-                value={(typeSpecificConfig.num_ideas as number) ?? 5}
-                onChange={(e) => setConfig('num_ideas', Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                {[3, 5, 10, 15, 20].map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
-        {simulationType === 'advice' && (
-          <p className="text-sm text-gray-500">Advice simulation uses the description above. Scoring and feedback are applied at runtime.</p>
-        )}
-        <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => setStep('common')} className="px-4 py-2 border border-gray-300 rounded-lg">
-            Back
-          </button>
-          <button type="button" onClick={() => setStep('fields')} className="px-4 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-1">
-            Next: Input fields & icon <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
+              <p className="text-xs text-gray-500">Document upload for report basis can be added in Runner input fields below.</p>
+            </>
+          )}
 
-  const renderFieldsStep = () => (
-    <div className="space-y-6">
-      {simulationType && (
-        <button type="button" onClick={() => setStep('config')} className="text-sm text-indigo-600 flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Back to config
-        </button>
+          {simulationType === 'conversational_simulation' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Context label (for user)</label>
+                <input
+                  type="text"
+                  value={(typeSpecificConfig.context_label as string) || 'Context'}
+                  onChange={(e) => setConfig('context_label', e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  placeholder="e.g., Context"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Decision point (what decision the persona makes) *</label>
+                <textarea
+                  value={(typeSpecificConfig.decision_point as string) || ''}
+                  onChange={(e) => setConfig('decision_point', e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  placeholder="What decision does the user/persona make?"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Decision criteria (how the creator evaluates the decision)</label>
+                <textarea
+                  value={(typeSpecificConfig.decision_criteria as string) || ''}
+                  onChange={(e) => setConfig('decision_criteria', e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  placeholder="Criteria used to evaluate the decision..."
+                />
+              </div>
+            </>
+          )}
+
+          {simulationType === 'response_simulation' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Decision type</label>
+                <select
+                  value={(typeSpecificConfig.decision_type as string) || 'numeric'}
+                  onChange={(e) => setConfig('decision_type', e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="numeric">Numeric (e.g. time, $)</option>
+                  <option value="action">Action (multiple choice)</option>
+                  <option value="text">Text (answer to a question)</option>
+                </select>
+              </div>
+              {(typeSpecificConfig.decision_type as string) === 'action' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Possible outputs (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={(typeSpecificConfig.action_options as string) || ''}
+                    onChange={(e) => setConfig('action_options', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="e.g., Click, Don't click"
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {simulationType === 'survey' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Survey mode</label>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="survey_mode"
+                      checked={surveyMode === 'generated'}
+                      onChange={() => setConfig('survey_mode', 'generated')}
+                      className="border-gray-300 text-indigo-600"
+                    />
+                    <span className="text-sm">Generated (define questions below)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="survey_mode"
+                      checked={surveyMode === 'custom'}
+                      onChange={() => setConfig('survey_mode', 'custom')}
+                      className="border-gray-300 text-indigo-600"
+                    />
+                    <span className="text-sm">Custom (build questions in Runner input fields below)</span>
+                  </label>
+                </div>
+              </div>
+              {surveyMode === 'generated' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">What is this survey for?</label>
+                    <textarea
+                      value={(typeSpecificConfig.survey_purpose as string) || ''}
+                      onChange={(e) => setConfig('survey_purpose', e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Survey purpose or format..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Questions</label>
+                    <div className="space-y-3">
+                      {surveyQuestions.map((q, idx) => (
+                        <div key={idx} className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-gray-700">Question {idx + 1}</span>
+                            <button type="button" onClick={() => removeSurveyQuestion(idx)} className="text-red-600 hover:text-red-800 text-sm">
+                              Remove
+                            </button>
+                          </div>
+                          <select
+                            value={q.type}
+                            onChange={(e) => updateSurveyQuestion(idx, { type: e.target.value as SurveyQuestion['type'] })}
+                            className="w-full max-w-[180px] px-3 py-1.5 text-sm border border-gray-300 rounded"
+                          >
+                            <option value="text">Text</option>
+                            <option value="numeric">Numeric</option>
+                            <option value="multiple_choice">Multiple choice</option>
+                          </select>
+                          <input
+                            type="text"
+                            value={q.question}
+                            onChange={(e) => updateSurveyQuestion(idx, { question: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                            placeholder="Question text"
+                          />
+                          {q.type === 'multiple_choice' && (
+                            <div className="space-y-1 mt-2">
+                              <span className="text-xs text-gray-600">Options</span>
+                              {(q.options || []).map((opt, oi) => (
+                                <div key={oi} className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={opt}
+                                    onChange={(e) => {
+                                      const opts = [...(q.options || [])];
+                                      opts[oi] = e.target.value;
+                                      updateSurveyQuestion(idx, { options: opts });
+                                    }}
+                                    className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => updateSurveyQuestion(idx, { options: (q.options || []).filter((_, i) => i !== oi) })}
+                                    className="text-red-600 text-sm"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => updateSurveyQuestion(idx, { options: [...(q.options || []), ''] })}
+                                className="text-sm text-indigo-600 flex items-center gap-1"
+                              >
+                                <Plus className="w-4 h-4" /> Add option
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={addSurveyQuestion}
+                        className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-400 flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Plus className="w-4 h-4" /> Add question
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+              {surveyMode === 'custom' && (
+                <p className="text-sm text-gray-500">Use the Runner input fields section below to add the survey questions. The persona will respond with the survey background as context.</p>
+              )}
+            </>
+          )}
+
+          {simulationType === 'ideation' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Ideation prompts or questions</label>
+                <textarea
+                  value={(typeSpecificConfig.ideation_prompts as string) || ''}
+                  onChange={(e) => setConfig('ideation_prompts', e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  placeholder="Questions or prompts for brainstorming..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Number of ideas (default)</label>
+                <select
+                  value={(typeSpecificConfig.num_ideas as number) ?? 5}
+                  onChange={(e) => setConfig('num_ideas', Number(e.target.value))}
+                  className="w-full max-w-[200px] px-4 py-2 border border-gray-300 rounded-lg"
+                >
+                  {[3, 5, 10, 15, 20].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+        </section>
       )}
-      <IconPicker value={icon} onChange={setIcon} label="Icon" />
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Input Fields</label>
+
+      {/* 6. Runner input fields */}
+      <section className="space-y-4 border-t border-gray-200 pt-8">
+        <h2 className="text-lg font-semibold text-gray-900">Inputs the person running the simulation will provide</h2>
+        <p className="text-sm text-gray-600">These fields are shown to the user when they run this simulation (e.g. background context, opening line, file uploads).</p>
         <div className="space-y-3">
           {inputFields.map((field, index) => (
             <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
@@ -426,7 +543,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">Field Name *</label>
+                  <label className="block text-xs text-gray-600 mb-1">Field name *</label>
                   <input
                     type="text"
                     value={field.name}
@@ -446,11 +563,11 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     }}
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
                   >
-                    <option value="text">Short text</option>
-                    <option value="textarea">Long text / paragraph</option>
+                    <option value="text">Text</option>
+                    <option value="textarea">Text area</option>
                     <option value="image">Image</option>
                     <option value="table">Table (CSV, Excel)</option>
-                    <option value="pdf">PDF</option>
+                    <option value="pdf">File upload (PDF)</option>
                     <option value="multiple_choice">Multiple choice</option>
                   </select>
                 </div>
@@ -464,7 +581,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     onChange={(e) => handleFieldChange(index, { label: e.target.value })}
                     required
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
-                    placeholder="e.g., Background Context"
+                    placeholder="e.g., Background context"
                   />
                 </div>
                 {field.type !== 'multiple_choice' && (
@@ -518,55 +635,49 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             </div>
           ))}
           <button type="button" onClick={handleAddField} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-400 flex items-center justify-center gap-2">
-            <Plus className="w-4 h-4" /> Add Input Field
+            <Plus className="w-4 h-4" /> Add input field
           </button>
         </div>
-      </div>
-      {!simulationType && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">System Prompt * (legacy)</label>
-          <textarea
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            required={!simulationType}
-            rows={8}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-            placeholder="Use {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, {{OPENING_LINE}}"
-          />
-        </div>
-      )}
-      <div>
-        <label className="flex items-center gap-2">
+      </section>
+
+      {/* 7. Icon */}
+      <section className="border-t border-gray-200 pt-8">
+        <IconPicker value={icon} onChange={setIcon} label="Icon" />
+        <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (same as side menu).</p>
+      </section>
+
+      {/* 8. Active + 9. Submit / Cancel */}
+      <section className="border-t border-gray-200 pt-8 space-y-4">
+        <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-gray-300 text-indigo-600 w-4 h-4" />
           <span className="text-sm text-gray-700">Active (visible to users)</span>
         </label>
-      </div>
-      <div className="flex gap-3 pt-4">
-        {simulationType ? (
-          <button type="button" onClick={() => setStep('config')} className="px-4 py-2 border border-gray-300 rounded-lg">
-            Back
+        {!simulationType && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">System prompt * (legacy)</label>
+            <textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              required={!simulationType}
+              rows={6}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+              placeholder="Use {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, {{OPENING_LINE}}"
+            />
+          </div>
+        )}
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
+          >
+            {isSubmitting ? 'Saving...' : simulation ? 'Update Simulation' : 'Create Simulation'}
           </button>
-        ) : null}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {isSubmitting ? 'Saving...' : simulation ? 'Update Simulation' : 'Create Simulation'}
-        </button>
-        <button type="button" onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg">
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {step === 'type' && renderTypeStep()}
-      {step === 'common' && renderCommonStep()}
-      {step === 'config' && renderConfigStep()}
-      {step === 'fields' && renderFieldsStep()}
+          <button type="button" onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+        </div>
+      </section>
     </form>
   );
 };

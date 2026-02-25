@@ -23,6 +23,7 @@ import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
+import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
@@ -166,6 +167,7 @@ const SimulationPage: React.FC = () => {
 
   const [simulationHistory, setSimulationHistory] = useState<SimulationSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [surveyGeneratedAnswers, setSurveyGeneratedAnswers] = useState<Record<number, string>>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -321,12 +323,24 @@ const SimulationPage: React.FC = () => {
       alert('Please select a simulation');
       return;
     }
-    
-    // Validate required input fields
-    for (const field of selectedSimulation.required_input_fields) {
-      if (field.required && !inputFields[field.name]?.trim()) {
-        alert(`Please fill in the required field: ${field.label}`);
+
+    const typeConfig = selectedSimulation.type_specific_config || {};
+    const isGeneratedSurvey = selectedSimulation.simulation_type === 'survey' && typeConfig.survey_mode === 'generated';
+    const surveyQuestions = (typeConfig.survey_questions as SurveyQuestion[]) || [];
+
+    if (isGeneratedSurvey && surveyQuestions.length > 0) {
+      const allAnswered = surveyQuestions.every((q, i) => (surveyGeneratedAnswers[i] ?? '').trim() !== '');
+      if (!allAnswered) {
+        alert('Please answer all survey questions.');
         return;
+      }
+    } else {
+      // Validate required input fields (runner input fields)
+      for (const field of selectedSimulation.required_input_fields) {
+        if (field.required && !inputFields[field.name]?.trim()) {
+          alert(`Please fill in the required field: ${field.label}`);
+          return;
+        }
       }
     }
     
@@ -357,6 +371,11 @@ const SimulationPage: React.FC = () => {
       openingLine: openingLine,
       ...inputFields,
     };
+
+    if (isGeneratedSurvey && surveyQuestions.length > 0) {
+      const surveyLines = surveyQuestions.map((q, i) => `${i + 1}. ${q.question}\n   Answer: ${(surveyGeneratedAnswers[i] ?? '').trim() || '(none)'}`).join('\n');
+      fieldMap.bgInfo = (fieldMap.bgInfo ? fieldMap.bgInfo + '\n\n' : '') + 'Survey responses (persona context):\n' + surveyLines;
+    }
 
     let prompt = selectedSimulation.system_prompt
       .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
@@ -413,6 +432,14 @@ const SimulationPage: React.FC = () => {
       
       // Save initial message to localStorage
       localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
+      
+      if (isGeneratedSurvey && surveyQuestions.length > 0) {
+        localStorage.setItem(`simulationSurveyData_${newSessionId}`, JSON.stringify({
+          questions: surveyQuestions,
+          answers: surveyGeneratedAnswers,
+          respondentName: selectedPersona.name,
+        }));
+      }
       
       // Save full persona data (with files) to localStorage for quick restoration
       const personaWithFiles = {
@@ -625,6 +652,7 @@ const SimulationPage: React.FC = () => {
     setStimulusImage(null);
     setMimeType(null);
     setInputFields({});
+    setSurveyGeneratedAnswers({});
     setMessages([]);
   };
 
@@ -727,6 +755,7 @@ const SimulationPage: React.FC = () => {
                         setStage('inputs');
                         // Reset input fields when selecting new simulation
                         setInputFields({});
+                        setSurveyGeneratedAnswers({});
                       }}
                       className="group p-8 bg-white border border-gray-100 rounded-[2.5rem] text-left hover:shadow-2xl hover:-translate-y-2 transition-all border-b-8 hover:border-indigo-600 flex flex-col h-full"
                     >
@@ -789,7 +818,56 @@ const SimulationPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Dynamic input fields based on simulation template */}
+                {/* Generated survey: render survey_questions; else render runner input fields */}
+                {selectedSimulation?.simulation_type === 'survey' &&
+                 (selectedSimulation.type_specific_config?.survey_mode === 'generated') &&
+                 ((selectedSimulation.type_specific_config?.survey_questions as SurveyQuestion[])?.length ?? 0) > 0 ? (
+                  <div className="space-y-6">
+                    {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
+                      <div key={idx} className="space-y-4">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {idx + 2}. {q.question} *
+                        </label>
+                        {q.type === 'text' && (
+                          <input
+                            type="text"
+                            value={surveyGeneratedAnswers[idx] ?? ''}
+                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                          />
+                        )}
+                        {q.type === 'numeric' && (
+                          <input
+                            type="number"
+                            value={surveyGeneratedAnswers[idx] ?? ''}
+                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                          />
+                        )}
+                        {q.type === 'multiple_choice' && (
+                          <select
+                            value={surveyGeneratedAnswers[idx] ?? ''}
+                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                          >
+                            <option value="">Select...</option>
+                            {(q.options || []).filter(Boolean).map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      disabled={isLoading || !selectedPersona || !selectedSimulation}
+                      onClick={startSimulation}
+                      className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
+                    >
+                      {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
+                    </button>
+                  </div>
+                ) : (
+                <>
                 {selectedSimulation?.required_input_fields.map((field, index) => {
                   const fieldNumber = index + 2;
                   if (field.type === 'image') {
@@ -1004,6 +1082,8 @@ const SimulationPage: React.FC = () => {
                 >
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
                 </button>
+              </>
+                )}
               </div>
             </div>
           </div>
@@ -1029,6 +1109,28 @@ const SimulationPage: React.FC = () => {
           };
 
           const handleDownloadSurveyCsv = () => {
+            const surveyDataKey = currentSessionId ? `simulationSurveyData_${currentSessionId}` : null;
+            const stored = surveyDataKey ? localStorage.getItem(surveyDataKey) : null;
+            const parsed = stored ? (() => { try { return JSON.parse(stored); } catch { return null; } })() : null;
+            const isGenerated = parsed?.questions?.length && Array.isArray(parsed.questions);
+
+            if (isGenerated && parsed.questions && parsed.answers !== undefined) {
+              const header = ['Participant', 'Question', 'Answer'];
+              const rows = parsed.questions.map((q: SurveyQuestion, i: number) => [
+                parsed.respondentName ?? 'Participant',
+                q.question,
+                (parsed.answers as Record<number, string>)[i] ?? '',
+              ]);
+              const csv = [header.map(h => `"${String(h).replace(/"/g, '""')}"`).join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `survey-${selectedSimulation?.title || 'survey'}-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+              return;
+            }
             const rows = messages.map(m => [
               m.senderType === 'user' ? 'User' : (selectedPersona?.name || 'Persona'),
               m.content.replace(/"/g, '""'),

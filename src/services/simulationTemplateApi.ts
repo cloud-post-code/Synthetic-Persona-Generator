@@ -19,6 +19,13 @@ export interface SimulationInputField {
   options?: string[];
 }
 
+/** Survey question for Generated survey mode */
+export interface SurveyQuestion {
+  type: 'text' | 'numeric' | 'multiple_choice';
+  question: string;
+  options?: string[];
+}
+
 export interface SimulationTemplate {
   id: string;
   title: string;
