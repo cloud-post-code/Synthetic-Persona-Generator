@@ -14,6 +14,41 @@ async function migrate() {
     
     await pool.query(schema);
     
+    // Ensure business_profiles exists (for DBs created before this table was in schema)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS business_profiles (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+          business_name VARCHAR(255),
+          mission_statement TEXT,
+          vision_statement TEXT,
+          description_main_offerings TEXT,
+          key_features_or_benefits TEXT,
+          unique_selling_proposition TEXT,
+          pricing_model TEXT,
+          customer_segments TEXT,
+          geographic_focus TEXT,
+          industry_served VARCHAR(100),
+          what_differentiates TEXT,
+          market_niche TEXT,
+          revenue_streams TEXT,
+          distribution_channels TEXT,
+          key_personnel TEXT,
+          major_achievements TEXT,
+          revenue TEXT,
+          key_performance_indicators TEXT,
+          funding_rounds TEXT,
+          website VARCHAR(500),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id)');
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
+    }
+    
     // Add is_admin column if it doesn't exist (for existing databases)
     try {
       await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE');
