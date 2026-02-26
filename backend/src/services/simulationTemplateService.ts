@@ -194,9 +194,34 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     }
   }
 
-  lines.push('### Additional config');
-  lines.push(JSON.stringify(config));
-  lines.push('');
+  // Optional: add any type_specific_config keys not already rendered above (so we avoid duplicating)
+  const alreadyRenderedKeys = new Set<string>();
+  if (type === 'persuasion_simulation') {
+    alreadyRenderedKeys.add('decision_point');
+    alreadyRenderedKeys.add('decision_criteria');
+  }
+  if (type === 'report') {
+    alreadyRenderedKeys.add('report_structure');
+    alreadyRenderedKeys.add('report_example_file_name');
+  }
+  if (type === 'survey') {
+    alreadyRenderedKeys.add('survey_mode');
+    alreadyRenderedKeys.add('survey_purpose');
+    alreadyRenderedKeys.add('survey_questions');
+  }
+  const extraConfig: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(config)) {
+    if (!alreadyRenderedKeys.has(k) && v !== undefined && v !== null && v !== '') {
+      extraConfig[k] = v;
+    }
+  }
+  if (Object.keys(extraConfig).length > 0) {
+    lines.push('');
+    lines.push('### Additional config');
+    lines.push(JSON.stringify(extraConfig));
+    lines.push('');
+  }
+
   lines.push('Stay in character and use the profile and inputs to respond.');
 
   return lines.join('\n');

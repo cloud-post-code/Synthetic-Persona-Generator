@@ -340,11 +340,14 @@ export const geminiService = {
 
   /**
    * Generate a system prompt for a simulation from its full configuration.
-   * Pass the entire create-simulation payload; the AI returns the system prompt text to use.
+   * Extracts intent, goals, and instructions from the user's description and
+   * type-specific fields, then synthesizes a high-quality prompt while
+   * preserving the required structured output format for the simulation type.
    */
   generateSystemPromptFromConfig: async (config: {
     title: string;
     description?: string;
+    icon?: string;
     simulation_type?: string;
     allowed_persona_types?: string[];
     persona_count_min?: number;
@@ -360,23 +363,39 @@ export const geminiService = {
     const simType = config.simulation_type || 'chat';
     const typeOutputSpec = SIMULATION_TYPE_OUTPUT_SPECS[simType];
     const typeSpecSection = typeOutputSpec
-      ? `\nSIMULATION TYPE — EXPECTED OUTPUT AND BEHAVIOR:\nThe following describes what kind of output this simulation must produce. Your generated system prompt must instruct the persona so that the actual run produces this type of output:\n\n${typeOutputSpec}\n`
+      ? `\n## MANDATORY OUTPUT FORMAT (do not change)\nThe simulation must produce exactly this kind of output. Your system prompt must enforce it:\n\n${typeOutputSpec}\n`
       : '';
-    const prompt = `You are helping create the system prompt for a simulation. Below is the full configuration the admin entered. Generate the exact system prompt text that will be used when running this simulation. The prompt will be shown to the user for editing before saving.
-${typeSpecSection}
-REQUIREMENTS:
-- The system prompt must instruct the AI/persona how to behave during the simulation.
-- You MUST include and document these template variables exactly as specified; they will be replaced at runtime:
-  {{SELECTED_PROFILE}} - name of the selected persona
-  {{SELECTED_PROFILE_FULL}} - full profile and blueprint content
-  {{BACKGROUND_INFO}} - background/context from the user running the simulation
-  {{OPENING_LINE}} - opening line or initial content from the user
-- You MUST include and document every entry in required_input_fields as template variables. For each field, add a line with: the variable placeholder {{FIELD_NAME}} (use the field's name in UPPERCASE), the input type (text, textarea, image, table, pdf, or multiple_choice), and the label/description. These will be replaced at runtime. Include all fields regardless of type so the persona knows what inputs are available.
-- Write in clear sections (e.g. with ### headers). Include: what this simulation is, how the persona should act, and how to use the variables.
-- Do not add any preamble or explanation—output ONLY the system prompt text that will be stored and used.
 
-CONFIGURATION (JSON):
-${JSON.stringify(config, null, 2)}
+    // Omit icon so it is not passed to chat / included in the system prompt
+    const { icon: _icon, ...configForPrompt } = config;
+
+    const prompt = `You are an expert at turning product and simulation configs into clear, high-quality system prompts for AI personas.
+
+## Your task
+1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, survey_purpose, ideation_prompts, etc.). Infer:
+   - The **purpose** and **goal** of the simulation (what the user wants to achieve).
+   - **Tone and style** (e.g. professional, conversational, formal, advisory).
+   - **Key instructions** the persona must follow (what to emphasize, what to avoid, how to use context).
+   - **Domain and audience** (who the persona is addressing, in what context).
+   - **Success criteria** (what "good" looks like for this simulation).
+2. **Synthesize** a single system prompt that:
+   - Opens with a clear, concise "what this simulation is" section that reflects the extracted purpose and goal (do not just paste the description verbatim—rephrase and sharpen it).
+   - Includes an "how to behave" / "instructions for the persona" section built from the extracted instructions, tone, and success criteria.
+   - Documents the template variables below exactly (so they can be replaced at runtime).
+   - Ends with the MANDATORY OUTPUT FORMAT section so the persona knows the exact structure of the response (conversation only, report, persuasion percentage, etc.).
+
+## Rules
+- **Do not** copy the description or config fields word-for-word. Interpret and extract; turn them into precise, actionable instructions.
+- **Do** document every required_input_fields entry as a template variable: {{FIELD_NAME}} (UPPERCASE), with type and label. These will be replaced at runtime.
+- **Do** include the core variables: {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, {{OPENING_LINE}}.
+- **Do** keep the same strict output behavior for this simulation type (see MANDATORY OUTPUT FORMAT). The persona's response format must match it exactly.
+- Output ONLY the system prompt text. No preamble, no "Here is the prompt", no explanation.
+${typeSpecSection}
+
+## Configuration from the user (extract from this)
+\`\`\`json
+${JSON.stringify(configForPrompt, null, 2)}
+\`\`\`
 
 Output only the system prompt text, nothing else.`;
 
