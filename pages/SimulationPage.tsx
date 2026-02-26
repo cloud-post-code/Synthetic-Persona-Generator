@@ -265,7 +265,7 @@ const SimulationPage: React.FC = () => {
 
       const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
         `Context of Simulation: ${bgInfo}.\n` +
-        `Respond to the user naturally in your unique voice. Staying in character is mandatory.`;
+        `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
       
       const response = await geminiService.chat(systemPrompt, history, userMsg.content);
       
@@ -332,7 +332,7 @@ const SimulationPage: React.FC = () => {
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">
       {/* Sidebar - History */}
-      <aside className="hidden md:flex w-80 flex-col border-r border-gray-100 bg-gray-50/50">
+      <aside className="hidden md:flex w-96 flex-col border-r border-gray-100 bg-gray-50/50">
         <div className="p-6 border-b border-gray-100 bg-white">
           <button
             onClick={startNewSim}

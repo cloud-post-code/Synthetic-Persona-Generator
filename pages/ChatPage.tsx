@@ -157,7 +157,7 @@ const ChatPage: React.FC = () => {
             
           systemPrompt += `--- FILE: ${file.name} ---\n${truncatedContent}\n\n`;
         }
-        systemPrompt += `INSTRUCTIONS: Respond naturally to the user's message as this persona. Stay in character. Use bolding (**text**) for emphasis and bullet points for lists to ensure your message is easy to read and highly professional.`;
+        systemPrompt += `INSTRUCTIONS: You ARE this persona. Respond naturally to the user's message only as this persona—never describe or reference the persona in your reply; speak in first person as them. Stay in character. Use bolding (**text**) for emphasis and bullet points for lists to ensure your message is easy to read and highly professional.`;
 
         const allCurrentMessages = await storageService.getMessages(session.id);
         const historyLimit = 20;

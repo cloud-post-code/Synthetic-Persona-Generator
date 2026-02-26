@@ -550,6 +550,7 @@ RULES:
 
 ## Rules
 - **Do not** copy the description or config fields word-for-word. Interpret and extract; turn them into precise, actionable instructions.
+- **The AI must respond ONLY as the persona**—never describe, reference, or embed the persona in the response (no "As the synthetic user...", "The persona would say...", or meta-commentary). The system prompt must state clearly that the AI answers AS IF they were the persona, in first person only.
 - **Do** document every required_input_fields entry as a template variable: {{FIELD_NAME}} (UPPERCASE), with type and name. These will be replaced at runtime.
 - **Do** include the core variables: {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}. Use required_input_fields placeholders (e.g. {{FIELD_NAME}}) for user-provided content; do not require {{OPENING_LINE}}.
 - **Do** keep the same strict output behavior for this simulation type (see MANDATORY OUTPUT FORMAT). The persona's response format must match it exactly.

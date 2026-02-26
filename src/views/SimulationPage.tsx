@@ -553,6 +553,7 @@ const SimulationPage: React.FC = () => {
           const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
           const systemPrompt =
             `You are strictly acting as the persona: ${currentSpeaker.name}.\n\n` +
+            `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona.\n\n` +
             `Context: You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\n` +
             getPersonaProfile(currentSpeaker) +
             `\nRespond in character. Stay concise; this is one turn in a discussion.`;
@@ -792,7 +793,7 @@ const SimulationPage: React.FC = () => {
 
       const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
         `Context of Simulation: ${bgInfo}.\n` +
-        `Respond to the user naturally in your unique voice. Staying in character is mandatory.`;
+        `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
       
       const response = await geminiService.chat(systemPrompt, history, currentInput);
       
@@ -979,7 +980,7 @@ const SimulationPage: React.FC = () => {
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">
       {/* Sidebar - History */}
-      <aside className="hidden md:flex w-80 flex-col border-r border-gray-100 bg-gray-50/50">
+      <aside className="hidden md:flex w-96 flex-col border-r border-gray-100 bg-gray-50/50">
         <div className="p-6 border-b border-gray-100 bg-white">
           <button
             onClick={startNewSim}
@@ -1499,12 +1500,12 @@ const SimulationPage: React.FC = () => {
 
           return (
           <div className="flex flex-col h-full bg-white relative">
-            <header className="px-10 py-6 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-xl z-10">
+            <header className="px-10 py-7 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-xl z-10">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg">
-                  <Sparkles className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg">
+                  <Sparkles className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-black text-gray-900">
+                <h2 className="text-2xl font-black text-gray-900">
                   {isReport ? 'Report' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : simulationOutputType === 'persona_conversation' ? 'Persona v Persona' : 'Simulation Workspace'}
                 </h2>
               </div>
@@ -1534,16 +1535,16 @@ const SimulationPage: React.FC = () => {
                     <div className={`flex gap-5 max-w-[85%] sm:max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                       <div className="shrink-0 mt-1">
                         {isUser ? (
-                          <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center shadow-lg"><User className="text-white w-6 h-6" /></div>
+                          <div className="w-12 h-12 bg-gray-900 rounded-xl flex items-center justify-center shadow-lg"><User className="text-white w-7 h-7" /></div>
                         ) : isModerator ? (
-                          <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-sm">M</div>
+                          <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-base">M</div>
                         ) : (
-                          <img src={avatarUrl} alt={displayName} className="w-10 h-10 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100 object-cover" />
+                          <img src={avatarUrl} alt={displayName} className="w-12 h-12 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100 object-cover" />
                         )}
                       </div>
                       <div className="space-y-1 min-w-0 relative">
-                        {!isUser && <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{displayName}</p>}
-                        <div className={`p-6 rounded-3xl shadow-sm text-lg relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : isModerator ? 'bg-amber-50 border border-amber-200 text-gray-800 rounded-tl-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                        {!isUser && <p className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">{displayName}</p>}
+                        <div className={`p-6 rounded-3xl shadow-sm text-xl relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : isModerator ? 'bg-amber-50 border border-amber-200 text-gray-800 rounded-tl-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
                           <FormattedSimulationResponse content={m.content} isUser={isUser} />
                           {!isPersonaConversation && (
                           <button
@@ -1570,14 +1571,14 @@ const SimulationPage: React.FC = () => {
             <div className="flex-grow overflow-y-auto p-10 bg-gray-50/20">
               {personaResults.length > 1 ? (
                 <div className="space-y-8">
-                  <p className="text-sm text-gray-600 font-medium">Each persona’s response</p>
+                  <p className="text-base text-gray-600 font-medium">Each persona’s response</p>
                   {personaResults.map((pr, idx) => (
                     <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
                       <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-100">
-                        {pr.avatarUrl && <img src={pr.avatarUrl} alt={pr.name} className="w-12 h-12 rounded-xl object-cover" />}
-                        <span className="text-base font-black text-gray-900">{pr.name}</span>
+                        {pr.avatarUrl && <img src={pr.avatarUrl} alt={pr.name} className="w-14 h-14 rounded-xl object-cover" />}
+                        <span className="text-lg font-black text-gray-900">{pr.name}</span>
                       </div>
-                      <div className="text-gray-800">
+                      <div className="text-gray-800 text-lg leading-relaxed">
                         <FormattedSimulationResponse content={pr.content} isUser={false} />
                       </div>
                     </div>
@@ -1587,16 +1588,16 @@ const SimulationPage: React.FC = () => {
                 <>
               {isReport && (
                 <>
-                  <p className="text-sm text-gray-600 mb-4 font-medium">Summary</p>
-                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 whitespace-pre-wrap">
+                  <p className="text-base text-gray-600 mb-4 font-medium">Summary</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed whitespace-pre-wrap">
                     <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                   </div>
                 </>
               )}
               {isSurvey && (
                 <>
-                  <p className="text-sm text-gray-600 mb-2 font-medium">Summary & key points</p>
-                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                  <p className="text-base text-gray-600 mb-2 font-medium">Summary & key points</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed">
                     <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                   </div>
                 </>
@@ -1681,58 +1682,41 @@ const SimulationPage: React.FC = () => {
         const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
         const parsedPersuasionLocal = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
         const persuasionScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
-        const fullConversationText = persuasionContext?.fullConversation ?? messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name ?? 'Persona'}: ${m.content}`).join('\n\n');
-        const systemPromptText = persuasionContext?.systemPrompt ?? null;
         return (
-        <aside className="hidden lg:flex w-96 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-8 space-y-10">
+        <aside className="hidden lg:flex w-[32rem] max-w-[32rem] flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10">
           {isPersuasion && (
-            <>
-              <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
-                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Persuasion (from API)</h4>
-                {persuasionContextLoading ? (
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span className="text-sm">Loading...</span>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-3xl font-black text-indigo-600">{persuasionScore != null ? `${persuasionScore}%` : '—'}</p>
-                    <p className="text-xs text-gray-500 mt-1">How persuaded the agent is</p>
-                  </>
-                )}
-              </div>
-              {!persuasionContextLoading && (
+            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
+              <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Persuasion (from API)</h4>
+              {persuasionContextLoading ? (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span className="text-base">Loading...</span>
+                </div>
+              ) : (
                 <>
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">System Prompt</h4>
-                    <div className="bg-white border border-gray-100 rounded-2xl p-4 max-h-48 overflow-y-auto">
-                      <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{systemPromptText ?? '—'}</pre>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Full Conversation</h4>
-                    <div className="bg-white border border-gray-100 rounded-2xl p-4 max-h-64 overflow-y-auto">
-                      <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{fullConversationText || '—'}</pre>
-                    </div>
-                  </div>
+                  <p className="text-5xl font-black text-indigo-600 tracking-tight">
+                    {persuasionScore != null ? Math.round(Number(persuasionScore)) : '—'}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-2 font-medium">out of 100</p>
+                  <p className="text-xs text-gray-400 mt-1">How persuaded the agent is</p>
                 </>
               )}
-            </>
+            </div>
           )}
           <div className="flex items-center gap-4 pb-8 border-b border-gray-100">
-             <img src={selectedPersona?.avatarUrl} className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white" />
+             <img src={selectedPersona?.avatarUrl} className="w-20 h-20 rounded-2xl object-cover shadow-xl border-2 border-white" />
              <div>
-               <h3 className="font-black text-gray-900 leading-none mb-1">{selectedPersona?.name}</h3>
-               <p className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">{selectedSimulation?.title || 'Simulation'}</p>
+               <h3 className="text-xl font-black text-gray-900 leading-tight mb-1">{selectedPersona?.name}</h3>
+               <p className="text-xs text-indigo-600 font-black uppercase tracking-widest">{selectedSimulation?.title || 'Simulation'}</p>
              </div>
           </div>
           <div className="space-y-3">
-            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Context Info</h4>
-            <p className="text-sm text-gray-600 leading-relaxed font-medium bg-white p-4 rounded-2xl border border-gray-100 italic">"{bgInfo}"</p>
+            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Context Info</h4>
+            <p className="text-base text-gray-600 leading-relaxed font-medium bg-white p-5 rounded-2xl border border-gray-100 italic">"{bgInfo}"</p>
           </div>
           {stimulusImage && (
             <div className="space-y-3">
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Stimulus Asset</h4>
+              <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Stimulus Asset</h4>
               <img src={stimulusImage} className="w-full rounded-2xl shadow-sm border border-gray-100" />
             </div>
           )}

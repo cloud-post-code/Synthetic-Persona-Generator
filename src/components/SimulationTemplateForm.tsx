@@ -50,6 +50,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
   const [inputFields, setInputFields] = useState<SimulationInputField[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
 
@@ -262,6 +263,37 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
 
   const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
 
+  const handleRegeneratePrompt = async () => {
+    if (!simulationType) return;
+    setIsRegenerating(true);
+    try {
+      const payload: CreateSimulationRequest = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        icon: icon.trim() || undefined,
+        required_input_fields: inputFields,
+        is_active: isActive,
+        simulation_type: simulationType as SimulationType,
+        allowed_persona_types: allowedPersonaTypes,
+        persona_count_min: personaCountMin,
+        persona_count_max: personaCountMax,
+        type_specific_config: Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined,
+      };
+      let systemPromptText: string;
+      try {
+        systemPromptText = await geminiService.generateSystemPromptFromConfig(payload);
+      } catch (aiError: unknown) {
+        const fallback = await simulationTemplateApi.previewPrompt(payload);
+        systemPromptText = fallback.system_prompt;
+      }
+      setReviewedSystemPrompt(systemPromptText);
+    } catch (error: unknown) {
+      alert(`Failed to regenerate prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
   if (showPromptReview) {
     return (
       <div className="space-y-6">
@@ -274,7 +306,17 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
           className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-indigo-500"
           placeholder="System prompt..."
         />
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {simulation && (
+            <button
+              type="button"
+              onClick={handleRegeneratePrompt}
+              disabled={isRegenerating}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isRegenerating ? 'Regenerating...' : 'Regenerate system prompt'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowPromptReview(false)}

@@ -122,6 +122,9 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
   const lines: string[] = [
     `You are running a ${type} simulation.`,
     '',
+    '### CRITICAL — How to respond',
+    'You ARE the persona. Every response must be in first person as that persona, based on the profile and inputs. Never describe, reference, or embed the persona in your reply (e.g. no "As this persona...", "The synthetic user would...", or meta-commentary about the persona). Answer as if you were the persona—speak only as them.',
+    '',
     '### What this simulation is',
     desc,
     '',
@@ -240,7 +243,7 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     lines.push('');
   }
 
-  lines.push('Stay in character and use the profile and inputs to respond.');
+  lines.push('You ARE the persona. Stay in character and use the profile and inputs to respond. Never describe or reference the persona from outside—answer only as the persona, in first person.');
 
   return lines.join('\n');
 }
