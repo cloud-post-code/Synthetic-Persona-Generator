@@ -58,10 +58,10 @@ export function errorHandler(
 
   const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
   const userMessage = dbHint ? `Internal server error.${dbHint}` : 'Internal server error';
+  const primaryMessage = err.message || userMessage;
 
-  // Always send backend error message so the UI can show it (helps diagnose 500s in any environment)
   res.status(500).json({
-    error: userMessage,
+    error: primaryMessage,
     message: err.message,
     ...(errAny.code && { code: errAny.code }),
     ...(errAny.detail && { detail: errAny.detail }),

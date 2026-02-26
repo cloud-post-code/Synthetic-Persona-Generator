@@ -85,7 +85,31 @@ export async function upsert(
       }
     }
   }
-  const valuesForColumns = COLUMNS.map((c) => (sanitized[c] !== undefined ? sanitized[c] : null));
+  const valuesForColumns = COLUMNS.map((c) => {
+    const v = sanitized[c];
+    return v === undefined ? null : (v === null ? null : String(v));
+  });
+
+  const runUpdate = async (): Promise<BusinessProfile> => {
+    const updateSet = COLUMNS.map((c, i) => `${c} = $${i + 1}`).join(', ');
+    const updateValues = [...valuesForColumns, userId];
+    const result = await pool.query(
+      `UPDATE business_profiles SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $${COLUMNS.length + 1}
+       RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
+      updateValues
+    );
+    if (result.rows && result.rows.length > 0) {
+      return mapRow(result.rows[0]);
+    }
+    const refetch = await pool.query(
+      `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
+       FROM business_profiles WHERE user_id = $1`,
+      [userId]
+    );
+    if (refetch.rows.length === 0) throw new Error('Business profile update returned no row');
+    return mapRow(refetch.rows[0]);
+  };
 
   try {
     const existing = await pool.query(
@@ -94,24 +118,7 @@ export async function upsert(
     );
 
     if (existing.rows.length > 0) {
-      const updateSet = COLUMNS.map((c, i) => `${c} = $${i + 1}`).join(', ');
-      const updateValues = [...valuesForColumns, userId];
-      const result = await pool.query(
-        `UPDATE business_profiles SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = $${COLUMNS.length + 1}
-         RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-        updateValues
-      );
-      if (result.rows && result.rows.length > 0) {
-        return mapRow(result.rows[0]);
-      }
-      const refetch = await pool.query(
-        `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
-         FROM business_profiles WHERE user_id = $1`,
-        [userId]
-      );
-      if (refetch.rows.length === 0) throw new Error('Business profile update returned no row');
-      return mapRow(refetch.rows[0]);
+      return runUpdate();
     }
 
     const insertValues = [userId, ...valuesForColumns];
@@ -128,8 +135,17 @@ export async function upsert(
     }
     return mapRow(result.rows[0]);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
     const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;
+    if (code === '23505') {
+      try {
+        return runUpdate();
+      } catch (retryErr) {
+        const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        console.error('businessProfileService.upsert retry after 23505 failed:', msg, retryErr);
+        throw retryErr;
+      }
+    }
+    const msg = err instanceof Error ? err.message : String(err);
     console.error('businessProfileService.upsert error:', msg, code, err);
     throw err;
   }
