@@ -74,7 +74,7 @@ Authorization: Bearer <token>
     "id": "uuid",
     "user_id": "uuid",
     "name": "string",
-    "type": "synthetic_user" | "advisor" | "practice_person",
+    "type": "synthetic_user" | "advisor",
     "description": "string",
     "avatar_url": "string",
     "metadata": {},
@@ -98,7 +98,7 @@ Content-Type: application/json
 
 {
   "name": "string",
-  "type": "synthetic_user" | "advisor" | "practice_person",
+  "type": "synthetic_user" | "advisor",
   "description": "string",
   "avatar_url": "string",
   "metadata": {}

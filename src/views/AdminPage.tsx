@@ -11,11 +11,11 @@ import {
   Loader2,
   Shield
 } from 'lucide-react';
-import { adminApi, AdminStats, UserWithStats, PersonaWithOwner, ChatSessionWithOwner } from '../services/adminApi.js';
+import { adminApi, AdminStats, UserWithStats, PersonaWithOwner } from '../services/adminApi.js';
 import { simulationTemplateApi, SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../services/simulationTemplateApi.js';
 import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
 
-type TabType = 'dashboard' | 'users' | 'personas' | 'chats' | 'simulations';
+type TabType = 'dashboard' | 'users' | 'personas' | 'simulations';
 
 const AdminPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -23,7 +23,6 @@ const AdminPage: React.FC = () => {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<UserWithStats[]>([]);
   const [personas, setPersonas] = useState<PersonaWithOwner[]>([]);
-  const [chats, setChats] = useState<ChatSessionWithOwner[]>([]);
   const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
   const [showSimulationForm, setShowSimulationForm] = useState(false);
   const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
@@ -44,9 +43,6 @@ const AdminPage: React.FC = () => {
       } else if (activeTab === 'personas') {
         const personasData = await adminApi.getAllPersonas();
         setPersonas(personasData);
-      } else if (activeTab === 'chats') {
-        const chatsData = await adminApi.getAllChatSessions();
-        setChats(chatsData);
       } else if (activeTab === 'simulations') {
         const simsData = await simulationTemplateApi.getAllAdmin(true);
         setSimulations(simsData);
@@ -105,7 +101,6 @@ const AdminPage: React.FC = () => {
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'users' as TabType, label: 'Users', icon: Users },
     { id: 'personas' as TabType, label: 'Personas', icon: User },
-    { id: 'chats' as TabType, label: 'Chats', icon: MessageSquare },
     { id: 'simulations' as TabType, label: 'Simulations', icon: PlayCircle },
   ];
 
@@ -117,7 +112,7 @@ const AdminPage: React.FC = () => {
             <Shield className="w-8 h-8 text-indigo-600" />
             <h1 className="text-3xl font-black text-gray-900">Admin Panel</h1>
           </div>
-          <p className="text-gray-600">Manage users, personas, chats, and simulation templates</p>
+          <p className="text-gray-600">Manage users, personas, and simulation templates</p>
         </div>
 
         {/* Tabs */}
@@ -271,36 +266,6 @@ const AdminPage: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{persona.type}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{persona.username}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(persona.created_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Chats Tab */}
-            {activeTab === 'chats' && (
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Messages</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {chats.map((chat) => (
-                        <tr key={chat.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{chat.name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{chat.username}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{chat.message_count}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(chat.last_activity)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(chat.created_at)}</td>
                         </tr>
                       ))}
                     </tbody>

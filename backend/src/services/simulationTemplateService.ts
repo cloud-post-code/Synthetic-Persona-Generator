@@ -104,7 +104,7 @@ export async function createSimulation(data: CreateSimulationRequest): Promise<S
       systemPrompt,
       data.is_active !== undefined ? data.is_active : true,
       data.simulation_type || 'report',
-      JSON.stringify(data.allowed_persona_types ?? ['synthetic_user', 'advisor', 'practice_person']),
+      JSON.stringify(data.allowed_persona_types ?? ['synthetic_user', 'advisor']),
       data.persona_count_min ?? 1,
       data.persona_count_max ?? 1,
       JSON.stringify(data.type_specific_config ?? {}),

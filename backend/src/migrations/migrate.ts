@@ -27,7 +27,7 @@ async function migrate() {
     // Add simulation type and config columns if they don't exist
     const simColumns = [
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS simulation_type VARCHAR(50) DEFAULT 'report'`,
-      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS allowed_persona_types JSONB DEFAULT '["synthetic_user","advisor","practice_person"]'`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS allowed_persona_types JSONB DEFAULT '["synthetic_user","advisor"]'`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_min INTEGER DEFAULT 1`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_max INTEGER DEFAULT 1`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS type_specific_config JSONB DEFAULT '{}'`,
@@ -40,7 +40,16 @@ async function migrate() {
       }
     }
 
-    // Rename conversational_simulation to persuasion_simulation (one-time data migration)
+    // Migrate practice_person to advisor, then restrict persona type to synthetic_user and advisor only
+    try {
+      await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
+      await pool.query(`ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_type_check`);
+      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_type_check CHECK (type IN ('synthetic_user', 'advisor'))`);
+    } catch (err: any) {
+      if (err.code !== '42701' && err.code !== '42P01') throw err;
+    }
+
+    // Rename conversational_simulation to persuasion_simulation
     try {
       await pool.query(`UPDATE simulations SET simulation_type = 'persuasion_simulation' WHERE simulation_type = 'conversational_simulation'`);
     } catch (err: any) {

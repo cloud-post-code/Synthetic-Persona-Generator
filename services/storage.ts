@@ -56,7 +56,7 @@ const INITIAL_PERSONAS: Persona[] = [
   {
     id: 'seed-andrea-ridi',
     name: 'Andrea Ridi',
-    type: 'practice_person',
+    type: 'advisor',
     description: 'CEO @ CleanTech Solutions',
     avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=256&h=256&auto=format&fit=crop',
     createdAt: new Date().toISOString(),
@@ -66,7 +66,7 @@ const INITIAL_PERSONAS: Persona[] = [
         id: 'f-andrea-1',
         name: 'Executive_Dossier.md',
         type: 'markdown',
-        content: '# Practice Persona: Andrea Ridi\n\n**Roleplay Focus:** Strategic partnerships and unit economics.\n**Personality:** Fast-paced, outcome-oriented, values transparency.\n**Interviewer Style:** Probes deeply into "hidden" costs of implementation.'
+        content: '# Advisor: Andrea Ridi\n\n**Roleplay Focus:** Strategic partnerships and unit economics.\n**Personality:** Fast-paced, outcome-oriented, values transparency.\n**Interviewer Style:** Probes deeply into "hidden" costs of implementation.'
       }
     ]
   },

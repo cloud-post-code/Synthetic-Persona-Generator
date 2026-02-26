@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, Sparkles, Users, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { PersonaType, Persona } from '../models/types.js';
@@ -181,9 +181,14 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
 };
 
 // --- ADVISOR FORM ---
+type AdvisorSourceMode = 'linkedin' | 'pdf';
+
 const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
+  const [sourceMode, setSourceMode] = useState<AdvisorSourceMode>('pdf');
+  const [linkedinText, setLinkedinText] = useState('');
+  const [otherDocsText, setOtherDocsText] = useState('');
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState('');
   const [fileBase64, setFileBase64] = useState<string>('');
@@ -247,13 +252,69 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fileContent && !fileBase64) {
-      alert('Please select a file to upload.');
-      return;
+    if (sourceMode === 'linkedin') {
+      if (!linkedinText.trim()) {
+        alert('Please paste the LinkedIn profile text.');
+        return;
+      }
+    } else {
+      if (!fileContent && !fileBase64) {
+        alert('Please select a file to upload.');
+        return;
+      }
     }
     setLoading(true);
     try {
       let extractedText = fileContent;
+
+      if (sourceMode === 'linkedin') {
+        setLoadingStage('Analyzing professional facts...');
+        const extractedFacts = await geminiService.extractFacts(linkedinText);
+        const combined = otherDocsText.trim()
+          ? `${extractedFacts}\n\n--- Additional context ---\n${otherDocsText.trim()}`
+          : extractedFacts;
+        setLoadingStage('Discovering identity...');
+        const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
+        const identity = await geminiService.generateBasic(idPrompt, true);
+        const { name, title, summary } = identity as { name: string; title: string; summary?: string };
+        setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
+        const limitedMaterial = combined.length > 30000
+          ? combined.substring(0, 30000) + '\n\n[Earlier content truncated for context management]'
+          : combined;
+        const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, {
+          "Fact Extraction (Source of Truth)": extractedFacts,
+          "Raw LinkedIn Content": linkedinText,
+          "Other Docs": otherDocsText,
+          "Primary Source Material": limitedMaterial,
+          "Identity Target": `${name} - ${title}`,
+          "Context Summary": summary || title,
+          "Target Name": name,
+        }, true);
+        setLoadingStage(`Generating Digital Likeness for ${name}...`);
+        const avatarUrl = await geminiService.generateAvatar(name || "Expert", title || "Advisor");
+        const persona = await personaApi.create({
+          name: name || "Expert Advisor",
+          type: 'advisor',
+          description: (summary || title) || "High-fidelity specialized advisor.",
+          avatarUrl: avatarUrl,
+          metadata: { personaGroupId: "N/A" },
+        });
+        await personaApi.createFile(persona.id, {
+          name: `1_Expert_Blueprint.md`,
+          content: profileOutput,
+          type: 'markdown'
+        });
+        const storedContent = combined.length > 50000
+          ? combined.substring(0, 50000) + '\n\n[Content truncated for storage]'
+          : combined;
+        await personaApi.createFile(persona.id, {
+          name: `Knowledge_Source.md`,
+          content: storedContent,
+          type: 'pdf_analysis'
+        });
+        onComplete();
+        return;
+      }
 
       // If we have a file as base64 (any Gemini-supported type), extract text via Gemini
       if (fileBase64 && fileMimeType) {
@@ -355,118 +416,79 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
       <div className="space-y-4">
-        <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">AdvisoQ1: Upload Expert Source</label>
-        <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-16 flex flex-col items-center justify-center text-center hover:border-violet-300 transition-all bg-gray-50/50 group">
-          <Upload className="w-16 h-16 text-gray-300 mb-6 group-hover:text-violet-500" />
-          <p className="text-xl font-bold text-gray-600 mb-6">PDF or document (book, article, or other supported file)</p>
-          <input type="file" id="advisor-file" className="hidden" accept={GEMINI_FILE_INPUT_ACCEPT} onChange={handleFile} />
-          <label htmlFor="advisor-file" className="cursor-pointer px-10 py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-lg">
-            {fileName || 'Select Document'}
+        <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Source</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="advisor-source"
+              checked={sourceMode === 'linkedin'}
+              onChange={() => setSourceMode('linkedin')}
+              className="border-gray-300 text-violet-600"
+            />
+            <span className="font-medium">LinkedIn (paste profile text)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="advisor-source"
+              checked={sourceMode === 'pdf'}
+              onChange={() => setSourceMode('pdf')}
+              className="border-gray-300 text-violet-600"
+            />
+            <span className="font-medium">Upload PDF / document</span>
           </label>
         </div>
       </div>
-      <button type="submit" disabled={loading || (!fileContent && !fileBase64)} className="w-full py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all">
-        {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
-      </button>
-    </form>
-  );
-};
 
-// --- PRACTICE PERSON FORM ---
-const PracticePersonForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
-  const [loading, setLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState('');
-  const [linkedin, setLinkedin] = useState('');
-  const [otherDocs, setOtherDocs] = useState('');
+      {sourceMode === 'linkedin' && (
+        <>
+          <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex gap-4">
+            <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
+            <div>
+              <h4 className="font-bold text-amber-900 mb-1">Important</h4>
+              <p className="text-sm text-amber-800 leading-relaxed">
+                Do not paste a URL. Go to the LinkedIn profile, select all text (Ctrl+A), copy (Ctrl+C), and paste below.
+              </p>
+            </div>
+          </div>
+          <FormItem
+            label="LinkedIn profile (paste content)"
+            value={linkedinText}
+            onChange={setLinkedinText}
+            textarea
+            placeholder="Select all text on the LinkedIn page and paste here..."
+          />
+          <FormItem
+            label="Other docs (CV, portfolio, optional)"
+            value={otherDocsText}
+            onChange={setOtherDocsText}
+            textarea
+            placeholder="Paste additional career history or dossier text..."
+          />
+        </>
+      )}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!linkedin.trim()) {
-      alert("Please paste the actual text content of the LinkedIn profile.");
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      setLoadingStage('Analyzing Professional Facts...');
-      // Chain of Thought step: Force the model to extract raw data first
-      const extractedFacts = await geminiService.extractFacts(linkedin);
-
-      setLoadingStage('Discovering Identity...');
-      const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
-      const { name, title } = await geminiService.generateBasic(idPrompt, true);
-
-      setLoadingStage(`Synthesizing Persona for ${name}...`);
-      const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, { 
-        "Fact Extraction (Source of Truth)": extractedFacts,
-        "Raw LinkedIn Content": linkedin,
-        "Other Docs": otherDocs,
-        "Target Name": name
-      }, true);
-      
-      setLoadingStage(`Capturing Digital Likeness...`);
-      const avatarUrl = await geminiService.generateAvatar(name || "Professional", title || "Practice Partner");
-
-      // Create persona
-      const persona = await personaApi.create({
-        name: name || "Practice Partner",
-        type: 'practice_person',
-        description: title || "Realistic practice partner.",
-        avatarUrl: avatarUrl,
-        metadata: { personaGroupId: "N/A" },
-      });
-
-      // Create persona files
-      await personaApi.createFile(persona.id, {
-        name: `1_Professional_Blueprint.md`,
-        content: profileOutput,
-        type: 'markdown'
-      });
-      await personaApi.createFile(persona.id, {
-        name: `Professional_Facts.md`,
-        content: extractedFacts,
-        type: 'markdown'
-      });
-      onComplete();
-    } catch (err: any) {
-      console.error('Practice person generation error:', err);
-      const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-      alert(`Persona synthesis failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Ensure you pasted text, not just a link\n4. Check browser console for details`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-10">
-      <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex gap-4">
-        <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
-        <div>
-          <h4 className="font-bold text-amber-900 mb-1">Important Instruction</h4>
-          <p className="text-sm text-amber-800 leading-relaxed">
-            Do not just paste a URL. Go to the LinkedIn profile, press <b>Ctrl+A</b> to select all, <b>Ctrl+C</b> to copy, and <b>Ctrl+V</b> to paste the actual text content below.
-          </p>
+      {sourceMode === 'pdf' && (
+        <div className="space-y-4">
+          <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Upload Expert Source</label>
+          <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-16 flex flex-col items-center justify-center text-center hover:border-violet-300 transition-all bg-gray-50/50 group">
+            <Upload className="w-16 h-16 text-gray-300 mb-6 group-hover:text-violet-500" />
+            <p className="text-xl font-bold text-gray-600 mb-6">PDF or document (book, article, or other supported file)</p>
+            <input type="file" id="advisor-file" className="hidden" accept={GEMINI_FILE_INPUT_ACCEPT} onChange={handleFile} />
+            <label htmlFor="advisor-file" className="cursor-pointer px-10 py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-lg">
+              {fileName || 'Select Document'}
+            </label>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="space-y-8">
-        <FormItem 
-          label="Practice PersonQ1: LinkedIn Data (Paste Content Text)" 
-          value={linkedin} 
-          onChange={setLinkedin} 
-          textarea 
-          placeholder="Select all text on the LinkedIn page and paste it here..." 
-        />
-        <FormItem 
-          label="Practice PersonQ2: Other Docs (CV, Portfolio, etc.)" 
-          value={otherDocs} 
-          onChange={setOtherDocs} 
-          textarea 
-          placeholder="Paste additional career history or dossier text here..." 
-        />
-      </div>
-      <button type="submit" disabled={loading || !linkedin.trim()} className="w-full py-6 bg-pink-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-pink-700 disabled:opacity-50 transition-all">
-        {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Develop High-Fidelity Practice Persona'}
+      <button
+        type="submit"
+        disabled={loading || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
+        className="w-full py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
+      >
+        {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
       </button>
     </form>
   );
@@ -491,7 +513,7 @@ const BuildPersonaPage: React.FC = () => {
           <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium">Select a specialized generation engine to build your synthetic workforce.</p>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <TypeCard
             title="Synthetic User"
             description="Multi-layered persona generation for market research and product stress-testing."
@@ -501,17 +523,10 @@ const BuildPersonaPage: React.FC = () => {
           />
           <TypeCard
             title="Advisor"
-            description="Deep analysis engine for books and articles using Red Team critical evaluation."
+            description="Create advisors from LinkedIn profile text or PDF/document upload. Deep analysis with Red Team critical evaluation."
             icon={Sparkles}
             onClick={() => setSelectedType('advisor')}
             theme="violet"
-          />
-          <TypeCard
-            title="Practice Person"
-            description="Realistic roleplay partner modeling using LinkedIn profiles and professional dossiers."
-            icon={Users}
-            onClick={() => setSelectedType('practice_person')}
-            theme="pink"
           />
         </div>
       </div>
@@ -531,7 +546,6 @@ const BuildPersonaPage: React.FC = () => {
         <div className="p-8 sm:p-14">
           {selectedType === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} />}
           {selectedType === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} />}
-          {selectedType === 'practice_person' && <PracticePersonForm onComplete={() => navigate('/gallery')} />}
         </div>
       </div>
     </div>

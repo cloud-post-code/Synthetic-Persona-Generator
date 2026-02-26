@@ -11,7 +11,6 @@ import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import SyntheticUserDetail from './pages/info/SyntheticUserDetail';
 import AdvisorDetail from './pages/info/AdvisorDetail';
-import PracticePersonDetail from './pages/info/PracticePersonDetail';
 
 const MenuBar: React.FC<{ user: any; onLogout: () => void }> = ({ user, onLogout }) => {
   const location = useLocation();
@@ -159,7 +158,6 @@ const App: React.FC = () => {
             
             <Route path="/info/synthetic-user" element={user ? <SyntheticUserDetail /> : <Navigate to="/login" />} />
             <Route path="/info/advisor" element={user ? <AdvisorDetail /> : <Navigate to="/login" />} />
-            <Route path="/info/practice-person" element={user ? <PracticePersonDetail /> : <Navigate to="/login" />} />
 
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

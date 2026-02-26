@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { 
   UserPlus, 
   MessageSquare, 
-  Users, 
   Sparkles, 
   Target, 
   Zap, 
@@ -75,7 +74,7 @@ const HomePage: React.FC = () => {
           <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Specialized Intelligence Engines</h2>
           <div className="h-px bg-gray-200 flex-grow"></div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <FeatureCard
             title="Synthetic User"
             description="Built on 'Jobs-to-be-Done' and psychographic tension points. Experience the 'why' behind the click."
@@ -85,17 +84,10 @@ const HomePage: React.FC = () => {
           />
           <FeatureCard
             title="Advisor"
-            description="Transmute books and data into an entity that understands the philosophical 'intent' of the source."
+            description="Create advisors from LinkedIn profile text or PDF upload. Transmute books and data into an entity that understands the intent of the source."
             icon={Sparkles}
             link="/info/advisor"
             color="violet"
-          />
-          <FeatureCard
-            title="Practice Person"
-            description="Realistic social roleplay with professional personas that exhibit pride, ambition, and stress."
-            icon={Users}
-            link="/info/practice-person"
-            color="pink"
           />
         </div>
       </div>

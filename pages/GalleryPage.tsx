@@ -93,7 +93,6 @@ const GalleryPage: React.FC = () => {
              <option value="all">All Types</option>
              <option value="synthetic_user">Synthetic User</option>
              <option value="advisor">Advisor</option>
-             <option value="practice_person">Practice Person</option>
            </select>
         </div>
       </div>
@@ -145,7 +144,6 @@ const PersonaCard: React.FC<{
   const typeLabels: Record<string, { label: string; color: string }> = {
     synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
     advisor: { label: 'Advisor', color: 'bg-purple-100 text-purple-700' },
-    practice_person: { label: 'Practice Person', color: 'bg-pink-100 text-pink-700' },
   };
 
   return (

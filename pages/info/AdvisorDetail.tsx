@@ -21,7 +21,7 @@ const AdvisorDetail: React.FC = () => {
             </div>
             <h1 className="text-5xl font-black mb-4 tracking-tight">Expert Advisors</h1>
             <p className="text-xl text-violet-100 max-w-2xl font-medium">
-              Turn static documents into dynamic thinking partners. Upload books, research papers, or manuals to create a specialized advisor that knows your material inside out.
+              Create expert advisors from LinkedIn profile text or by uploading books, research papers, or manuals. Your advisor knows the material inside out.
             </p>
           </div>
         </div>

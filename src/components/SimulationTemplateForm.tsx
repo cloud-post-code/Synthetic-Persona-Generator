@@ -23,7 +23,6 @@ const SIMULATION_TYPES: { id: SimulationType; label: string; description: string
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'synthetic_user', label: 'Synthetic User' },
   { value: 'advisor', label: 'Advisor' },
-  { value: 'practice_person', label: 'Practice Person' },
 ];
 
 type SurveyMode = 'generated' | 'custom';
@@ -45,7 +44,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [simulationType, setSimulationType] = useState<SimulationType | ''>('');
-  const [allowedPersonaTypes, setAllowedPersonaTypes] = useState<string[]>(['synthetic_user', 'advisor', 'practice_person']);
+  const [allowedPersonaTypes, setAllowedPersonaTypes] = useState<string[]>(['synthetic_user', 'advisor']);
   const [personaCountMin, setPersonaCountMin] = useState(1);
   const [personaCountMax, setPersonaCountMax] = useState(1);
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
@@ -65,7 +64,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setSystemPrompt(simulation.system_prompt);
       setIsActive(simulation.is_active);
       setSimulationType(simulation.simulation_type || '');
-      setAllowedPersonaTypes(simulation.allowed_persona_types?.length ? simulation.allowed_persona_types : ['synthetic_user', 'advisor', 'practice_person']);
+      setAllowedPersonaTypes(simulation.allowed_persona_types?.length ? simulation.allowed_persona_types : ['synthetic_user', 'advisor']);
       setPersonaCountMin(simulation.persona_count_min ?? 1);
       setPersonaCountMax(simulation.persona_count_max ?? 1);
       setTypeSpecificConfig(simulation.type_specific_config || {});

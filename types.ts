@@ -1,5 +1,5 @@
 
-export type PersonaType = 'synthetic_user' | 'advisor' | 'practice_person';
+export type PersonaType = 'synthetic_user' | 'advisor';
 
 export interface Persona {
   id: string;
