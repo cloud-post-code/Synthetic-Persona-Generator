@@ -20,6 +20,30 @@ export function errorHandler(
     return res.status(409).json({ error: 'Resource already exists' });
   }
 
+  // Foreign key violation (e.g. user_id not in users) → 404 so client can show "User not found" / re-login
+  if (errAny.code === '23503') {
+    return res.status(404).json({
+      error: 'User not found',
+      message: 'Your account may have been removed. Please sign in again.',
+    });
+  }
+
+  // Invalid UUID / bad input syntax for type uuid → 400
+  if (errAny.code === '22P02') {
+    return res.status(400).json({
+      error: 'Invalid request',
+      message: 'Invalid user or request data. Please sign in again.',
+    });
+  }
+
+  // Missing column (e.g. old DB schema) → ask to run migrations
+  if (errAny.code === '42703') {
+    return res.status(500).json({
+      error: 'Database schema is out of date',
+      message: 'A required column is missing. Run migrations: cd backend && npm run migrate',
+    });
+  }
+
   // Database connection / setup errors → return a clear message so the UI can show it
   const dbHint =
     errAny.code === 'ECONNREFUSED' || errAny.code === 'ENOTFOUND'
@@ -30,9 +54,7 @@ export function errorHandler(
           ? ' Database does not exist. Create it (e.g. createdb persona_builder) and run migrations.'
           : errAny.code === '42P01'
             ? ' A required table is missing. Run: cd backend && npm run migrate'
-            : errAny.code === '23503'
-              ? ' Foreign key violation (e.g. user_id does not exist in users table).'
-              : '';
+            : '';
 
   const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
   const userMessage = dbHint ? `Internal server error.${dbHint}` : 'Internal server error';
