@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
+import { customerSegmentTemplate } from "../../templates/customerSegmentTemplate.js";
 
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
@@ -12,6 +13,8 @@ export const GEMINI_ACCEPTED_MIME_TYPES = [
   'image/gif',
   'image/heic',
   'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/msword', // .doc
   'text/plain',
   'text/csv',
   'application/json',
@@ -19,7 +22,7 @@ export const GEMINI_ACCEPTED_MIME_TYPES = [
 
 /** Accept attribute value for file inputs that should accept any file type Gemini supports. */
 export const GEMINI_FILE_INPUT_ACCEPT =
-  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.txt,.csv,.json,application/pdf,image/png,image/jpeg,image/webp,image/gif,image/heic,text/plain,text/csv,application/json';
+  '.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.gif,.heic,.txt,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/png,image/jpeg,image/webp,image/gif,image/heic,text/plain,text/csv,application/json';
 
 /** Per-type description of expected output and behavior; passed when generating the system prompt. */
 export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
@@ -47,6 +50,41 @@ const extractJson = (text: string) => {
     throw new Error("Invalid intelligence response format. Ensure you are providing actual text content, not just a link.");
   }
 };
+
+async function runBusinessProfileGeneration(
+  documentInput: string,
+  mimeType: string | undefined,
+  prompt: string
+): Promise<string | object> {
+  const hasFile = Boolean(mimeType && documentInput);
+  if (hasFile) {
+    let base64Data: string = documentInput;
+    if (documentInput.includes(',')) base64Data = documentInput.split(',')[1];
+    if (!base64Data?.trim()) throw new Error('Invalid file data.');
+    return await geminiService.runSimulation(prompt, base64Data, mimeType!);
+  }
+  const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(documentInput, 100000)}`;
+  return await geminiService.generateBasic(fullPrompt, true);
+}
+
+function normalizeBusinessProfileResult(rawResult: string | object, keys: string[]): Record<string, string | null> {
+  const parsed = typeof rawResult === 'string'
+    ? (() => {
+        const cleaned = rawResult.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1').trim();
+        try {
+          return JSON.parse(cleaned);
+        } catch {
+          return JSON.parse(rawResult);
+        }
+      })()
+    : rawResult;
+  const result: Record<string, string | null> = {};
+  for (const k of keys) {
+    const v = parsed[k];
+    result[k] = v === undefined || v === null ? null : String(v).trim() || null;
+  }
+  return result;
+}
 
 export const geminiService = {
   generateBasic: async (prompt: string, isJson: boolean = false): Promise<any> => {
@@ -299,64 +337,118 @@ export const geminiService = {
   },
 
   /**
-   * Generate a business profile from an uploaded document (e.g. business plan, 10-K) and optional company hint.
-   * Uses document content and, if provided, the model's knowledge of the company for public information.
-   * Returns a partial BusinessProfile object with snake_case keys.
+   * Generate Company Overview section only (one API call).
+   * Fields: business_name, mission_statement, vision_statement, description_main_offerings,
+   * key_features_or_benefits, unique_selling_proposition, pricing_model, website.
+   */
+  generateBusinessProfileCompanyOverview: async (
+    documentInput: string,
+    options: { mimeType?: string; companyHint?: string } = {}
+  ): Promise<Record<string, string | null>> => {
+    const keys = ['business_name', 'mission_statement', 'vision_statement', 'description_main_offerings', 'key_features_or_benefits', 'unique_selling_proposition', 'pricing_model', 'website'];
+    const hintSection = options.companyHint?.trim()
+      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
+      : '';
+    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
+
+TASK: Fill in ONLY the Company Overview section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+
+OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
+${keys.join(', ')}
+
+RULES:
+- Extract and infer from the document; for public companies you may use known facts to fill gaps.
+- Keep each value concise but informative.
+- If a field cannot be determined, use null for that key.
+- Output only the JSON object.`;
+
+    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
+    return normalizeBusinessProfileResult(rawResult, keys);
+  },
+
+  /**
+   * Generate Market & Positioning section only (one API call).
+   * Includes customer_segments generated using the customer profile template.
+   * Fields: customer_segments, geographic_focus, industry_served, what_differentiates, market_niche, distribution_channels.
+   */
+  generateBusinessProfileMarketPositioning: async (
+    documentInput: string,
+    options: { mimeType?: string; companyHint?: string } = {}
+  ): Promise<Record<string, string | null>> => {
+    const keys = ['customer_segments', 'geographic_focus', 'industry_served', 'what_differentiates', 'market_niche', 'distribution_channels'];
+    const hintSection = options.companyHint?.trim()
+      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
+      : '';
+    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
+
+TASK: Fill in ONLY the Market & Positioning section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+
+IMPORTANT - Customer Segments: For "customer_segments", use the following customer profile template structure. Generate 2–4 target customer segments. Output the customer_segments value as a single text block (markdown or structured bullets).
+
+Template structure to follow:
+${customerSegmentTemplate}
+
+OUTPUT FORMAT: Respond with a single JSON object only. No markdown code fence around the JSON, no explanation. Use exactly these keys (use null for any missing value):
+${keys.join(', ')}
+
+RULES:
+- customer_segments must be written using the customer profile template structure above (identity, needs, behaviors, how we reach them).
+- Keep each value concise but informative.
+- If a field cannot be determined, use null for that key.
+- Output only the JSON object.`;
+
+    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
+    return normalizeBusinessProfileResult(rawResult, keys);
+  },
+
+  /**
+   * Generate Performance & Funding section only (one API call).
+   * Fields: key_personnel, major_achievements, revenue, key_performance_indicators, funding_rounds, revenue_streams.
+   */
+  generateBusinessProfilePerformanceFunding: async (
+    documentInput: string,
+    options: { mimeType?: string; companyHint?: string } = {}
+  ): Promise<Record<string, string | null>> => {
+    const keys = ['key_personnel', 'major_achievements', 'revenue', 'key_performance_indicators', 'funding_rounds', 'revenue_streams'];
+    const hintSection = options.companyHint?.trim()
+      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
+      : '';
+    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
+
+TASK: Fill in ONLY the Performance & Funding section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+
+OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
+${keys.join(', ')}
+
+RULES:
+- Extract and infer from the document; for public companies you may use known facts (10-K, news) to fill gaps.
+- Keep each value concise but informative.
+- If a field cannot be determined, use null for that key.
+- Output only the JSON object.`;
+
+    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
+    return normalizeBusinessProfileResult(rawResult, keys);
+  },
+
+  /**
+   * Generate a full business profile by making three separate API calls:
+   * 1) Company Overview, 2) Market & Positioning (with customer profile template for segments), 3) Performance & Funding.
+   * Returns merged partial BusinessProfile with snake_case keys.
    */
   generateBusinessProfileFromDocument: async (
     documentInput: string,
     options: { mimeType?: string; companyHint?: string } = {}
   ): Promise<Record<string, string | null>> => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
-      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
-    }
-    const { mimeType, companyHint } = options;
-    const hasFile = Boolean(mimeType && documentInput);
-    const hintSection = companyHint?.trim()
-      ? `\nThe user also provided this company identifier for context: "${companyHint.trim()}". Use your knowledge of this company's public information (website, filings, news) to enrich and validate the profile where the document does not specify something.`
-      : '';
-
-    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
-
-TASK: Fill in a complete business profile from the provided document${companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
-
-OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
-business_name, mission_statement, vision_statement, description_main_offerings, key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments, geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams, distribution_channels, key_personnel, major_achievements, revenue, key_performance_indicators, funding_rounds, website
-
-RULES:
-- Extract and infer from the document; for public companies you may use known facts (10-K, website, news) to fill gaps.
-- Keep each value concise but informative (short paragraphs or bullet points where appropriate).
-- If a field cannot be determined, use null for that key.
-- Output only the JSON object.`;
-
-    let rawResult: string | object;
-    if (hasFile) {
-      let base64Data: string = documentInput;
-      if (documentInput.includes(',')) base64Data = documentInput.split(',')[1];
-      if (!base64Data?.trim()) throw new Error('Invalid file data.');
-      rawResult = await geminiService.runSimulation(prompt, base64Data, mimeType!);
-    } else {
-      const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(documentInput, 100000)}`;
-      rawResult = await geminiService.generateBasic(fullPrompt, true);
-    }
-
-    const parsed = typeof rawResult === 'string'
-      ? (() => {
-          const cleaned = rawResult.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1').trim();
-          try {
-            return JSON.parse(cleaned);
-          } catch {
-            return JSON.parse(rawResult);
-          }
-        })()
-      : rawResult;
-
-    const keys = ['business_name','mission_statement','vision_statement','description_main_offerings','key_features_or_benefits','unique_selling_proposition','pricing_model','customer_segments','geographic_focus','industry_served','what_differentiates','market_niche','revenue_streams','distribution_channels','key_personnel','major_achievements','revenue','key_performance_indicators','funding_rounds','website'];
+    const [company, market, performance] = await Promise.all([
+      geminiService.generateBusinessProfileCompanyOverview(documentInput, options),
+      geminiService.generateBusinessProfileMarketPositioning(documentInput, options),
+      geminiService.generateBusinessProfilePerformanceFunding(documentInput, options),
+    ]);
     const result: Record<string, string | null> = {};
-    for (const k of keys) {
-      const v = parsed[k];
-      result[k] = v === undefined || v === null ? null : String(v).trim() || null;
+    for (const obj of [company, market, performance]) {
+      for (const [k, v] of Object.entries(obj)) {
+        if (v !== undefined) result[k] = v;
+      }
     }
     return result;
   },

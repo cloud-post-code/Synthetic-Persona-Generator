@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
@@ -86,13 +86,13 @@ function businessProfileToPromptString(profile: BusinessProfile): string {
   return parts.length ? parts.join('\n') : 'No business profile content.';
 }
 
-const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
   const [method, setMethod] = useState<SyntheticBuildMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [q6FileName, setQ6FileName] = useState('');
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
-  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>('private');
+  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [savedBusinessProfile, setSavedBusinessProfile] = useState<BusinessProfile | null>(null);
   const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
@@ -237,7 +237,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
             </label>
           </div>
           <p className="text-sm text-gray-400">
-            {visibilityChoice === 'public' ? 'Everyone can discover and use these personas in the Persona Library.' : 'Only you can see and use these personas.'}
+            {visibilityChoice === 'public' ? 'Everyone can discover and use these personas in My Personas.' : 'Only you can see and use these personas.'}
           </p>
           <button
             type="button"
@@ -401,11 +401,11 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
 // --- ADVISOR FORM ---
 type AdvisorSourceMode = 'linkedin' | 'pdf';
 
-const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
-  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>('private');
+  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [sourceMode, setSourceMode] = useState<AdvisorSourceMode>('pdf');
   const [linkedinText, setLinkedinText] = useState('');
@@ -663,7 +663,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             </label>
           </div>
           <p className="text-sm text-gray-400">
-            {visibilityChoice === 'public' ? 'Everyone can discover and use this persona in the Persona Library.' : 'Only you can see and use this persona.'}
+            {visibilityChoice === 'public' ? 'Everyone can discover and use this persona in My Personas.' : 'Only you can see and use this persona.'}
           </p>
           <button
             type="button"
@@ -775,6 +775,8 @@ type BuildMode = 'synthetic_user' | 'advisor';
 const BuildPersonaPage: React.FC = () => {
   const [selectedBuildMode, setSelectedBuildMode] = useState<BuildMode | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const defaultPublic = searchParams.get('visibility') === 'public';
 
   const handleBack = () => {
     if (selectedBuildMode) setSelectedBuildMode(null);
@@ -820,8 +822,8 @@ const BuildPersonaPage: React.FC = () => {
 
       <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-gray-200/50 border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-500">
         <div className="p-8 sm:p-14">
-          {selectedBuildMode === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} />}
-          {selectedBuildMode === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} />}
+          {selectedBuildMode === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} defaultVisibility={defaultPublic ? 'public' : 'private'} />}
+          {selectedBuildMode === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} defaultVisibility={defaultPublic ? 'public' : 'private'} />}
         </div>
       </div>
     </div>

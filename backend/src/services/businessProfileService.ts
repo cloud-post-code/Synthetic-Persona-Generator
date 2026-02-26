@@ -74,16 +74,22 @@ export async function upsert(
 ): Promise<BusinessProfile> {
   const allowedKeys = new Set(COLUMNS);
   const sanitized: Record<string, string | null> = {};
-  for (const [key, value] of Object.entries(data)) {
+  const input = data && typeof data === 'object' ? data : {};
+  for (const [key, value] of Object.entries(input)) {
     if (allowedKeys.has(key)) {
-      sanitized[key] = value === undefined || value === '' ? null : String(value).trim();
+      if (value === undefined || value === null || value === '') {
+        sanitized[key] = null;
+      } else {
+        const s = typeof value === 'string' ? value : String(value);
+        sanitized[key] = s.trim() || null;
+      }
     }
   }
 
   const cols = ['user_id', ...COLUMNS];
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-  const updateSet = COLUMNS.map((c, i) => `${c} = EXCLUDED.${c}`).join(', ');
-  const values = [
+  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  const values: (string | null)[] = [
     userId,
     ...COLUMNS.map((c) => sanitized[c] ?? null),
   ];

@@ -12,6 +12,8 @@ export interface Persona {
   avatar_url?: string;
   visibility?: PersonaVisibility;
   starred?: boolean;
+  /** Set when loaded via getAvailable: owned personas can be deleted; starred can be unstarred. */
+  source?: 'owned' | 'starred';
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;

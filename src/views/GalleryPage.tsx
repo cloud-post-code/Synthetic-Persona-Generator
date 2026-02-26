@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2 } from 'lucide-react';
-import { usePersonas } from '../hooks/usePersonas.js';
+import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star } from 'lucide-react';
+import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
 import { Persona, PersonaFile } from '../models/types.js';
 
 const GalleryPage: React.FC = () => {
-  const { personas, loading, deletePersona } = usePersonas();
+  const { personas, loading, fetchPersonas } = useAvailablePersonas();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [viewingFilesPersona, setViewingFilesPersona] = useState<Persona | null>(null);
   const [personaFiles, setPersonaFiles] = useState<Record<string, PersonaFile[]>>({});
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [unstarringId, setUnstarringId] = useState<string | null>(null);
 
   useEffect(() => {
     // Load files when viewing a persona
@@ -43,12 +44,25 @@ const GalleryPage: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this persona? This action cannot be undone.')) {
       setDeletingId(id);
       try {
-        await deletePersona(id);
+        await personaApi.delete(id);
+        await fetchPersonas();
       } catch (err: any) {
         alert(err.message || 'Could not delete persona. Please try again.');
       } finally {
         setDeletingId(null);
       }
+    }
+  };
+
+  const handleUnstar = async (id: string) => {
+    setUnstarringId(id);
+    try {
+      await personaApi.unstar(id);
+      await fetchPersonas();
+    } catch (err: any) {
+      alert(err.message || 'Could not remove persona. Please try again.');
+    } finally {
+      setUnstarringId(null);
     }
   };
 
@@ -71,7 +85,7 @@ const GalleryPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Personas</h1>
-          <p className="text-gray-500">Your library of synthetic experts and users.</p>
+          <p className="text-gray-500">Personas you created and personas you’ve saved.</p>
         </div>
         <Link
           to="/build"
@@ -113,11 +127,13 @@ const GalleryPage: React.FC = () => {
       ) : normalizedPersonas.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {normalizedPersonas.map((persona) => (
-            <PersonaCard 
-              key={persona.id} 
-              persona={persona} 
+            <PersonaCard
+              key={persona.id}
+              persona={persona}
               isDeleting={deletingId === persona.id}
-              onDelete={() => handleDelete(persona.id)} 
+              isUnstarring={unstarringId === persona.id}
+              onDelete={() => handleDelete(persona.id)}
+              onUnstar={persona.source === 'starred' ? () => handleUnstar(persona.id) : undefined}
               onViewFiles={() => setViewingFilesPersona(persona)}
             />
           ))}
@@ -147,10 +163,14 @@ const GalleryPage: React.FC = () => {
 const PersonaCard: React.FC<{ 
   persona: Persona; 
   isDeleting: boolean;
+  isUnstarring?: boolean;
   onDelete: () => void; 
+  onUnstar?: () => void;
   onViewFiles: () => void;
-}> = ({ persona, isDeleting, onDelete, onViewFiles }) => {
+}> = ({ persona, isDeleting, isUnstarring, onDelete, onUnstar, onViewFiles }) => {
   const navigate = useNavigate();
+  const isOwned = persona.source === 'owned';
+  const isStarred = persona.source === 'starred';
 
   const typeLabels: Record<string, { label: string; color: string }> = {
     synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
@@ -161,7 +181,7 @@ const PersonaCard: React.FC<{
   const createdAt = persona.createdAt || persona.created_at;
 
   return (
-    <div className={`bg-white border border-gray-100 rounded-2xl overflow-hidden group hover:shadow-xl transition-all flex flex-col h-full ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className={`bg-white border border-gray-100 rounded-2xl overflow-hidden group hover:shadow-xl transition-all flex flex-col h-full ${isDeleting || isUnstarring ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="relative h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
         <img
           src={avatarUrl}
@@ -179,17 +199,32 @@ const PersonaCard: React.FC<{
            >
              <FileText className="w-4 h-4" />
            </button>
-           <button
-             onClick={(e) => {
-               e.stopPropagation();
-               onDelete();
-             }}
-             disabled={isDeleting}
-             className={`p-2 bg-white/80 backdrop-blur rounded-lg text-red-600 hover:bg-white transition-colors shadow-sm cursor-pointer ${isDeleting ? 'animate-pulse' : ''}`}
-             title="Delete Persona"
-           >
-             {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-           </button>
+           {isStarred && onUnstar && (
+             <button
+               onClick={(e) => {
+                 e.stopPropagation();
+                 onUnstar();
+               }}
+               disabled={isUnstarring}
+               className="p-2 bg-amber-100 text-amber-600 rounded-lg hover:bg-amber-200 transition-colors shadow-sm cursor-pointer"
+               title="Remove from My Personas"
+             >
+               {isUnstarring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4 fill-current" />}
+             </button>
+           )}
+           {isOwned && (
+             <button
+               onClick={(e) => {
+                 e.stopPropagation();
+                 onDelete();
+               }}
+               disabled={isDeleting}
+               className={`p-2 bg-white/80 backdrop-blur rounded-lg text-red-600 hover:bg-white transition-colors shadow-sm cursor-pointer ${isDeleting ? 'animate-pulse' : ''}`}
+               title="Delete Persona"
+             >
+               {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+             </button>
+           )}
         </div>
         <div className="absolute bottom-4 left-4 flex gap-2 flex-wrap">
           <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${typeLabels[persona.type].color}`}>
