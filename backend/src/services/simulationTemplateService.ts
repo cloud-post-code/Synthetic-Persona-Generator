@@ -148,6 +148,19 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
       lines.push(`- ${placeholder} - [${typeLabel}] ${field.name}${opts}`);
     }
     lines.push('');
+
+    lines.push('### Focus of this simulation');
+    lines.push('The **focus** of your response is always the **user\'s inputs**—the content that replaces the variables above (e.g. {{BACKGROUND_INFO}}, {{OPENING_LINE}}, and any other placeholders such as {{BUSINESSPROFILE}}). Your persona ({{SELECTED_PROFILE_FULL}}) is in the **background**: use your profile to inform your perspective and assist in decision-making, but center your analysis, recommendations, and conversation on the **user\'s situation and inputs**. Do not center the response on your own organization, story, or context unless it directly serves the user\'s request.');
+    lines.push('');
+
+    const hasBusinessProfileField = requiredFields.some(
+      (f) => f.type === 'business_profile' || f.name === 'businessProfile'
+    );
+    if (hasBusinessProfileField) {
+      lines.push('### Business to analyze (client company)');
+      lines.push('The {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—the company you are advising or analyzing. Your own identity and expertise are defined in {{SELECTED_PROFILE_FULL}}. You must base your analysis (e.g. SWOT, recommendations, report) exclusively on the business described in {{BUSINESSPROFILE}}, not on your own organization or any other company.');
+      lines.push('');
+    }
   }
 
   const typeSpec = SIMULATION_TYPE_OUTPUT_SPECS[type];

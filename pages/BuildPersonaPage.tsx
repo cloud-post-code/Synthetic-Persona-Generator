@@ -14,6 +14,10 @@ import { agentProfileDetailedTemplate } from '../templates/agentProfileDetailedT
 import { agentBehaviorsTemplate } from '../templates/agentBehaviorsTemplate';
 import { highFidelityPersonaTemplate } from '../templates/highFidelityPersonaTemplate';
 
+// Human-like fallback when advisor name cannot be extracted from document
+const ADVISOR_FALLBACK_NAMES = ['Dr. Sarah Mitchell', 'James Chen', 'Maria Santos', 'David Park', 'Emily Foster', 'Robert Hayes', 'Jennifer Walsh', 'Michael Torres'];
+const getAdvisorFallbackName = () => ADVISOR_FALLBACK_NAMES[Math.floor(Math.random() * ADVISOR_FALLBACK_NAMES.length)];
+
 // --- HELPER COMPONENTS ---
 
 const FormItem: React.FC<{ label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string }> = ({ label, value, onChange, textarea, placeholder }) => (
@@ -224,10 +228,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
           "Target Name": name,
         }, true);
         setLoadingStage(`Generating Digital Likeness for ${name}...`);
-        const avatarUrl = await geminiService.generateAvatar(name || "Expert", title || "Advisor");
+        const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
         const persona: Persona = {
           id: crypto.randomUUID(),
-          name: name || "Expert Advisor",
+          name: name || getAdvisorFallbackName(),
           type: 'advisor',
           description: (summary || title) || "High-fidelity specialized advisor.",
           avatarUrl: avatarUrl,
@@ -253,10 +257,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
         "Context Summary": summary
       }, true);
       setLoadingStage(`Generating Digital Likeness for ${name}...`);
-      const avatarUrl = await geminiService.generateAvatar(name || "Expert", title || "Advisor");
+      const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
       const persona: Persona = {
         id: crypto.randomUUID(),
-        name: name || "Expert Advisor",
+        name: name || getAdvisorFallbackName(),
         type: 'advisor',
         description: summary || "High-fidelity specialized advisor.",
         avatarUrl: avatarUrl,

@@ -297,8 +297,22 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   if (showPromptReview) {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
-        <p className="text-sm text-gray-600">Edit the generated prompt if needed, then click Save to finalize.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
+            <p className="text-sm text-gray-600">Edit the generated prompt if needed, then click Save to finalize.</p>
+          </div>
+          {simulation && (
+            <button
+              type="button"
+              onClick={handleRegeneratePrompt}
+              disabled={isRegenerating}
+              className="shrink-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isRegenerating ? 'Regenerating...' : 'Regenerate system prompt'}
+            </button>
+          )}
+        </div>
         <textarea
           value={reviewedSystemPrompt}
           onChange={(e) => setReviewedSystemPrompt(e.target.value)}
@@ -307,16 +321,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
           placeholder="System prompt..."
         />
         <div className="flex flex-wrap items-center gap-3">
-          {simulation && (
-            <button
-              type="button"
-              onClick={handleRegeneratePrompt}
-              disabled={isRegenerating}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {isRegenerating ? 'Regenerating...' : 'Regenerate system prompt'}
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setShowPromptReview(false)}

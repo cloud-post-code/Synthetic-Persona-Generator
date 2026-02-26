@@ -152,6 +152,10 @@ export async function deleteSimulationSession(sessionId: string, userId: string)
 
 const PERSUASION_REGEX = /Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i;
 
+/** Human-like labels for persuasion context when actual names are not available. */
+const DEFAULT_USER_LABEL = 'Alex';
+const DEFAULT_PERSONA_LABEL = 'Jordan';
+
 export async function getPersuasionContext(
   sessionId: string,
   userId: string
@@ -161,7 +165,7 @@ export async function getPersuasionContext(
   const messages = await simulationMessageService.getMessagesBySessionId(sessionId, userId);
   const fullConversation = messages
     .map((m) => {
-      const label = m.sender_type === 'user' ? 'User' : 'Persona';
+      const label = m.sender_type === 'user' ? DEFAULT_USER_LABEL : DEFAULT_PERSONA_LABEL;
       return `${label}: ${m.content}`;
     })
     .join('\n\n');

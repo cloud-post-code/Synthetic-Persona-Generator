@@ -6,6 +6,7 @@ import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } f
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import type { BusinessProfile } from '../models/types.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
+import { getAdvisorFallbackName } from '../utils/humanNames.js';
 
 // Import split templates
 import { marketCanvasTemplate } from '../../templates/marketCanvasTemplate.js';
@@ -484,10 +485,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
           "Context Summary": summary || title,
           "Target Name": name,
         }, true);
-        setLoadingStage(`Generating Digital Likeness for ${name}...`);
-        const avatarUrl = await geminiService.generateAvatar(name || "Expert", title || "Advisor");
+        setLoadingStage(`Generating Digital Likeness for ${name || getAdvisorFallbackName()}...`);
+        const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
         const persona = await personaApi.create({
-          name: name || "Expert Advisor",
+          name: name || getAdvisorFallbackName(),
           type: 'advisor',
           description: (summary || title) || "High-fidelity specialized advisor.",
           avatarUrl: avatarUrl,
@@ -570,11 +571,11 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       }, true);
       
       setLoadingStage(`Generating Digital Likeness for ${name}...`);
-      const avatarUrl = await geminiService.generateAvatar(name || "Expert", title || "Advisor");
+      const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
 
       // Create persona
       const persona = await personaApi.create({
-        name: name || "Expert Advisor",
+        name: name || getAdvisorFallbackName(),
         type: 'advisor',
         description: summary || "High-fidelity specialized advisor.",
         avatarUrl: avatarUrl,

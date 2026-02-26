@@ -530,13 +530,39 @@ RULES:
       ? `\n## MANDATORY OUTPUT FORMAT (do not change)\nThe simulation must produce exactly this kind of output. Your system prompt must enforce it:\n\n${typeOutputSpec}\n`
       : '';
 
+    const typeConfig = config.type_specific_config || {};
+    const isGeneratedSurvey =
+      simType === 'survey' &&
+      (typeConfig.survey_mode as string) === 'generated';
+    const surveyQuestions = (typeConfig.survey_questions as Array<{ type: string; question: string; options?: string[] }>) || [];
+    const hasSurveyQuestions = isGeneratedSurvey && surveyQuestions.length > 0;
+
+    let surveyQuestionsSection = '';
+    if (hasSurveyQuestions) {
+      const lines: string[] = [
+        '',
+        '## MANDATORY: Survey questions in system prompt',
+        'The generated system prompt MUST include the following survey questions section verbatim (exactly these questions in this order). Do not summarize or rephrase the questions—copy them into your system prompt output:',
+        '',
+        '### Survey questions (in order)',
+      ];
+      surveyQuestions.forEach((q, i) => {
+        lines.push(`${i + 1}. [${q.type}] ${q.question}`);
+        if (q.type === 'multiple_choice' && q.options?.length) {
+          lines.push('   Options: ' + q.options.filter(Boolean).join(', '));
+        }
+      });
+      lines.push('');
+      surveyQuestionsSection = lines.join('\n');
+    }
+
     // Omit icon so it is not passed to chat / included in the system prompt
     const { icon: _icon, ...configForPrompt } = config;
 
     const prompt = `You are an expert at turning product and simulation configs into clear, high-quality system prompts for AI personas.
 
 ## Your task
-1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, profile_structure, survey_purpose, etc.). Infer:
+1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, profile_structure, survey_purpose, survey_questions, etc.). Infer:
    - The **purpose** and **goal** of the simulation (what the user wants to achieve).
    - **Tone and style** (e.g. professional, conversational, formal, advisory).
    - **Key instructions** the persona must follow (what to emphasize, what to avoid, how to use context).
@@ -551,11 +577,15 @@ RULES:
 ## Rules
 - **Do not** copy the description or config fields word-for-word. Interpret and extract; turn them into precise, actionable instructions.
 - **The AI must respond ONLY as the persona**—never describe, reference, or embed the persona in the response (no "As the synthetic user...", "The persona would say...", or meta-commentary). The system prompt must state clearly that the AI answers AS IF they were the persona, in first person only.
+- **Focus vs persona:** The **focus** of the simulation is always the **user's inputs** (whatever replaces the template variables: {{BACKGROUND_INFO}}, {{OPENING_LINE}}, {{BUSINESSPROFILE}}, or other required_input_fields). The **persona** is in the background: they use their profile ({{SELECTED_PROFILE_FULL}}) to inform perspective and assist in decision-making, but the analysis, report, or conversation must be centered on the **user's situation and inputs**, not the persona's own organization or story. The system prompt must state this clearly.
 - **Do** document every required_input_fields entry as a template variable: {{FIELD_NAME}} (UPPERCASE), with type and name. These will be replaced at runtime.
 - **Do** include the core variables: {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}. Use required_input_fields placeholders (e.g. {{FIELD_NAME}}) for user-provided content; do not require {{OPENING_LINE}}.
+- **If the config includes a business_profile (or businessProfile) input field:** The system prompt MUST explicitly state that {{BUSINESSPROFILE}} is the **client's/user's business**—the company the persona is advising or analyzing—and that the persona must base their analysis (e.g. SWOT, report, recommendations) on that business only, not on their own organization.
 - **Do** keep the same strict output behavior for this simulation type (see MANDATORY OUTPUT FORMAT). The persona's response format must match it exactly.
+- **For survey simulations with survey_mode "generated":** The system prompt MUST include a "Survey questions (in order)" section listing every question from type_specific_config.survey_questions verbatim, in order, with type and (for multiple_choice) options. Do not summarize or omit any question.
 - Output ONLY the system prompt text. No preamble, no "Here is the prompt", no explanation.
 ${typeSpecSection}
+${surveyQuestionsSection}
 
 ## Configuration from the user (extract from this)
 \`\`\`json

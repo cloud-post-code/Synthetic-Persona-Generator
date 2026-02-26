@@ -28,6 +28,8 @@ import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
+import { useAuth } from '../context/AuthContext.js';
+import { getRunnerDisplayName, getStablePersonaFallbackName } from '../utils/humanNames.js';
 
 const MAX_PERSONA_TURNS = 20;
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
@@ -193,8 +195,11 @@ const SimulationPage: React.FC = () => {
       : personas;
 
   const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
+  const { user } = useAuth();
   const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
   const selectedPersona = selectedPersonas[0] ?? null;
+  const runnerDisplayName = getRunnerDisplayName(user?.username);
+  const stablePersonaFallback = getStablePersonaFallbackName();
   const requiredBusinessProfileMissing = Boolean(
     selectedSimulation?.required_input_fields?.some((f) =>
       (f.type === 'business_profile' || f.name === 'businessProfile') && f.required
@@ -550,9 +555,10 @@ const SimulationPage: React.FC = () => {
         const conversationMessages: Message[] = [];
 
         while (turnCount < maxTurns) {
-          const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
-          const systemPrompt =
+        const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
+        const systemPrompt =
             `You are strictly acting as the persona: ${currentSpeaker.name}.\n\n` +
+            `Focus: The discussion is about the **opening topic** (the user's input below)—not your own organization or story. Use your profile to inform your perspective and assist the discussion; stay in character.\n\n` +
             `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona.\n\n` +
             `Context: You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\n` +
             getPersonaProfile(currentSpeaker) +
@@ -656,7 +662,22 @@ const SimulationPage: React.FC = () => {
         profileData += `--- FILE: ${f.name} ---\n${f.content.substring(0, 15000)}\n\n`;
       });
 
-      let prompt = selectedSimulation.system_prompt
+      let prompt = selectedSimulation.system_prompt;
+      const hasRequiredInputs = (selectedSimulation.required_input_fields?.length ?? 0) > 0;
+      if (hasRequiredInputs && !/Focus of this simulation/i.test(prompt)) {
+        prompt =
+          '### Focus of this simulation\nThe **focus** of your response is always the **user\'s inputs**—the content that replaces the variables below (e.g. {{BACKGROUND_INFO}}, {{OPENING_LINE}}, {{BUSINESSPROFILE}}, or other placeholders). Your persona ({{SELECTED_PROFILE_FULL}}) is in the **background**: use your profile to inform your perspective and assist in decision-making, but center your analysis and recommendations on the **user\'s situation and inputs**. Do not center the response on your own organization or story.\n\n' +
+          prompt;
+      }
+      const hasBusinessProfileField = selectedSimulation.required_input_fields?.some(
+        (f) => f.type === 'business_profile' || f.name === 'businessProfile'
+      );
+      if (hasBusinessProfileField && !/Business to analyze/i.test(prompt)) {
+        prompt =
+          '### Business to analyze (client company)\nThe {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—the company you are advising or analyzing. Your identity and expertise are in {{SELECTED_PROFILE_FULL}}. Base your analysis (e.g. SWOT, recommendations, report) exclusively on the business in {{BUSINESSPROFILE}}, not on your own organization.\n\n' +
+          prompt;
+      }
+      prompt = prompt
         .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
         .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
         .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
@@ -792,7 +813,7 @@ const SimulationPage: React.FC = () => {
       }));
 
       const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
-        `Context of Simulation: ${bgInfo}.\n` +
+        `Focus of this conversation: The **user's context and inputs** (below) are the focus. You are the persona in the background—use your profile to inform your perspective and assist in their decision-making. Context: ${bgInfo}\n` +
         `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
       
       const response = await geminiService.chat(systemPrompt, history, currentInput);
@@ -980,29 +1001,29 @@ const SimulationPage: React.FC = () => {
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">
       {/* Sidebar - History */}
-      <aside className="hidden md:flex w-96 flex-col border-r border-gray-100 bg-gray-50/50">
-        <div className="p-6 border-b border-gray-100 bg-white">
+      <aside className="hidden md:flex w-72 flex-col border-r border-gray-100 bg-gray-50/50">
+        <div className="p-4 border-b border-gray-100 bg-white">
           <button
             onClick={startNewSim}
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+            className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
           >
-            <Sparkles className="w-4 h-4" /> New Simulation
+            <Sparkles className="w-3.5 h-3.5" /> New Simulation
           </button>
         </div>
-        <div className="flex-grow overflow-y-auto p-4 space-y-2">
-           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 px-4">Simulation Logs</h3>
+        <div className="flex-grow overflow-y-auto p-3 space-y-1.5">
+           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 px-2">Simulation Logs</h3>
            {simulationHistory.length > 0 ? simulationHistory.map(s => (
              <div key={s.id} className="group relative">
                <button
                  onClick={() => resumeSimulation(s)}
-                 className={`w-full text-left p-4 rounded-2xl text-sm font-bold transition-all flex items-center gap-4 ${currentSessionId === s.id ? 'bg-white text-indigo-600 shadow-lg border border-gray-100' : 'text-gray-500 hover:bg-white hover:text-gray-900'}`}
+                 className={`w-full text-left p-3 rounded-xl text-sm font-bold transition-all flex items-center gap-3 ${currentSessionId === s.id ? 'bg-white text-indigo-600 shadow-lg border border-gray-100' : 'text-gray-500 hover:bg-white hover:text-gray-900'}`}
                >
-                 <History className={`w-4 h-4 shrink-0 ${currentSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} />
-                 <span className="truncate pr-8">{s.name}</span>
+                 <History className={`w-3.5 h-3.5 shrink-0 ${currentSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} />
+                 <span className="truncate pr-6">{s.name}</span>
                </button>
                <button 
                  onClick={(e) => deleteSession(e, s.id)}
-                 className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
                >
                  <Trash2 className="w-4 h-4" />
                </button>
@@ -1451,7 +1472,7 @@ const SimulationPage: React.FC = () => {
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
           const handleDownloadReport = () => {
-            const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
+            const text = messages.map(m => `${m.senderType === 'user' ? runnerDisplayName : (selectedPersona?.name || stablePersonaFallback)}: ${m.content}`).join('\n\n');
             const blob = new Blob([text], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -1485,7 +1506,7 @@ const SimulationPage: React.FC = () => {
               return;
             }
             const rows = messages.map(m => [
-              m.senderType === 'user' ? 'User' : (selectedPersona?.name || 'Persona'),
+              m.senderType === 'user' ? runnerDisplayName : (selectedPersona?.name || stablePersonaFallback),
               m.content.replace(/"/g, '""'),
             ]);
             const csv = ['"Participant","Response"', ...rows.map(r => `"${r[0]}","${r[1]}"`)].join('\n');
@@ -1528,7 +1549,7 @@ const SimulationPage: React.FC = () => {
                 const isUser = m.senderType === 'user';
                 const isModerator = m.senderType === 'moderator';
                 const messagePersona = m.personaId ? personaById.get(m.personaId) : null;
-                const displayName = isModerator ? 'Moderator' : messagePersona?.name ?? (isUser ? 'User' : 'Persona');
+                const displayName = isModerator ? 'Moderator' : messagePersona?.name ?? (isUser ? runnerDisplayName : stablePersonaFallback);
                 const avatarUrl = messagePersona?.avatarUrl ?? messagePersona?.avatar_url;
                 return (
                   <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 group`}>
@@ -1683,7 +1704,7 @@ const SimulationPage: React.FC = () => {
         const parsedPersuasionLocal = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
         const persuasionScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
         return (
-        <aside className="hidden lg:flex w-[32rem] max-w-[32rem] flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10">
+        <aside className="hidden lg:flex w-[42rem] min-w-[28rem] flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10">
           {isPersuasion && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Persuasion (from API)</h4>
