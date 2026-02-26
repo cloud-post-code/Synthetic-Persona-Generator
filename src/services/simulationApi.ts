@@ -1,7 +1,7 @@
 import { apiClient } from './api.js';
 import { SimulationSession } from '../models/types.js';
 
-function normalizeSession(s: SimulationSession & { persona_ids?: string[] }): SimulationSession {
+function normalizeSession(s: SimulationSession & { persona_ids?: string[]; system_prompt?: string | null }): SimulationSession {
   return {
     ...s,
     personaId: s.persona_id ?? s.personaId,
@@ -10,6 +10,7 @@ function normalizeSession(s: SimulationSession & { persona_ids?: string[] }): Si
     openingLine: s.opening_line ?? s.openingLine,
     stimulusImage: s.stimulus_image ?? s.stimulusImage,
     mimeType: s.mime_type ?? s.mimeType,
+    systemPrompt: s.system_prompt ?? s.systemPrompt,
     createdAt: s.created_at ?? s.createdAt,
     updatedAt: s.updated_at ?? s.updatedAt,
   };
@@ -50,6 +51,9 @@ export const simulationApi = {
       mime_type: session.mimeType !== undefined ? (session.mimeType || null) : (session.mime_type !== undefined ? (session.mime_type || null) : null),
       name: session.name.trim(),
     };
+    if (session.systemPrompt != null || session.system_prompt != null) {
+      payload.system_prompt = session.systemPrompt ?? session.system_prompt ?? null;
+    }
     if (hasMultiple) {
       payload.persona_ids = personaIds;
     }
@@ -74,6 +78,24 @@ export const simulationApi = {
 
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/simulations/${id}`);
+  },
+
+  getPersuasionContext: async (sessionId: string): Promise<{ systemPrompt: string | null; fullConversation: string; persuasionScore: number | null }> => {
+    return apiClient.get<{ systemPrompt: string | null; fullConversation: string; persuasionScore: number | null }>(`/simulations/${sessionId}/persuasion-context`);
+  },
+
+  createMessage: async (
+    sessionId: string,
+    message: { sender_type: string; persona_id?: string; content: string }
+  ): Promise<unknown> => {
+    return apiClient.post(`/simulations/${sessionId}/messages`, message);
+  },
+
+  createMessagesBulk: async (
+    sessionId: string,
+    messages: Array<{ sender_type: string; persona_id?: string; content: string }>
+  ): Promise<unknown[]> => {
+    return apiClient.post<unknown[]>(`/simulations/${sessionId}/messages/bulk`, { messages });
   },
 };
 

@@ -114,9 +114,9 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       } else if (method === 'supporting_docs') {
         userQInputs = `Supporting Docs (${q6FileName || 'document'}): ${formData.q6}`;
       } else {
-        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business profile saved. Add one in Settings.';
+        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business background saved. Add it in Settings.';
         const specificPart = formData.specificUserType.trim() ? `\n\nSpecific type of user requested: ${formData.specificUserType.trim()}` : '';
-        userQInputs = `Business Profile:\n${profileText}${specificPart}`;
+        userQInputs = `Business background:\n${profileText}${specificPart}`;
       }
 
       setLoadingStage('Synthesizing Market Canvas...');
@@ -265,8 +265,8 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
               className="group bg-white border-2 border-gray-100 hover:border-emerald-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
             >
               <Building2 className="w-10 h-10 text-emerald-500 mb-3" />
-              <h4 className="font-bold text-gray-900 mb-1">Business Profile</h4>
-              <p className="text-sm text-gray-500">Use your saved business profile from Settings; optionally specify a user type.</p>
+              <h4 className="font-bold text-gray-900 mb-1">Business background</h4>
+              <p className="text-sm text-gray-500">Use your saved company/business background from Settings; optionally specify a user type.</p>
             </button>
           </div>
         </div>
@@ -323,15 +323,15 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
         {method === 'business_profile' && (
           <>
             {businessProfileLoading ? (
-              <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="animate-spin w-8 h-8 mr-2" /> Loading business profile...</div>
+              <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="animate-spin w-8 h-8 mr-2" /> Loading business background...</div>
             ) : savedBusinessProfile ? (
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-6 space-y-2">
-                <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">Using your saved business profile</h4>
+                <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">Using your saved business background</h4>
                 <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Settings will be included in generation.</p>
               </div>
             ) : (
               <div className="rounded-2xl bg-amber-50 border border-amber-200 p-6">
-                <p className="text-amber-800 font-medium">No business profile saved. Add one in Settings → Business Profile, then return here.</p>
+                <p className="text-amber-800 font-medium">No business background saved. Add it in Settings → Business background, then return here.</p>
               </div>
             )}
             <FormItem
@@ -767,7 +767,7 @@ const BuildPersonaPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <TypeCard
             title="Synthetic User"
-            description="Generate personas from problem/solution, supporting docs, or your saved business profile. Choose one method per run."
+            description="Generate personas from problem/solution, supporting docs, or your saved business background. Choose one method per run."
             icon={Target}
             onClick={() => setSelectedBuildMode('synthetic_user')}
             theme="indigo"

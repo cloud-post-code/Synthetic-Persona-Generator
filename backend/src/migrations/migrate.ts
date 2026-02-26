@@ -40,14 +40,7 @@ async function migrate() {
       }
     }
 
-    // Add persona_ids to simulation_sessions for multi-persona simulations
-    try {
-      await pool.query(`ALTER TABLE simulation_sessions ADD COLUMN IF NOT EXISTS persona_ids JSONB DEFAULT NULL`);
-    } catch (err: any) {
-      if (err.code !== '42701') throw err;
-    }
-
-    // Migrate practice_person to advisor, then restrict persona type to synthetic_user and advisor only
+    // Persona visibility and persona_stars for library/starring, then restrict persona type to synthetic_user and advisor only
     try {
       await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
       await pool.query(`ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_type_check`);
@@ -61,6 +54,35 @@ async function migrate() {
       await pool.query(`UPDATE simulations SET simulation_type = 'persuasion_simulation' WHERE simulation_type = 'conversational_simulation'`);
     } catch (err: any) {
       // Non-fatal; column might not exist in very old DBs
+    }
+
+    // Add persona_ids to simulation_sessions for multi-persona simulations
+    try {
+      await pool.query(`ALTER TABLE simulation_sessions ADD COLUMN IF NOT EXISTS persona_ids JSONB DEFAULT NULL`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+
+    // Persuasion context: system_prompt on session + simulation_messages table
+    try {
+      await pool.query(`ALTER TABLE simulation_sessions ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT NULL`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS simulation_messages (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          simulation_session_id UUID NOT NULL REFERENCES simulation_sessions(id) ON DELETE CASCADE,
+          sender_type VARCHAR(20) NOT NULL,
+          persona_id UUID REFERENCES personas(id) ON DELETE SET NULL,
+          content TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_simulation_messages_session_id ON simulation_messages(simulation_session_id)`);
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
     }
 
     // Persona visibility and persona_stars for library/starring

@@ -25,5 +25,5 @@ export function businessProfileToPromptString(profile: BusinessProfile): string 
   add('KPIs', profile.key_performance_indicators);
   add('Funding', profile.funding_rounds);
   add('Website', profile.website);
-  return parts.length ? parts.join('\n') : 'No business profile content.';
+  return parts.length ? parts.join('\n') : 'No business background content.';
 }

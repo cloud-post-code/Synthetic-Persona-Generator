@@ -123,6 +123,7 @@ export interface SimulationSession {
   stimulus_image?: string;
   mime_type?: string;
   name: string;
+  system_prompt?: string | null;
   created_at: Date;
   updated_at: Date;
 }

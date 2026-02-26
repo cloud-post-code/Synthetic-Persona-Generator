@@ -12,7 +12,10 @@ router.use(authenticateToken);
 router.get('/templates', simulationTemplateController.getActiveSimulations);
 router.get('/', simulationController.getSimulationSessions);
 router.get('/:id', simulationController.getSimulationSession);
+router.get('/:id/persuasion-context', simulationController.getPersuasionContext);
 router.post('/', simulationController.createSimulationSession);
+router.post('/:id/messages', simulationController.createSimulationMessage);
+router.post('/:id/messages/bulk', simulationController.createSimulationMessagesBulk);
 router.put('/:id', simulationController.updateSimulationSession);
 router.delete('/:id', simulationController.deleteSimulationSession);
 

@@ -1,10 +1,17 @@
 import pool from '../config/database.js';
 import { SimulationSession } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import * as simulationMessageService from './simulationMessageService.js';
+
+export interface PersuasionContext {
+  systemPrompt: string | null;
+  fullConversation: string;
+  persuasionScore: number | null;
+}
 
 export async function getSimulationSessionsByUserId(userId: string): Promise<SimulationSession[]> {
   const result = await pool.query(
-    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
+    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, system_prompt, created_at, updated_at
      FROM simulation_sessions
      WHERE user_id = $1
      ORDER BY updated_at DESC`,
@@ -26,6 +33,7 @@ function mapRowToSession(row: any): SimulationSession {
     stimulus_image: row.stimulus_image,
     mime_type: row.mime_type,
     name: row.name,
+    system_prompt: row.system_prompt ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -33,7 +41,7 @@ function mapRowToSession(row: any): SimulationSession {
 
 export async function getSimulationSessionById(sessionId: string, userId: string): Promise<SimulationSession | null> {
   const result = await pool.query(
-    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
+    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, system_prompt, created_at, updated_at
      FROM simulation_sessions
      WHERE id = $1 AND user_id = $2`,
     [sessionId, userId]
@@ -57,9 +65,9 @@ export async function createSimulationSession(
   const personaId = sessionData.persona_ids?.[0] ?? sessionData.persona_id;
 
   const result = await pool.query(
-    `INSERT INTO simulation_sessions (id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
+    `INSERT INTO simulation_sessions (id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, system_prompt)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, system_prompt, created_at, updated_at`,
     [
       id,
       userId,
@@ -71,6 +79,7 @@ export async function createSimulationSession(
       sessionData.stimulus_image || null,
       sessionData.mime_type || null,
       sessionData.name,
+      sessionData.system_prompt ?? null,
     ]
   );
 
@@ -106,6 +115,10 @@ export async function updateSimulationSession(
     fields.push(`mime_type = $${paramCount++}`);
     values.push(updates.mime_type);
   }
+  if (updates.system_prompt !== undefined) {
+    fields.push(`system_prompt = $${paramCount++}`);
+    values.push(updates.system_prompt);
+  }
 
   if (fields.length === 0) {
     return getSimulationSessionById(sessionId, userId);
@@ -117,7 +130,7 @@ export async function updateSimulationSession(
     `UPDATE simulation_sessions
      SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
      WHERE id = $${paramCount} AND user_id = $${paramCount + 1}
-     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
+     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, system_prompt, created_at, updated_at`,
     values
   );
 
@@ -137,4 +150,30 @@ export async function deleteSimulationSession(sessionId: string, userId: string)
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+const PERSUASION_REGEX = /Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i;
 
+export async function getPersuasionContext(
+  sessionId: string,
+  userId: string
+): Promise<PersuasionContext | null> {
+  const session = await getSimulationSessionById(sessionId, userId);
+  if (!session) return null;
+  const messages = await simulationMessageService.getMessagesBySessionId(sessionId, userId);
+  const fullConversation = messages
+    .map((m) => {
+      const label = m.sender_type === 'user' ? 'User' : 'Persona';
+      return `${label}: ${m.content}`;
+    })
+    .join('\n\n');
+  let persuasionScore: number | null = null;
+  const lastPersona = [...messages].reverse().find((m) => m.sender_type === 'persona');
+  if (lastPersona) {
+    const match = lastPersona.content.match(PERSUASION_REGEX);
+    if (match) persuasionScore = parseFloat(match[1]);
+  }
+  return {
+    systemPrompt: session.system_prompt ?? null,
+    fullConversation,
+    persuasionScore,
+  };
+}

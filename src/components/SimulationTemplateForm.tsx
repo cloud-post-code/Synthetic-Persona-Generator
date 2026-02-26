@@ -694,7 +694,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     placeholder={field.type === 'business_profile' ? 'businessProfile' : 'e.g., bgInfo'}
                   />
                   {field.type === 'business_profile' && (
-                    <p className="text-xs text-gray-500 mt-1">Uses the runner&apos;s saved business profile from Settings. Placeholder: &#123;&#123;BUSINESSPROFILE&#125;&#125;</p>
+                    <p className="text-xs text-gray-500 mt-1">Injects the runner&apos;s saved business/company background from Settings (used in personas and simulations). Placeholder: &#123;&#123;BUSINESSPROFILE&#125;&#125;</p>
                   )}
                 </div>
                 <div>
@@ -714,7 +714,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     <option value="table">Table (CSV, Excel)</option>
                     <option value="pdf">File upload (all file types)</option>
                     <option value="multiple_choice">Multiple choice</option>
-                    <option value="business_profile">Business profile</option>
+                    <option value="business_profile">Business background</option>
                   </select>
                 </div>
               </div>

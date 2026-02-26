@@ -197,10 +197,10 @@ const SettingsPage: React.FC = () => {
         funding_rounds: fundingRounds || null,
         website: website || null,
       });
-      setSaveStatus('Business profile saved successfully!');
+      setSaveStatus('Business background saved successfully!');
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
-      setSaveStatus(err instanceof Error ? err.message : 'Failed to save business profile');
+      setSaveStatus(err instanceof Error ? err.message : 'Failed to save business background');
       setTimeout(() => setSaveStatus(null), 5000);
     }
   };
@@ -262,10 +262,10 @@ const SettingsPage: React.FC = () => {
       setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
       setFundingRounds(result.funding_rounds ?? '');
       setWebsite(result.website ?? '');
-      setSaveStatus('Business profile generated. Review and click Save to keep changes.');
+      setSaveStatus('Business background generated. Review and click Save to keep changes.');
       setTimeout(() => setSaveStatus(null), 5000);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to generate business profile.');
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate business background.');
     } finally {
       setGenerateLoading(false);
     }
@@ -328,7 +328,7 @@ const SettingsPage: React.FC = () => {
           />
           <SettingsLink 
             icon={Briefcase} 
-            label="Business Profile" 
+            label="Business background" 
             active={activeTab === 'business'} 
             onClick={() => setActiveTab('business')} 
           />
@@ -512,8 +512,9 @@ const SettingsPage: React.FC = () => {
 
           {activeTab === 'business' && (
             <div className="space-y-6">
+              <p className="text-sm text-gray-500">Background info about your company. Saved once here and used when building personas or running simulations. All fields are optional.</p>
               {businessProfileLoading ? (
-                <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading business profile...</div>
+                <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading business background...</div>
               ) : (
                 <>
                   <Section title="Generate with AI">
@@ -562,12 +563,12 @@ const SettingsPage: React.FC = () => {
                         {generateLoading ? (
                           <>
                             <Loader2 className="w-5 h-5 animate-spin" />
-                            Generating profile...
+                            Generating...
                           </>
                         ) : (
                           <>
                             <Sparkles className="w-5 h-5" />
-                            Generate business profile
+                            Generate from document
                           </>
                         )}
                       </button>
@@ -607,7 +608,7 @@ const SettingsPage: React.FC = () => {
                   </Section>
                   <div className="flex justify-end">
                     <button onClick={handleSaveBusiness} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                      Save Business Profile
+                      Save business background
                     </button>
                   </div>
                 </>

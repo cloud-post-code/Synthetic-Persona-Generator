@@ -175,6 +175,12 @@ const SimulationPage: React.FC = () => {
   const [simulationHistory, setSimulationHistory] = useState<SimulationSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [surveyGeneratedAnswers, setSurveyGeneratedAnswers] = useState<Record<number, string>>({});
+  const [persuasionContext, setPersuasionContext] = useState<{
+    systemPrompt: string | null;
+    fullConversation: string;
+    persuasionScore: number | null;
+  } | null>(null);
+  const [persuasionContextLoading, setPersuasionContextLoading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -380,7 +386,7 @@ const SimulationPage: React.FC = () => {
         if (!field.required) continue;
         if (field.type === 'business_profile') {
           if (!savedBusinessProfile) {
-            alert('This simulation requires your business profile. Add one in Settings → Business Profile, then try again.');
+            alert('This simulation needs your business background. Add it in Settings → Business background, then try again.');
             return;
           }
         } else if (!inputFields[field.name]?.trim()) {
@@ -591,6 +597,8 @@ const SimulationPage: React.FC = () => {
 
     const results: Array<{ personaId: string; name: string; avatarUrl?: string; content: string }> = [];
 
+    let persuasionSystemPrompt: string | null = null;
+
     for (const selectedPersona of selectedPersonas) {
       let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
       const files = selectedPersona.files || [];
@@ -616,6 +624,10 @@ const SimulationPage: React.FC = () => {
         .replace(/{{OPENING_LINE}}/g, userInputsString || '');
       for (const [key, value] of Object.entries(fieldMap)) {
         prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+      }
+
+      if (selectedSimulation.simulation_type === 'persuasion_simulation' && selectedPersona.id === selectedPersonas[0].id) {
+        persuasionSystemPrompt = prompt;
       }
 
       const result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
@@ -647,7 +659,8 @@ const SimulationPage: React.FC = () => {
         openingLine: userInputsString || undefined,
         stimulusImage: effectiveStimulusImage || undefined,
         mimeType: effectiveMimeType || undefined,
-        name: `${firstPersona.name} - ${selectedSimulation.title}`
+        name: `${firstPersona.name} - ${selectedSimulation.title}`,
+        ...(persuasionSystemPrompt != null ? { systemPrompt: persuasionSystemPrompt } : {}),
       });
       
       const newSessionId = newSession.id;
@@ -667,6 +680,18 @@ const SimulationPage: React.FC = () => {
       loadHistory();
       
       localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
+
+      if (selectedSimulation.simulation_type === 'persuasion_simulation') {
+        try {
+          await simulationApi.createMessage(newSessionId, {
+            sender_type: 'persona',
+            persona_id: firstPersona.id,
+            content: results[0].content,
+          });
+        } catch (err) {
+          console.warn('Failed to sync persuasion message to backend:', err);
+        }
+      }
       
       if (isGeneratedSurvey && surveyQuestions.length > 0) {
         localStorage.setItem(`simulationSurveyData_${newSessionId}`, JSON.stringify({
@@ -743,6 +768,17 @@ const SimulationPage: React.FC = () => {
       };
 
       setMessages(prev => [...prev, aiMsg]);
+      // Sync persuasion messages to backend for sidebar API
+      if (currentSessionId && selectedSimulation?.simulation_type === 'persuasion_simulation') {
+        try {
+          await simulationApi.createMessagesBulk(currentSessionId, [
+            { sender_type: 'user', content: userMsg.content },
+            { sender_type: 'persona', persona_id: selectedPersona.id, content: aiMsg.content },
+          ]);
+        } catch (err) {
+          console.warn('Failed to sync persuasion messages to backend:', err);
+        }
+      }
       // Messages are saved to localStorage via useEffect
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -1142,20 +1178,20 @@ const SimulationPage: React.FC = () => {
                     return (
                       <div key={field.name} className="space-y-4">
                         <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {fieldNumber}. Business profile {field.required && '*'}
+                          {fieldNumber}. Business background {field.required && '*'}
                         </span>
                         <div className="p-6 bg-gray-50 border border-gray-100 rounded-3xl">
                           {businessProfileLoading ? (
                             <div className="flex items-center gap-2 text-gray-500 font-medium">
-                              <Loader2 className="w-5 h-5 animate-spin" /> Loading business profile...
+                              <Loader2 className="w-5 h-5 animate-spin" /> Loading business background...
                             </div>
                           ) : savedBusinessProfile ? (
                             <div>
-                              <p className="text-sm font-bold text-indigo-700 mb-1">Using your saved business profile</p>
-                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from Settings will be included in the simulation.</p>
+                              <p className="text-sm font-bold text-indigo-700 mb-1">Using your saved business background</p>
+                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from Settings are included as context.</p>
                             </div>
                           ) : (
-                            <p className="text-amber-800 font-medium">No business profile saved. Add one in Settings → Business Profile to use this simulation.</p>
+                            <p className="text-amber-800 font-medium">No business background saved. Add it in Settings → Business background to use here.</p>
                           )}
                         </div>
                       </div>

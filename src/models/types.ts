@@ -117,6 +117,8 @@ export interface SimulationSession {
   mimeType?: string;
   mime_type?: string;
   name: string;
+  systemPrompt?: string | null;
+  system_prompt?: string | null;
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;
