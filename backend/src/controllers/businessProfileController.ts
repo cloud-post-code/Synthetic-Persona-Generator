@@ -45,8 +45,18 @@ export async function upsertBusinessProfile(req: AuthRequest, res: Response, nex
       updated_at: profile.updated_at instanceof Date ? profile.updated_at.toISOString() : profile.updated_at,
     };
     res.json(payload);
-  } catch (error) {
-    console.error('upsertBusinessProfile error:', error);
-    next(error);
+  } catch (error: unknown) {
+    const err = error as Error & { code?: string; detail?: string };
+    console.error('upsertBusinessProfile error:', err?.message, err?.code, err?.detail, error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: err?.message || 'Failed to save business profile',
+        message: err?.message,
+        ...(err?.code && { code: err.code }),
+        ...(err?.detail && { detail: err.detail }),
+      });
+    } else {
+      next(error);
+    }
   }
 }
