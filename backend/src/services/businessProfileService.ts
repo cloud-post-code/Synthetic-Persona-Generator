@@ -85,23 +85,6 @@ export async function upsert(
       }
     }
   }
-export async function upsert(
-  userId: string,
-  data: CreateOrUpdateBusinessProfileRequest
-): Promise<BusinessProfile> {
-  const allowedKeys = new Set(COLUMNS);
-  const sanitized: Record<string, string | null> = {};
-  const input = (data != null && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, unknown>;
-  for (const [key, value] of Object.entries(input)) {
-    if (allowedKeys.has(key)) {
-      if (value === undefined || value === null || value === '') {
-        sanitized[key] = null;
-      } else {
-        const s = typeof value === 'string' ? value : String(value);
-        sanitized[key] = s.trim() || null;
-      }
-    }
-  }
   const valuesForColumns = COLUMNS.map((c) => {
     const v = sanitized[c];
     return v === undefined ? null : (v === null ? null : String(v));
