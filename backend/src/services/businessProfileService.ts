@@ -85,67 +85,58 @@ export async function upsert(
       }
     }
   }
+export async function upsert(
+  userId: string,
+  data: CreateOrUpdateBusinessProfileRequest
+): Promise<BusinessProfile> {
+  const allowedKeys = new Set(COLUMNS);
+  const sanitized: Record<string, string | null> = {};
+  const input = (data != null && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(input)) {
+    if (allowedKeys.has(key)) {
+      if (value === undefined || value === null || value === '') {
+        sanitized[key] = null;
+      } else {
+        const s = typeof value === 'string' ? value : String(value);
+        sanitized[key] = s.trim() || null;
+      }
+    }
+  }
   const valuesForColumns = COLUMNS.map((c) => {
     const v = sanitized[c];
     return v === undefined ? null : (v === null ? null : String(v));
   });
 
-  const runUpdate = async (): Promise<BusinessProfile> => {
-    const updateSet = COLUMNS.map((c, i) => `${c} = $${i + 1}`).join(', ');
-    const updateValues = [...valuesForColumns, userId];
+  const cols = ['user_id', ...COLUMNS];
+  const values = [userId, ...valuesForColumns];
+  const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+
+  try {
     const result = await pool.query(
-      `UPDATE business_profiles SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = $${COLUMNS.length + 1}
+      `INSERT INTO business_profiles (${cols.join(', ')})
+       VALUES (${placeholders})
+       ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
        RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-      updateValues
+      values
     );
+
     if (result.rows && result.rows.length > 0) {
       return mapRow(result.rows[0]);
     }
+
     const refetch = await pool.query(
       `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
        FROM business_profiles WHERE user_id = $1`,
       [userId]
     );
-    if (refetch.rows.length === 0) throw new Error('Business profile update returned no row');
+    if (refetch.rows.length === 0) {
+      throw new Error('Business profile upsert returned no row');
+    }
     return mapRow(refetch.rows[0]);
-  };
-
-  try {
-    const existing = await pool.query(
-      `SELECT id FROM business_profiles WHERE user_id = $1`,
-      [userId]
-    );
-
-    if (existing.rows.length > 0) {
-      return runUpdate();
-    }
-
-    const insertValues = [userId, ...valuesForColumns];
-    const placeholders = insertValues.map((_, i) => `$${i + 1}`).join(', ');
-    const cols = ['user_id', ...COLUMNS];
-    const result = await pool.query(
-      `INSERT INTO business_profiles (${cols.join(', ')})
-       VALUES (${placeholders})
-       RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-      insertValues
-    );
-    if (!result.rows || result.rows.length === 0) {
-      throw new Error('Business profile insert returned no row');
-    }
-    return mapRow(result.rows[0]);
   } catch (err: unknown) {
-    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;
-    if (code === '23505') {
-      try {
-        return runUpdate();
-      } catch (retryErr) {
-        const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-        console.error('businessProfileService.upsert retry after 23505 failed:', msg, retryErr);
-        throw retryErr;
-      }
-    }
     const msg = err instanceof Error ? err.message : String(err);
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;
     console.error('businessProfileService.upsert error:', msg, code, err);
     throw err;
   }
