@@ -196,7 +196,9 @@ const SimulationPage: React.FC = () => {
   const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
   const selectedPersona = selectedPersonas[0] ?? null;
   const requiredBusinessProfileMissing = Boolean(
-    selectedSimulation?.required_input_fields?.some((f) => f.type === 'business_profile' && f.required) &&
+    selectedSimulation?.required_input_fields?.some((f) =>
+      (f.type === 'business_profile' || f.name === 'businessProfile') && f.required
+    ) &&
     !businessProfileLoading &&
     !savedBusinessProfile
   );
@@ -283,7 +285,9 @@ const SimulationPage: React.FC = () => {
     }
   }, [selectedSimulation, stage, personas]);
 
-  const hasBusinessProfileField = selectedSimulation?.required_input_fields?.some(f => f.type === 'business_profile');
+  const hasBusinessProfileField = selectedSimulation?.required_input_fields?.some(
+    (f) => f.type === 'business_profile' || f.name === 'businessProfile'
+  );
   useEffect(() => {
     if (!hasBusinessProfileField) {
       setSavedBusinessProfile(null);
@@ -418,7 +422,7 @@ const SimulationPage: React.FC = () => {
       // Validate required input fields (runner input fields)
       for (const field of selectedSimulation.required_input_fields) {
         if (!field.required) continue;
-        if (field.type === 'business_profile') {
+        if (field.type === 'business_profile' || field.name === 'businessProfile') {
           if (!savedBusinessProfile) {
             alert('This simulation needs your business background. Add it in Settings → Business background, then try again.');
             return;
@@ -439,7 +443,7 @@ const SimulationPage: React.FC = () => {
     // Inject saved business profile for any business_profile input fields
     if (savedBusinessProfile && selectedSimulation.required_input_fields) {
       for (const field of selectedSimulation.required_input_fields) {
-        if (field.type === 'business_profile') {
+        if (field.type === 'business_profile' || field.name === 'businessProfile') {
           fieldMap[field.name] = businessProfileToPromptString(savedBusinessProfile);
         }
       }
@@ -1209,7 +1213,8 @@ const SimulationPage: React.FC = () => {
                 <>
                 {selectedSimulation?.required_input_fields.map((field, index) => {
                   const fieldNumber = index + 2;
-                  if (field.type === 'business_profile') {
+                  const isBusinessProfileField = field.type === 'business_profile' || field.name === 'businessProfile';
+                  if (isBusinessProfileField) {
                     return (
                       <div key={field.name} className="space-y-4">
                         <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">

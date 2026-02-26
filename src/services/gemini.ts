@@ -51,6 +51,21 @@ const extractJson = (text: string) => {
   }
 };
 
+/** Detect 503/502/504 or UNAVAILABLE and throw a user-friendly message so callers don't suggest API key/quota. */
+function throwIfServiceUnavailable(error: any, defaultMessage: string): void {
+  const status = error?.status ?? error?.statusCode ?? error?.code ?? error?.error?.code;
+  const msg = (error?.message ?? '') + (typeof error?.error === 'object' ? JSON.stringify(error.error) : '');
+  const is503 = status === 503 || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('currently unavailable');
+  const is502 = status === 502 || msg.includes('502');
+  const is504 = status === 504 || msg.includes('504');
+  if (is503 || is502 || is504) {
+    throw new Error(
+      `Google's Gemini API is temporarily unavailable (${status || 'service error'}). This is usually on Google's side, not your API key or quota.\n\n` +
+      'Please try again in a few minutes. You can check status at https://status.cloud.google.com'
+    );
+  }
+}
+
 async function runBusinessProfileGeneration(
   documentInput: string,
   mimeType: string | undefined,
@@ -123,6 +138,7 @@ export const geminiService = {
         throw new Error(`Rate Limit Exceeded: ${errorMsg}\n\nPlease retry after the specified delay.`);
       }
       
+      throwIfServiceUnavailable(error, 'Failed to generate content.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to generate content. Please check your API key and quota.'}`);
     }
   },
@@ -171,6 +187,7 @@ export const geminiService = {
         throw new Error(`Rate Limit Exceeded: ${errorMsg}`);
       }
       
+      throwIfServiceUnavailable(error, 'Failed to extract facts.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to extract facts. Please check your API key and quota.'}`);
     }
   },
@@ -261,6 +278,7 @@ export const geminiService = {
         throw new Error(`Rate Limit Exceeded: ${errorMsg}\n\nPlease retry after the specified delay.`);
       }
       
+      throwIfServiceUnavailable(error, 'Failed to generate chain.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to generate chain. Please check your API key and quota.'}`);
     }
   },
@@ -332,6 +350,7 @@ export const geminiService = {
         throw new Error(`Rate Limit Exceeded: ${errorMsg}`);
       }
       
+      throwIfServiceUnavailable(error, 'Failed to run simulation.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to run simulation. Please check your API key and quota.'}`);
     }
   },
@@ -488,6 +507,7 @@ RULES:
         throw new Error(`Rate Limit Exceeded: ${errorMsg}`);
       }
       
+      throwIfServiceUnavailable(error, 'Failed to generate chat response.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to generate chat response. Please check your API key and quota.'}`);
     }
   },
