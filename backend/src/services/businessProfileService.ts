@@ -74,7 +74,8 @@ export async function upsert(
 ): Promise<BusinessProfile> {
   const allowedKeys = new Set(COLUMNS);
   const sanitized: Record<string, string | null> = {};
-  const input = data && typeof data === 'object' ? data : {};
+  const input: Record<string, unknown> =
+    data != null && typeof data === 'object' && !Array.isArray(data) ? data : {};
   for (const [key, value] of Object.entries(input)) {
     if (allowedKeys.has(key)) {
       if (value === undefined || value === null || value === '') {
@@ -85,14 +86,15 @@ export async function upsert(
       }
     }
   }
-
-  const cols = ['user_id', ...COLUMNS];
-  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  // Always produce a full row: userId + one value per column (null if not provided)
   const values: (string | null)[] = [
     userId,
     ...COLUMNS.map((c) => (sanitized[c] !== undefined ? sanitized[c] : null)),
   ];
+
+  const cols = ['user_id', ...COLUMNS];
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
 
   try {
     const result = await pool.query(

@@ -236,6 +236,40 @@ const SimulationPage: React.FC = () => {
     }
   }, [currentSessionId]);
 
+  // Fetch persuasion context (system prompt, full conversation, score) via separate API when viewing persuasion result
+  useEffect(() => {
+    const isPersuasion =
+      stage === 'result' &&
+      selectedSimulation?.simulation_type === 'persuasion_simulation' &&
+      currentSessionId;
+    if (!isPersuasion) {
+      setPersuasionContext(null);
+      return;
+    }
+    let cancelled = false;
+    setPersuasionContextLoading(true);
+    simulationApi
+      .getPersuasionContext(currentSessionId)
+      .then((data) => {
+        if (!cancelled) {
+          setPersuasionContext(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPersuasionContext(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPersuasionContextLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, selectedSimulation?.simulation_type, currentSessionId, messages.length]);
+
   useEffect(() => {
     setPersonas(allPersonas);
     loadHistory();
@@ -935,6 +969,7 @@ const SimulationPage: React.FC = () => {
     setInputFields({});
     setSurveyGeneratedAnswers({});
     setMessages([]);
+    setPersuasionContext(null);
   };
 
   return (
@@ -1638,17 +1673,46 @@ const SimulationPage: React.FC = () => {
       {stage === 'result' && selectedSimulation && (() => {
         const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
         const isPersuasion = simulationOutputType === 'persuasion_simulation';
-        const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
         const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
-        const parsedPersuasion = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
+        const parsedPersuasionLocal = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
+        const persuasionScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
+        const fullConversationText = persuasionContext?.fullConversation ?? messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name ?? 'Persona'}: ${m.content}`).join('\n\n');
+        const systemPromptText = persuasionContext?.systemPrompt ?? null;
         return (
         <aside className="hidden lg:flex w-96 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-8 space-y-10">
           {isPersuasion && (
-            <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Persuasion</h4>
-              <p className="text-3xl font-black text-indigo-600">{parsedPersuasion ?? '—'}{parsedPersuasion ? '%' : ''}</p>
-              <p className="text-xs text-gray-500 mt-1">How persuaded the agent is</p>
-            </div>
+            <>
+              <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Persuasion (from API)</h4>
+                {persuasionContextLoading ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-sm">Loading...</span>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-3xl font-black text-indigo-600">{persuasionScore != null ? `${persuasionScore}%` : '—'}</p>
+                    <p className="text-xs text-gray-500 mt-1">How persuaded the agent is</p>
+                  </>
+                )}
+              </div>
+              {!persuasionContextLoading && (
+                <>
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">System Prompt</h4>
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 max-h-48 overflow-y-auto">
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{systemPromptText ?? '—'}</pre>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Full Conversation</h4>
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 max-h-64 overflow-y-auto">
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{fullConversationText || '—'}</pre>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
           )}
           <div className="flex items-center gap-4 pb-8 border-b border-gray-100">
              <img src={selectedPersona?.avatarUrl} className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white" />

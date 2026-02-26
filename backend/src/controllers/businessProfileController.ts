@@ -30,13 +30,13 @@ export async function upsertBusinessProfile(req: AuthRequest, res: Response, nex
       return res.status(401).json({ error: 'Authentication required' });
     }
     const rawBody = req.body;
-    const body =
+    const body: Record<string, unknown> =
       rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody)
         ? rawBody
         : {};
     // Strip server-only fields so they are never taken from client
-    const { id: _id, user_id: _uid, created_at: _ca, updated_at: _ua, ...rest } = body as Record<string, unknown>;
-    const profile = await businessProfileService.upsert(userId, rest);
+    const { id: _id, user_id: _uid, created_at: _ca, updated_at: _ua, ...rest } = body;
+    const profile = await businessProfileService.upsert(userId, rest as Record<string, unknown>);
     // Ensure JSON-serializable response (dates to ISO strings)
     const payload = {
       ...profile,

@@ -174,29 +174,30 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleSaveBusiness = async () => {
+    const payload = {
+      business_name: businessName || null,
+      mission_statement: missionStatement || null,
+      vision_statement: visionStatement || null,
+      description_main_offerings: descriptionMainOfferings || null,
+      key_features_or_benefits: keyFeaturesOrBenefits || null,
+      unique_selling_proposition: uniqueSellingProposition || null,
+      pricing_model: pricingModel || null,
+      customer_segments: customerSegments || null,
+      geographic_focus: geographicFocus || null,
+      industry_served: industryServed || null,
+      what_differentiates: whatDifferentiates || null,
+      market_niche: marketNiche || null,
+      revenue_streams: revenueStreams || null,
+      distribution_channels: distributionChannels || null,
+      key_personnel: keyPersonnel || null,
+      major_achievements: majorAchievements || null,
+      revenue: revenue || null,
+      key_performance_indicators: keyPerformanceIndicators || null,
+      funding_rounds: fundingRounds || null,
+      website: website || null,
+    };
     try {
-      await saveBusinessProfile({
-        business_name: businessName || null,
-        mission_statement: missionStatement || null,
-        vision_statement: visionStatement || null,
-        description_main_offerings: descriptionMainOfferings || null,
-        key_features_or_benefits: keyFeaturesOrBenefits || null,
-        unique_selling_proposition: uniqueSellingProposition || null,
-        pricing_model: pricingModel || null,
-        customer_segments: customerSegments || null,
-        geographic_focus: geographicFocus || null,
-        industry_served: industryServed || null,
-        what_differentiates: whatDifferentiates || null,
-        market_niche: marketNiche || null,
-        revenue_streams: revenueStreams || null,
-        distribution_channels: distributionChannels || null,
-        key_personnel: keyPersonnel || null,
-        major_achievements: majorAchievements || null,
-        revenue: revenue || null,
-        key_performance_indicators: keyPerformanceIndicators || null,
-        funding_rounds: fundingRounds || null,
-        website: website || null,
-      });
+      await saveBusinessProfile(payload);
       setSaveStatus('Business background saved successfully!');
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
