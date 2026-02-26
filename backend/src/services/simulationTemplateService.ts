@@ -2,6 +2,17 @@ import pool from '../config/database.js';
 import { SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
+/** Per-type description of expected output and behavior; used when generating the system prompt. */
+const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
+  chat: `Strict output: Simple back-and-forth conversation only. Always starts with the opening line ({{OPENING_LINE}}). No report, no score, no structured block—only turn-by-turn dialog in character.`,
+  advice: `Strict output: Maximum three paragraphs of advice. Optionally include a numeric evaluation score (e.g. out of 10). No chat after the advice. No lengthy essay—exactly up to three paragraphs.`,
+  report: `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.`,
+  persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. 'Persuasion: 75%') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.`,
+  response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output (numeric, action, or text answer per decision type), and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
+  survey: `Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.`,
+  ideation: `Strict output: A list of bulleted (or numbered) ideas only. No prose paragraphs, no chat. The persona must output a structured list of ideas based on the seed prompts. No follow-up.`,
+};
+
 function parseJsonField(val: unknown): any[] | Record<string, unknown> | undefined {
   if (val === null || val === undefined) return undefined;
   if (typeof val === 'string') {
@@ -124,7 +135,30 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     '',
   ];
 
-  if (type === 'conversational_simulation') {
+  const requiredFields = data.required_input_fields;
+  if (requiredFields && Array.isArray(requiredFields) && requiredFields.length > 0) {
+    lines.push('### User input variables');
+    lines.push('At runtime the following placeholders will be replaced with the user\'s input. Include all of them when relevant:');
+    for (const field of requiredFields) {
+      const placeholder = `{{${(field.name || '').toUpperCase()}}}`;
+      const typeLabel = field.type || 'text';
+      const label = field.label || field.name || '';
+      const opts = field.type === 'multiple_choice' && field.options?.length
+        ? ' Options: ' + field.options.filter(Boolean).join(', ')
+        : '';
+      lines.push(`- ${placeholder} - [${typeLabel}] ${label}${opts}`);
+    }
+    lines.push('');
+  }
+
+  const typeSpec = SIMULATION_TYPE_OUTPUT_SPECS[type];
+  if (typeSpec) {
+    lines.push('### Expected output and behavior');
+    lines.push(typeSpec);
+    lines.push('');
+  }
+
+  if (type === 'persuasion_simulation') {
     const decisionPoint = (config.decision_point as string)?.trim();
     const decisionCriteria = (config.decision_criteria as string)?.trim();
     if (decisionPoint) lines.push('### Decision point\n' + decisionPoint + '\n');

@@ -9,14 +9,14 @@ import {
   UpdateSimulationRequest,
 } from '../services/simulationTemplateApi.js';
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
-import { geminiService } from '../services/gemini.js';
+import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { IconPicker } from './IconPicker.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'advice', label: 'Advice' },
   { id: 'report', label: 'Report' },
-  { id: 'conversational_simulation', label: 'Conversational Simulation' },
+  { id: 'persuasion_simulation', label: 'Persuasion Simulation' },
   { id: 'response_simulation', label: 'Response Simulation' },
   { id: 'survey', label: 'Survey' },
   { id: 'ideation', label: 'Ideation' },
@@ -425,7 +425,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Example document (optional)</label>
-                <p className="text-xs text-gray-500 mb-2">Upload a PDF or document to use as an example/reference for the report.</p>
+                <p className="text-xs text-gray-500 mb-2">Upload a PDF or other supported file to use as an example/reference for the report.</p>
                 {(typeSpecificConfig.report_example_file_name as string) ? (
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-700 truncate flex-1">{(typeSpecificConfig.report_example_file_name as string)}</span>
@@ -443,7 +443,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                 ) : (
                   <input
                     type="file"
-                    accept=".pdf,application/pdf"
+                    accept={GEMINI_FILE_INPUT_ACCEPT}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
@@ -465,7 +465,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             </>
           )}
 
-          {simulationType === 'conversational_simulation' && (
+          {simulationType === 'persuasion_simulation' && (
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Context label (for user, optional — can be cleared)</label>
@@ -487,23 +487,23 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Decision point (what decision the persona makes) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Persuasion goal (what the user is trying to persuade the persona of) *</label>
                 <textarea
                   value={(typeSpecificConfig.decision_point as string) || ''}
                   onChange={(e) => setConfig('decision_point', e.target.value)}
                   rows={2}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="What decision does the user/persona make?"
+                  placeholder="What is the user trying to persuade the persona of?"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Decision criteria (how the creator evaluates the decision)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">How persuaded is measured (criteria for the final percentage)</label>
                 <textarea
                   value={(typeSpecificConfig.decision_criteria as string) || ''}
                   onChange={(e) => setConfig('decision_criteria', e.target.value)}
                   rows={2}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="Criteria used to evaluate the decision..."
+                  placeholder="Criteria used to determine the persuasion percentage..."
                 />
               </div>
             </>
@@ -724,7 +724,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     <option value="textarea">Text area</option>
                     <option value="image">Image</option>
                     <option value="table">Table (CSV, Excel)</option>
-                    <option value="pdf">File upload (PDF)</option>
+                    <option value="pdf">File upload (PDF, images, or other supported types)</option>
                     <option value="multiple_choice">Multiple choice</option>
                   </select>
                 </div>

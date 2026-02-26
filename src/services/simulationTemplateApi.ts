@@ -4,7 +4,7 @@ export type SimulationType =
   | 'chat'
   | 'advice'
   | 'report'
-  | 'conversational_simulation'
+  | 'persuasion_simulation'
   | 'response_simulation'
   | 'survey'
   | 'ideation';

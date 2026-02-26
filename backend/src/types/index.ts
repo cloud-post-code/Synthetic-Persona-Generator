@@ -108,7 +108,7 @@ export type SimulationType =
   | 'chat'
   | 'advice'
   | 'report'
-  | 'conversational_simulation'
+  | 'persuasion_simulation'
   | 'response_simulation'
   | 'survey'
   | 'ideation';
@@ -122,7 +122,7 @@ export interface SurveyQuestion {
 
 /**
  * type_specific_config (JSONB) can contain:
- * - conversational_simulation: decision_point, decision_criteria
+ * - persuasion_simulation: decision_point, decision_criteria (persuasion goal, how persuaded is measured)
  * - survey: survey_mode ('generated'|'custom'), survey_purpose, survey_questions (SurveyQuestion[] when generated)
  * - report: report_structure, etc.
  * - response_simulation: decision_type, question, possible_outputs, etc.

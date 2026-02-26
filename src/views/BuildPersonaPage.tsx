@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Target, Sparkles, Users, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
-import { geminiService } from '../services/gemini.js';
+import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { PersonaType, Persona } from '../models/types.js';
 
 // Import split templates
@@ -192,55 +192,54 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    // Validate file size (limit to 20MB for PDFs)
+
+    // Validate file size (limit to 20MB)
     const maxSize = 20 * 1024 * 1024; // 20MB
     if (file.size > maxSize) {
       alert(`File size (${Math.round(file.size / 1024 / 1024)}MB) exceeds the maximum allowed size of 20MB. Please use a smaller file.`);
       return;
     }
-    
+
     if (file.size === 0) {
       alert('The selected file is empty. Please select a valid file.');
       return;
     }
-    
+
     setFileName(file.name);
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    
-    if (isPdf) {
-      // Handle PDF: read as base64 for multimodal API
+    const mime = (file.type || '').toLowerCase();
+    const isGeminiAccepted = mime && (GEMINI_ACCEPTED_MIME_TYPES as readonly string[]).includes(mime);
+
+    if (isGeminiAccepted) {
+      // Any Gemini-supported type: read as base64 for multimodal API
       const reader = new FileReader();
       reader.onload = (ev) => {
         const result = ev.target?.result as string;
         if (!result || result.length < 100) {
-          alert('Error: The PDF file appears to be empty or corrupted. Please try a different file.');
+          alert('Error: The file appears to be empty or corrupted. Please try a different file.');
           return;
         }
-        // result is a data URL like "data:application/pdf;base64,<base64data>"
         setFileBase64(result);
-        setFileMimeType('application/pdf');
-        setFileContent(''); // Clear text content for PDFs
+        setFileMimeType(mime);
+        setFileContent('');
       };
       reader.onerror = () => {
-        alert('Error reading PDF file. The file may be corrupted or in an unsupported format. Please try again with a valid PDF.');
+        alert('Error reading file. The file may be corrupted or in an unsupported format. Please try again.');
         setFileName('');
         setFileBase64('');
       };
       reader.readAsDataURL(file);
     } else {
-      // Handle text files: read as text
+      // Fallback: try reading as text (e.g. .md or other text files)
       const reader = new FileReader();
       reader.onload = (ev) => {
         const text = ev.target?.result as string;
-        // Validate UTF-8 text - remove null bytes that cause encoding errors
         const cleanText = text.replace(/\x00/g, '');
         setFileContent(cleanText);
         setFileBase64('');
         setFileMimeType(file.type || 'text/plain');
       };
       reader.onerror = () => {
-        alert('Error reading file. Please ensure it is a valid text file or PDF.');
+        alert('Error reading file. Please ensure it is a valid text file or a supported format (e.g. PDF, images).');
       };
       reader.readAsText(file, 'UTF-8');
     }
@@ -255,54 +254,46 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
     setLoading(true);
     try {
       let extractedText = fileContent;
-      
-      // If PDF, extract text using Gemini multimodal API
-      if (fileBase64 && (fileMimeType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf'))) {
-        setLoadingStage('Extracting text from PDF...');
-        const extractPrompt = `Extract the key text content from this PDF. Focus on:
+
+      // If we have a file as base64 (any Gemini-supported type), extract text via Gemini
+      if (fileBase64 && fileMimeType) {
+        setLoadingStage('Extracting text from document...');
+        const extractPrompt = `Extract the key text content from this document. Focus on:
 1. Author/expert name and credentials
 2. Main concepts, theories, and key insights
 3. Important quotes or passages
 4. Summary of the content (limit to ~8000 words maximum)
 
 Return the extracted text in a structured format. Be concise but comprehensive.`;
-        
-        // Extract base64 data (remove data URL prefix if present)
-        // fileBase64 is a data URL like "data:application/pdf;base64,<base64data>"
-        // We need to pass the full data URL to runSimulation, which will handle extraction
-        // OR pass just the base64 part - let's pass just the base64 part
+
         let base64Data: string;
         if (fileBase64.startsWith('data:')) {
-          // Extract just the base64 part after the comma
           const commaIndex = fileBase64.indexOf(',');
           if (commaIndex === -1) {
-            throw new Error('Invalid PDF data format. Please try uploading the file again.');
+            throw new Error('Invalid file data format. Please try uploading the file again.');
           }
           base64Data = fileBase64.substring(commaIndex + 1);
         } else {
-          // Assume it's already pure base64
           base64Data = fileBase64;
         }
-        
-        // Validate we have actual data
+
         if (!base64Data || base64Data.length < 100) {
-          throw new Error('PDF file appears to be empty or corrupted. Please ensure the PDF is valid and contains readable content.');
+          throw new Error('File appears to be empty or corrupted. Please ensure the file is valid and contains readable content.');
         }
-        
+
         extractedText = await geminiService.runSimulation(
           extractPrompt,
-          base64Data,
-          'application/pdf'
+          fileBase64,
+          fileMimeType
         );
-        
-        // Limit extracted text to ~50000 characters to control context size
+
         if (extractedText.length > 50000) {
           extractedText = extractedText.substring(0, 50000) + '\n\n[Content truncated to manage context size]';
         }
       }
-      
+
       if (!extractedText || extractedText.trim().length === 0) {
-        throw new Error('Failed to extract text from the file. Please ensure the PDF contains readable text.');
+        throw new Error('Failed to extract text from the file. Please ensure the document contains readable content.');
       }
       
       setLoadingStage('Identifying Author Identity...');
@@ -367,8 +358,8 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">AdvisoQ1: Upload Expert Source</label>
         <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-16 flex flex-col items-center justify-center text-center hover:border-violet-300 transition-all bg-gray-50/50 group">
           <Upload className="w-16 h-16 text-gray-300 mb-6 group-hover:text-violet-500" />
-          <p className="text-xl font-bold text-gray-600 mb-6">PDF of a book or major article</p>
-          <input type="file" id="advisor-file" className="hidden" onChange={handleFile} />
+          <p className="text-xl font-bold text-gray-600 mb-6">PDF or document (book, article, or other supported file)</p>
+          <input type="file" id="advisor-file" className="hidden" accept={GEMINI_FILE_INPUT_ACCEPT} onChange={handleFile} />
           <label htmlFor="advisor-file" className="cursor-pointer px-10 py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-lg">
             {fileName || 'Select Document'}
           </label>

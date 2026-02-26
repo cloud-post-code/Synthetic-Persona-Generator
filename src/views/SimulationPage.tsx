@@ -21,7 +21,7 @@ import { Persona, SimulationMode, Message, SimulationSession } from '../models/t
 import { usePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
-import { geminiService } from '../services/gemini.js';
+import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
@@ -388,6 +388,28 @@ const SimulationPage: React.FC = () => {
       fieldMap.bgInfo = (fieldMap.bgInfo ? fieldMap.bgInfo + '\n\n' : '') + 'Survey responses (persona context):\n' + surveyLines;
     }
 
+    // If no top-level stimulus file, use first file-upload field (pdf type) as inline attachment
+    let effectiveStimulusImage: string | undefined = stimulusImage || undefined;
+    let effectiveMimeType: string | undefined = mimeType || undefined;
+    if (!effectiveStimulusImage && selectedSimulation.required_input_fields) {
+      for (const field of selectedSimulation.required_input_fields) {
+        if (field.type !== 'pdf') continue;
+        const val = fieldMap[field.name];
+        if (!val || typeof val !== 'string') continue;
+        const dataUrlMatch = val.match(/^data:([^;]+);base64,(.+)$/);
+        if (dataUrlMatch) {
+          const parsedMime = dataUrlMatch[1].trim().toLowerCase();
+          const base64 = dataUrlMatch[2];
+          if (base64 && parsedMime) {
+            effectiveStimulusImage = val;
+            effectiveMimeType = parsedMime;
+            fieldMap[field.name] = '[Attached file provided]';
+          }
+          break;
+        }
+      }
+    }
+
     let prompt = selectedSimulation.system_prompt
       .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
       .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
@@ -400,7 +422,7 @@ const SimulationPage: React.FC = () => {
     }
 
     try {
-      const result = await geminiService.runSimulation(prompt, stimulusImage || undefined, mimeType || undefined);
+      const result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
       
       // Ensure all required fields are present
       if (!selectedPersona.id) {
@@ -418,8 +440,8 @@ const SimulationPage: React.FC = () => {
         mode: sessionMode,
         bgInfo: fieldMap.bgInfo?.trim() || bgInfo.trim() || '',
         openingLine: fieldMap.openingLine || openingLine || undefined,
-        stimulusImage: stimulusImage || undefined,
-        mimeType: mimeType || undefined,
+        stimulusImage: effectiveStimulusImage || undefined,
+        mimeType: effectiveMimeType || undefined,
         name: `${selectedPersona.name} - ${selectedSimulation.title}`
       });
       
@@ -997,7 +1019,7 @@ const SimulationPage: React.FC = () => {
                         <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50">
                           {inputFields[field.name] ? (
                             <div className="relative">
-                              <p className="text-sm text-gray-700 font-medium">PDF uploaded</p>
+                              <p className="text-sm text-gray-700 font-medium">File uploaded</p>
                               <button
                                 type="button"
                                 onClick={() => setInputFields({ ...inputFields, [field.name]: '' })}
@@ -1011,12 +1033,12 @@ const SimulationPage: React.FC = () => {
                               <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
                                 <Upload className="w-8 h-8" />
                               </div>
-                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload PDF'}</p>
+                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload file (PDF, images, or other supported types)'}</p>
                             </div>
                           )}
                           <input
                             type="file"
-                            accept=".pdf,application/pdf"
+                            accept={GEMINI_FILE_INPUT_ACCEPT}
                             className="absolute inset-0 opacity-0 cursor-pointer"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1108,13 +1130,15 @@ const SimulationPage: React.FC = () => {
         )}
 
         {stage === 'result' && (() => {
+          // Output presentation and parsing are based solely on the current simulation type,
+          // not on all simulation types; only simulationOutputType drives how we render.
           const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
           const isReport = simulationOutputType === 'report';
           const isSurvey = simulationOutputType === 'survey';
           const isAdvice = simulationOutputType === 'advice';
           const isIdeation = simulationOutputType === 'ideation';
           const isResponseSim = simulationOutputType === 'response_simulation';
-          const isChatLike = simulationOutputType === 'chat' || simulationOutputType === 'conversational_simulation';
+          const isChatLike = simulationOutputType === 'chat' || simulationOutputType === 'persuasion_simulation';
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
           const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
 
@@ -1174,7 +1198,7 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl font-black text-gray-900">
-                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
@@ -1188,7 +1212,7 @@ const SimulationPage: React.FC = () => {
               </div>
             </header>
 
-            {/* Main content: chat UI for chat/conversational, single-output for others */}
+            {/* Main content: chat UI for chat/persuasion, single-output for others */}
             {isChatLike ? (
             <div className="flex-grow overflow-y-auto p-10 space-y-10 bg-gray-50/20">
               {messages.map((m) => {
@@ -1269,7 +1293,7 @@ const SimulationPage: React.FC = () => {
             </div>
             )}
 
-            {/* Follow-up input - only for chat and conversational_simulation */}
+            {/* Follow-up input - only for chat and persuasion_simulation */}
             {isChatLike && (
             <div className="p-10 border-t border-gray-100 bg-white">
               <form onSubmit={handleSendFollowUp} className="max-w-4xl mx-auto">
@@ -1311,8 +1335,11 @@ const SimulationPage: React.FC = () => {
       {stage === 'result' && selectedSimulation && (() => {
         const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
         const isAdvice = simulationOutputType === 'advice';
+        const isPersuasion = simulationOutputType === 'persuasion_simulation';
         const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
+        const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
         const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
+        const parsedPersuasion = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
         return (
         <aside className="hidden lg:flex w-96 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-8 space-y-10">
           {isAdvice && (
@@ -1320,6 +1347,13 @@ const SimulationPage: React.FC = () => {
               <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Evaluation Score</h4>
               <p className="text-3xl font-black text-indigo-600">{parsedScore ?? '—'}{parsedScore ? '/10' : ''}</p>
               <p className="text-xs text-gray-500 mt-1">Based on persona and user inputs</p>
+            </div>
+          )}
+          {isPersuasion && (
+            <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Persuasion</h4>
+              <p className="text-3xl font-black text-indigo-600">{parsedPersuasion ?? '—'}{parsedPersuasion ? '%' : ''}</p>
+              <p className="text-xs text-gray-500 mt-1">How persuaded the agent is</p>
             </div>
           )}
           <div className="flex items-center gap-4 pb-8 border-b border-gray-100">

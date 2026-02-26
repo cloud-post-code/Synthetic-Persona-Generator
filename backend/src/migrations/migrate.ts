@@ -39,6 +39,13 @@ async function migrate() {
         if (err.code !== '42701') throw err;
       }
     }
+
+    // Rename conversational_simulation to persuasion_simulation (one-time data migration)
+    try {
+      await pool.query(`UPDATE simulations SET simulation_type = 'persuasion_simulation' WHERE simulation_type = 'conversational_simulation'`);
+    } catch (err: any) {
+      // Non-fatal; column might not exist in very old DBs
+    }
     
     console.log('Seeding default simulations...');
     

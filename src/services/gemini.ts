@@ -3,6 +3,34 @@ import { GoogleGenAI } from "@google/genai";
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
 
+/** MIME types supported by Gemini for inline data (images, PDF, and other documents). */
+export const GEMINI_ACCEPTED_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/json',
+] as const;
+
+/** Accept attribute value for file inputs that should accept any file type Gemini supports. */
+export const GEMINI_FILE_INPUT_ACCEPT =
+  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.txt,.csv,.json,application/pdf,image/png,image/jpeg,image/webp,image/gif,image/heic,text/plain,text/csv,application/json';
+
+/** Per-type description of expected output and behavior; passed when generating the system prompt. */
+export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
+  chat: 'Strict output: Simple back-and-forth conversation only. Always starts with the opening line ({{OPENING_LINE}}). No report, no score, no structured block—only turn-by-turn dialog in character.',
+  advice: 'Strict output: Maximum three paragraphs of advice. Optionally include a numeric evaluation score (e.g. out of 10). No chat after the advice. No lengthy essay—exactly up to three paragraphs.',
+  report: 'Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.',
+  persuasion_simulation: 'Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. \'Persuasion: 75%\') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.',
+  response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output (numeric, action, or text answer per decision type), and (3) at most one paragraph of reasoning. No chat. No further interaction.',
+  survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
+  ideation: 'Strict output: A list of bulleted (or numbered) ideas only. No prose paragraphs, no chat. The persona must output a structured list of ideas based on the seed prompts. No follow-up.',
+};
+
 const truncate = (text: string, max: number) => {
   if (!text) return "";
   return text.length > max ? text.substring(0, max) + "... [Truncated for Context]" : text;
@@ -224,7 +252,7 @@ export const geminiService = {
       
       // Validate base64 data is not empty
       if (!base64Data || base64Data.trim().length === 0) {
-        throw new Error('Invalid file data: base64 content is empty. Please ensure the PDF file is valid and not corrupted.');
+        throw new Error('Invalid file data: base64 content is empty. Please ensure the file is valid and not corrupted.');
       }
       
       // Validate base64 format (basic check)
@@ -249,11 +277,11 @@ export const geminiService = {
     } catch (error: any) {
       console.error('Gemini API error:', error);
       
-      // Check for specific PDF/document errors
+      // Check for document/file errors (e.g. empty, invalid, unsupported type)
       if (error?.status === 400 || error?.code === 400 || error?.message?.includes('400')) {
         const errorMsg = error?.message || JSON.stringify(error);
-        if (errorMsg.includes('no pages') || errorMsg.includes('invalid') || errorMsg.includes('empty')) {
-          throw new Error(`PDF Error: The document appears to be empty, corrupted, or invalid.\n\nPlease ensure:\n1. The PDF file is not corrupted\n2. The PDF contains at least one page\n3. The PDF is not password-protected\n4. The file size is reasonable (under 20MB)\n\nOriginal error: ${errorMsg}`);
+        if (errorMsg.includes('no pages') || errorMsg.includes('invalid') || errorMsg.includes('empty') || errorMsg.includes('Unsupported') || errorMsg.includes('MIME')) {
+          throw new Error(`File Error: The document or file appears to be empty, corrupted, invalid, or an unsupported type.\n\nPlease ensure:\n1. The file is not corrupted\n2. The file type is supported (e.g. PDF, images, text)\n3. The file is not password-protected\n4. The file size is reasonable (under 20MB)\n\nOriginal error: ${errorMsg}`);
         }
         throw new Error(`Invalid Request: ${errorMsg}`);
       }
@@ -329,8 +357,13 @@ export const geminiService = {
       throw new Error('Gemini API key is not configured. Set VITE_GEMINI_API_KEY to generate the system prompt with AI.');
     }
     const ai = new GoogleGenAI({ apiKey });
+    const simType = config.simulation_type || 'chat';
+    const typeOutputSpec = SIMULATION_TYPE_OUTPUT_SPECS[simType];
+    const typeSpecSection = typeOutputSpec
+      ? `\nSIMULATION TYPE — EXPECTED OUTPUT AND BEHAVIOR:\nThe following describes what kind of output this simulation must produce. Your generated system prompt must instruct the persona so that the actual run produces this type of output:\n\n${typeOutputSpec}\n`
+      : '';
     const prompt = `You are helping create the system prompt for a simulation. Below is the full configuration the admin entered. Generate the exact system prompt text that will be used when running this simulation. The prompt will be shown to the user for editing before saving.
-
+${typeSpecSection}
 REQUIREMENTS:
 - The system prompt must instruct the AI/persona how to behave during the simulation.
 - You MUST include and document these template variables exactly as specified; they will be replaced at runtime:
@@ -338,6 +371,7 @@ REQUIREMENTS:
   {{SELECTED_PROFILE_FULL}} - full profile and blueprint content
   {{BACKGROUND_INFO}} - background/context from the user running the simulation
   {{OPENING_LINE}} - opening line or initial content from the user
+- You MUST include and document every entry in required_input_fields as template variables. For each field, add a line with: the variable placeholder {{FIELD_NAME}} (use the field's name in UPPERCASE), the input type (text, textarea, image, table, pdf, or multiple_choice), and the label/description. These will be replaced at runtime. Include all fields regardless of type so the persona knows what inputs are available.
 - Write in clear sections (e.g. with ### headers). Include: what this simulation is, how the persona should act, and how to use the variables.
 - Do not add any preamble or explanation—output ONLY the system prompt text that will be stored and used.
 
