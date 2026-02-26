@@ -105,8 +105,6 @@ export interface SimulationInputField {
 }
 
 export type SimulationType =
-  | 'chat'
-  | 'advice'
   | 'report'
   | 'persuasion_simulation'
   | 'response_simulation'

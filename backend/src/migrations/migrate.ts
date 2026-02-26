@@ -26,7 +26,7 @@ async function migrate() {
 
     // Add simulation type and config columns if they don't exist
     const simColumns = [
-      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS simulation_type VARCHAR(50) DEFAULT 'chat'`,
+      `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS simulation_type VARCHAR(50) DEFAULT 'report'`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS allowed_persona_types JSONB DEFAULT '["synthetic_user","advisor","practice_person"]'`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_min INTEGER DEFAULT 1`,
       `ALTER TABLE simulations ADD COLUMN IF NOT EXISTS persona_count_max INTEGER DEFAULT 1`,

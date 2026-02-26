@@ -13,8 +13,6 @@ import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { IconPicker } from './IconPicker.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string }[] = [
-  { id: 'chat', label: 'Chat', description: 'Back-and-forth conversation. The persona responds turn by turn, starting with your opening line. No report or score—just natural dialogue.' },
-  { id: 'advice', label: 'Advice', description: 'The persona gives up to three paragraphs of advice, optionally with a numeric score. No chat after the advice.' },
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.' },
   { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
   { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
@@ -394,23 +392,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
         <section className="space-y-4 border-t border-gray-200 pt-8">
           <h2 className="text-lg font-semibold text-gray-900">Configuration for {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label}</h2>
           <p className="text-sm text-gray-600">Settings that define how this simulation type behaves. These are not shown to the person running the simulation.</p>
-
-          {simulationType === 'chat' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Default opening line for the chat (optional)</label>
-              <input
-                type="text"
-                value={(typeSpecificConfig.opening_line as string) || ''}
-                onChange={(e) => setConfig('opening_line', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="First message the persona says"
-              />
-            </div>
-          )}
-
-          {simulationType === 'advice' && (
-            <p className="text-sm text-gray-500">Advice simulation uses the description above. Scoring and feedback are applied at runtime.</p>
-          )}
 
           {simulationType === 'report' && (
             <>

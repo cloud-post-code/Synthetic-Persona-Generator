@@ -1,8 +1,6 @@
 import { apiClient } from './api.js';
 
 export type SimulationType =
-  | 'chat'
-  | 'advice'
   | 'report'
   | 'persuasion_simulation'
   | 'response_simulation'

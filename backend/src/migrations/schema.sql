@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS simulations (
   required_input_fields JSONB DEFAULT '[]',
   system_prompt TEXT NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
-  simulation_type VARCHAR(50) DEFAULT 'chat',
+  simulation_type VARCHAR(50) DEFAULT 'report',
   allowed_persona_types JSONB DEFAULT '["synthetic_user","advisor","practice_person"]',
   persona_count_min INTEGER DEFAULT 1,
   persona_count_max INTEGER DEFAULT 1,

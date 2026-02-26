@@ -4,8 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 
 /** Per-type description of expected output and behavior; used when generating the system prompt. */
 const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
-  chat: `Strict output: Simple back-and-forth conversation only. Always starts with the opening line ({{OPENING_LINE}}). No report, no score, no structured block—only turn-by-turn dialog in character.`,
-  advice: `Strict output: Maximum three paragraphs of advice. Optionally include a numeric evaluation score (e.g. out of 10). No chat after the advice. No lengthy essay—exactly up to three paragraphs.`,
   report: `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.`,
   persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. 'Persuasion: 75%') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.`,
   response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output (numeric, action, or text answer per decision type), and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
@@ -105,7 +103,7 @@ export async function createSimulation(data: CreateSimulationRequest): Promise<S
       JSON.stringify(data.required_input_fields || []),
       systemPrompt,
       data.is_active !== undefined ? data.is_active : true,
-      data.simulation_type || 'chat',
+      data.simulation_type || 'report',
       JSON.stringify(data.allowed_persona_types ?? ['synthetic_user', 'advisor', 'practice_person']),
       data.persona_count_min ?? 1,
       data.persona_count_max ?? 1,
@@ -119,7 +117,7 @@ export async function createSimulation(data: CreateSimulationRequest): Promise<S
 
 export function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
   const desc = data.description?.trim() || 'No description provided.';
-  const type = data.simulation_type || 'chat';
+  const type = data.simulation_type || 'report';
   const config = data.type_specific_config || {};
   const lines: string[] = [
     `You are running a ${type} simulation.`,

@@ -1153,16 +1153,13 @@ const SimulationPage: React.FC = () => {
         {stage === 'result' && (() => {
           // Output presentation and parsing are based solely on the current simulation type,
           // not on all simulation types; only simulationOutputType drives how we render.
-          const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
+          const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
           const isReport = simulationOutputType === 'report';
           const isSurvey = simulationOutputType === 'survey';
-          const isAdvice = simulationOutputType === 'advice';
           const isIdeation = simulationOutputType === 'ideation';
           const isResponseSim = simulationOutputType === 'response_simulation';
-          const isChatLike = simulationOutputType === 'chat' || simulationOutputType === 'persuasion_simulation';
+          const isChatLike = simulationOutputType === 'persuasion_simulation';
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
-          const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
-
           const handleDownloadReport = () => {
             const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
             const blob = new Blob([text], { type: 'text/plain' });
@@ -1219,7 +1216,7 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl font-black text-gray-900">
-                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isAdvice ? 'Advice' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
@@ -1303,11 +1300,6 @@ const SimulationPage: React.FC = () => {
                   </div>
                 </>
               )}
-              {isAdvice && (
-                <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
-                  <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
-                </div>
-              )}
               {isIdeation && (
                 <>
                   <p className="text-sm text-gray-600 mb-2 font-medium">Ideas</p>
@@ -1321,7 +1313,7 @@ const SimulationPage: React.FC = () => {
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>
               )}
-              {!isReport && !isSurvey && !isAdvice && !isIdeation && !isResponseSim && (
+              {!isReport && !isSurvey && !isIdeation && !isResponseSim && (
                 <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>
@@ -1373,22 +1365,13 @@ const SimulationPage: React.FC = () => {
 
       {/* Info Context Bar (Only shown in Result Stage) */}
       {stage === 'result' && selectedSimulation && (() => {
-        const simulationOutputType = (selectedSimulation?.simulation_type || 'chat') as string;
-        const isAdvice = simulationOutputType === 'advice';
+        const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
         const isPersuasion = simulationOutputType === 'persuasion_simulation';
         const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
         const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
-        const parsedScore = firstPersonaContent.match(/(?:score|rating|agree|like)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:\/10|\/100)?/i)?.[1] ?? null;
         const parsedPersuasion = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
         return (
         <aside className="hidden lg:flex w-96 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-8 space-y-10">
-          {isAdvice && (
-            <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Evaluation Score</h4>
-              <p className="text-3xl font-black text-indigo-600">{parsedScore ?? '—'}{parsedScore ? '/10' : ''}</p>
-              <p className="text-xs text-gray-500 mt-1">Based on persona and user inputs</p>
-            </div>
-          )}
           {isPersuasion && (
             <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Persuasion</h4>
