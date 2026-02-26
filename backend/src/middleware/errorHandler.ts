@@ -30,17 +30,20 @@ export function errorHandler(
           ? ' Database does not exist. Create it (e.g. createdb persona_builder) and run migrations.'
           : errAny.code === '42P01'
             ? ' A required table is missing. Run: cd backend && npm run migrate'
-            : '';
+            : errAny.code === '23503'
+              ? ' Foreign key violation (e.g. user_id does not exist in users table).'
+              : '';
 
   const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
   const userMessage = dbHint ? `Internal server error.${dbHint}` : 'Internal server error';
 
+  // Always send backend error message so the UI can show it (helps diagnose 500s in any environment)
   res.status(500).json({
     error: userMessage,
-    message: isDevelopment ? err.message : undefined,
-    ...(isDevelopment && errAny.code && { code: errAny.code }),
-    ...(isDevelopment && errAny.detail && { detail: errAny.detail }),
-    stack: isDevelopment ? err.stack : undefined,
+    message: err.message,
+    ...(errAny.code && { code: errAny.code }),
+    ...(errAny.detail && { detail: errAny.detail }),
+    ...(isDevelopment && { stack: err.stack }),
   });
 }
 

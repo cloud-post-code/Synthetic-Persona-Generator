@@ -142,25 +142,25 @@ $$ language 'plpgsql';
 -- Create triggers for updated_at (drop if exists first to make idempotent)
 DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_business_profiles_updated_at ON business_profiles;
 CREATE TRIGGER update_business_profiles_updated_at BEFORE UPDATE ON business_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_personas_updated_at ON personas;
 CREATE TRIGGER update_personas_updated_at BEFORE UPDATE ON personas
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON chat_sessions;
 CREATE TRIGGER update_chat_sessions_updated_at BEFORE UPDATE ON chat_sessions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_simulation_sessions_updated_at ON simulation_sessions;
 CREATE TRIGGER update_simulation_sessions_updated_at BEFORE UPDATE ON simulation_sessions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_simulations_updated_at ON simulations;
 CREATE TRIGGER update_simulations_updated_at BEFORE UPDATE ON simulations
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 

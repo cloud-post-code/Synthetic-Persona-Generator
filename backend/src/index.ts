@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import pool from './config/database.js';
 import authRoutes from './routes/authRoutes.js';
 import personaRoutes from './routes/personaRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
@@ -41,9 +42,60 @@ app.use('/api/admin', adminRoutes);
 // Error handling
 app.use(errorHandler);
 
+// Ensure business_profiles table exists (self-heal if migrations didn't run or failed)
+async function ensureBusinessProfilesTable() {
+  try {
+    await pool.query('SELECT 1 FROM business_profiles LIMIT 1');
+  } catch (err: unknown) {
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+    if (code === '42P01') {
+      console.log('Creating business_profiles table...');
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS business_profiles (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+          business_name VARCHAR(255),
+          mission_statement TEXT,
+          vision_statement TEXT,
+          description_main_offerings TEXT,
+          key_features_or_benefits TEXT,
+          unique_selling_proposition TEXT,
+          pricing_model TEXT,
+          customer_segments TEXT,
+          geographic_focus TEXT,
+          industry_served VARCHAR(100),
+          what_differentiates TEXT,
+          market_niche TEXT,
+          revenue_streams TEXT,
+          distribution_channels TEXT,
+          key_personnel TEXT,
+          major_achievements TEXT,
+          revenue TEXT,
+          key_performance_indicators TEXT,
+          funding_rounds TEXT,
+          website VARCHAR(500),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id)');
+      console.log('business_profiles table ready.');
+    } else {
+      throw err;
+    }
+  }
+}
+
 // Start server - bind to 0.0.0.0 to accept external connections (required for Railway)
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 CORS enabled for: ${CORS_ORIGINS.join(', ')}`);
-});
+ensureBusinessProfilesTable()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📡 CORS enabled for: ${CORS_ORIGINS.join(', ')}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Startup failed:', err);
+    process.exit(1);
+  });
 
