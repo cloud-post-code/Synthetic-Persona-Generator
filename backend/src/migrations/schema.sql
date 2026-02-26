@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS business_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  business_name VARCHAR(255),
+  business_name TEXT,
   mission_statement TEXT,
   vision_statement TEXT,
   description_main_offerings TEXT,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS business_profiles (
   pricing_model TEXT,
   customer_segments TEXT,
   geographic_focus TEXT,
-  industry_served VARCHAR(100),
+  industry_served TEXT,
   what_differentiates TEXT,
   market_niche TEXT,
   revenue_streams TEXT,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS business_profiles (
   revenue TEXT,
   key_performance_indicators TEXT,
   funding_rounds TEXT,
-  website VARCHAR(500),
+  website TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
