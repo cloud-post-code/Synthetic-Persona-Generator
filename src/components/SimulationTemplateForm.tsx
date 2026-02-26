@@ -12,14 +12,14 @@ import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { IconPicker } from './IconPicker.js';
 
-const SIMULATION_TYPES: { id: SimulationType; label: string }[] = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'advice', label: 'Advice' },
-  { id: 'report', label: 'Report' },
-  { id: 'persuasion_simulation', label: 'Persuasion Simulation' },
-  { id: 'response_simulation', label: 'Response Simulation' },
-  { id: 'survey', label: 'Survey' },
-  { id: 'ideation', label: 'Ideation' },
+const SIMULATION_TYPES: { id: SimulationType; label: string; description: string }[] = [
+  { id: 'chat', label: 'Chat', description: 'Back-and-forth conversation. The persona responds turn by turn, starting with your opening line. No report or score—just natural dialogue.' },
+  { id: 'advice', label: 'Advice', description: 'The persona gives up to three paragraphs of advice, optionally with a numeric score. No chat after the advice.' },
+  { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.' },
+  { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
+  { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
+  { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.' },
+  { id: 'ideation', label: 'Ideation', description: 'A structured list of bulleted or numbered ideas from the persona. No prose paragraphs or chat.' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -289,19 +289,20 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-gray-900">Simulation type</h2>
         <p className="text-sm text-gray-600">Choose the type of simulation. This determines how it runs and what outputs users see.</p>
-        <div className="flex flex-wrap gap-2">
-          {SIMULATION_TYPES.map(({ id, label }) => (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {SIMULATION_TYPES.map(({ id, label, description }) => (
             <button
               key={id}
               type="button"
               onClick={() => setSimulationType(id)}
-              className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
+              className={`text-left px-4 py-3 rounded-lg border-2 transition-colors ${
                 simulationType === id
                   ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                   : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
               }`}
             >
-              {label}
+              <span className="block text-sm font-medium">{label}</span>
+              <span className="block mt-1 text-xs text-gray-500">{description}</span>
             </button>
           ))}
         </div>

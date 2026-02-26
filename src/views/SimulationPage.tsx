@@ -151,7 +151,8 @@ const SimulationPage: React.FC = () => {
   const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+  const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
+  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; avatarUrl?: string; content: string }>>([]);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
@@ -178,6 +179,10 @@ const SimulationPage: React.FC = () => {
     selectedSimulation?.allowed_persona_types?.length
       ? personas.filter((p) => selectedSimulation.allowed_persona_types.includes(p.type))
       : personas;
+
+  const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
+  const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
+  const selectedPersona = selectedPersonas[0] ?? null;
 
   // Load simulations on mount
   useEffect(() => {
@@ -220,10 +225,12 @@ const SimulationPage: React.FC = () => {
   }, [allPersonas]);
 
   useEffect(() => {
-    if (stage !== 'inputs' || !selectedSimulation || !selectedPersona) return;
+    if (stage !== 'inputs' || !selectedSimulation) return;
     const allowed = selectedSimulation.allowed_persona_types;
-    if (allowed?.length && !allowed.includes(selectedPersona.type)) setSelectedPersona(null);
-  }, [selectedSimulation, selectedPersona, stage, personas]);
+    if (allowed?.length) {
+      setSelectedPersonas(prev => prev.filter(p => allowed.includes(p.type)));
+    }
+  }, [selectedSimulation, stage, personas]);
 
   // Restore last active simulation session after history is loaded
   useEffect(() => {
@@ -242,7 +249,7 @@ const SimulationPage: React.FC = () => {
           setMimeType(savedSession.mimeType || null);
           
           const persona = allPersonas.find(p => p.id === savedSession.personaId);
-          setSelectedPersona(persona || null);
+          setSelectedPersonas(persona ? [persona] : []);
 
           // Load messages from localStorage
           try {
@@ -315,23 +322,19 @@ const SimulationPage: React.FC = () => {
 
   const startSimulation = async () => {
     // Validate all required fields before starting
-    if (!selectedPersona) {
-      alert('Please select a persona');
-      return;
-    }
-    
-    if (!selectedPersona.id) {
-      alert('Selected persona is missing an ID. Please select a valid persona.');
-      return;
-    }
-    
-    if (!selectedPersona.name || !selectedPersona.name.trim()) {
-      alert('Selected persona is missing a name. Please select a valid persona.');
-      return;
-    }
-    
     if (!selectedSimulation) {
       alert('Please select a simulation');
+      return;
+    }
+
+    const minP = selectedSimulation.persona_count_min ?? 1;
+    const maxP = selectedSimulation.persona_count_max ?? 1;
+    if (selectedPersonas.length < minP) {
+      alert(`Please select at least ${minP} persona${minP > 1 ? 's' : ''}.`);
+      return;
+    }
+    if (selectedPersonas.length > maxP) {
+      alert(`Please select at most ${maxP} persona${maxP > 1 ? 's' : ''}.`);
       return;
     }
 
@@ -357,26 +360,6 @@ const SimulationPage: React.FC = () => {
     
     setIsLoading(true);
 
-    // Build profile context
-    let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
-    // Load persona files if not already loaded
-    const files = selectedPersona.files || [];
-    if (files.length === 0) {
-      try {
-        const personaFiles = await personaApi.getFiles(selectedPersona.id);
-        files.push(...personaFiles.map(f => ({
-          ...f,
-          createdAt: f.created_at || f.createdAt,
-        })));
-      } catch (err) {
-        console.error('Failed to load persona files:', err);
-      }
-    }
-    files.forEach(f => {
-      profileData += `--- FILE: ${f.name} ---\n${f.content.substring(0, 15000)}\n\n`;
-    });
-
-    // Map input fields to template variables
     const fieldMap: Record<string, string> = {
       bgInfo: bgInfo,
       openingLine: openingLine,
@@ -410,24 +393,50 @@ const SimulationPage: React.FC = () => {
       }
     }
 
-    let prompt = selectedSimulation.system_prompt
-      .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
-      .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
-      .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
-      .replace(/{{OPENING_LINE}}/g, fieldMap.openingLine || openingLine || '');
-    
-    // Replace any other template variables from input fields
-    for (const [key, value] of Object.entries(fieldMap)) {
-      prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+    const results: Array<{ personaId: string; name: string; avatarUrl?: string; content: string }> = [];
+
+    for (const selectedPersona of selectedPersonas) {
+      let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
+      const files = selectedPersona.files || [];
+      if (files.length === 0) {
+        try {
+          const personaFiles = await personaApi.getFiles(selectedPersona.id);
+          files.push(...personaFiles.map(f => ({
+            ...f,
+            createdAt: f.created_at || f.createdAt,
+          })));
+        } catch (err) {
+          console.error('Failed to load persona files:', err);
+        }
+      }
+      files.forEach(f => {
+        profileData += `--- FILE: ${f.name} ---\n${f.content.substring(0, 15000)}\n\n`;
+      });
+
+      let prompt = selectedSimulation.system_prompt
+        .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
+        .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
+        .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
+        .replace(/{{OPENING_LINE}}/g, fieldMap.openingLine || openingLine || '');
+      for (const [key, value] of Object.entries(fieldMap)) {
+        prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+      }
+
+      const result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
+      results.push({
+        personaId: selectedPersona.id,
+        name: selectedPersona.name,
+        avatarUrl: selectedPersona.avatarUrl,
+        content: result,
+      });
     }
 
+    setPersonaResults(results);
+
+    const firstPersona = selectedPersonas[0];
+    if (!firstPersona?.id) throw new Error('Persona ID is missing');
+
     try {
-      const result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
-      
-      // Ensure all required fields are present
-      if (!selectedPersona.id) {
-        throw new Error('Persona ID is missing');
-      }
       // Determine mode for backward compatibility (use first 4 chars of simulation title or default)
       let sessionMode: SimulationMode = 'web_page';
       const modeTitle = selectedSimulation.title.toLowerCase();
@@ -436,25 +445,23 @@ const SimulationPage: React.FC = () => {
       else if (modeTitle.includes('investor')) sessionMode = 'investor_pitch';
       
       const newSession = await simulationApi.create({
-        personaId: selectedPersona.id,
+        personaId: firstPersona.id,
         mode: sessionMode,
         bgInfo: fieldMap.bgInfo?.trim() || bgInfo.trim() || '',
         openingLine: fieldMap.openingLine || openingLine || undefined,
         stimulusImage: effectiveStimulusImage || undefined,
         mimeType: effectiveMimeType || undefined,
-        name: `${selectedPersona.name} - ${selectedSimulation.title}`
+        name: `${firstPersona.name} - ${selectedSimulation.title}`
       });
       
       const newSessionId = newSession.id;
       
-      // Note: Simulation messages are stored separately - for now we'll store them locally
-      // In a full implementation, you might want to create a chat session for each simulation
       const initialMessage: Message = {
         id: crypto.randomUUID(),
         sessionId: newSessionId,
         senderType: 'persona',
-        personaId: selectedPersona.id,
-        content: result,
+        personaId: firstPersona.id,
+        content: results[0].content,
         createdAt: new Date().toISOString()
       };
       
@@ -463,26 +470,23 @@ const SimulationPage: React.FC = () => {
       setStage('result');
       loadHistory();
       
-      // Save initial message to localStorage
       localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
       
       if (isGeneratedSurvey && surveyQuestions.length > 0) {
         localStorage.setItem(`simulationSurveyData_${newSessionId}`, JSON.stringify({
           questions: surveyQuestions,
           answers: surveyGeneratedAnswers,
-          respondentName: selectedPersona.name,
+          respondentName: firstPersona.name,
         }));
       }
       
-      // Save full persona data (with files) to localStorage for quick restoration
       const personaWithFiles = {
-        ...selectedPersona,
-        files: selectedPersona.files || [],
+        ...firstPersona,
+        files: firstPersona.files || [],
       };
-      // Ensure files are loaded if not already
       if (personaWithFiles.files.length === 0) {
         try {
-          const files = await personaApi.getFiles(selectedPersona.id);
+          const files = await personaApi.getFiles(firstPersona.id);
           personaWithFiles.files = files.map(f => ({
             ...f,
             createdAt: f.created_at || f.createdAt,
@@ -626,7 +630,7 @@ const SimulationPage: React.FC = () => {
       }
     }
     
-    setSelectedPersona(persona);
+    setSelectedPersonas(persona ? [persona] : []);
 
     // Load messages from localStorage
     try {
@@ -679,7 +683,8 @@ const SimulationPage: React.FC = () => {
     setCurrentSessionId(null);
     setSelectedSimulation(null);
     setMode(null);
-    setSelectedPersona(null);
+    setSelectedPersonas([]);
+    setPersonaResults([]);
     setBgInfo('');
     setOpeningLine('');
     setStimulusImage(null);
@@ -827,10 +832,13 @@ const SimulationPage: React.FC = () => {
 
               <div className="space-y-10">
                 <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">1. Select Target Persona</label>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">1. Select Target Persona{personaCountMax > 1 ? 's' : ''}</label>
                   {selectedSimulation?.allowed_persona_types?.length ? (
                     <p className="text-xs text-gray-500">Only personas of type: {(selectedSimulation.allowed_persona_types as string[]).map(t => t.replace(/_/g, ' ')).join(', ')}</p>
                   ) : null}
+                  {personaCountMax > 1 && (
+                    <p className="text-xs text-gray-500">Select between {personaCountMin} and {personaCountMax} persona{personaCountMax > 1 ? 's' : ''}. Each will receive the same inputs and provide their own response.</p>
+                  )}
                   {allowedPersonasForSimulation.length === 0 ? (
                     <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-amber-700 text-sm font-bold flex gap-3">
                        <AlertCircle className="w-5 h-5" />
@@ -842,18 +850,31 @@ const SimulationPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {allowedPersonasForSimulation.map(p => (
+                      {allowedPersonasForSimulation.map(p => {
+                        const isSelected = selectedPersonas.some(sp => sp.id === p.id);
+                        const atMax = selectedPersonas.length >= personaCountMax;
+                        const canToggle = isSelected || !atMax;
+                        return (
                         <button
                           key={p.id}
-                          onClick={() => setSelectedPersona(p)}
-                          className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${selectedPersona?.id === p.id ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'}`}
+                          type="button"
+                          onClick={() => {
+                            if (!canToggle) return;
+                            if (isSelected) {
+                              setSelectedPersonas(prev => prev.filter(sp => sp.id !== p.id));
+                            } else {
+                              setSelectedPersonas(prev => [...prev, p]);
+                            }
+                          }}
+                          className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'} ${!canToggle ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
                         >
                           <img src={p.avatarUrl} alt={p.name} className="w-10 h-10 rounded-xl object-cover" />
                           <div className="min-w-0">
                             <p className="text-xs font-black text-gray-900 truncate">{p.name}</p>
+                            {isSelected && <p className="text-[10px] text-indigo-600 font-bold">Selected</p>}
                           </div>
                         </button>
-                      ))}
+                      ); })}
                     </div>
                   )}
                 </div>
@@ -899,7 +920,7 @@ const SimulationPage: React.FC = () => {
                       </div>
                     ))}
                     <button
-                      disabled={isLoading || !selectedPersona || !selectedSimulation}
+                      disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation}
                       onClick={startSimulation}
                       className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                     >
@@ -1116,7 +1137,7 @@ const SimulationPage: React.FC = () => {
                 })}
 
                 <button
-                  disabled={isLoading || !selectedPersona || !selectedSimulation}
+                  disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation}
                   onClick={startSimulation}
                   className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                 >
@@ -1249,6 +1270,23 @@ const SimulationPage: React.FC = () => {
             </div>
             ) : (
             <div className="flex-grow overflow-y-auto p-10 bg-gray-50/20">
+              {personaResults.length > 1 ? (
+                <div className="space-y-8">
+                  <p className="text-sm text-gray-600 font-medium">Each persona’s response</p>
+                  {personaResults.map((pr, idx) => (
+                    <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
+                      <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-100">
+                        {pr.avatarUrl && <img src={pr.avatarUrl} alt={pr.name} className="w-12 h-12 rounded-xl object-cover" />}
+                        <span className="text-base font-black text-gray-900">{pr.name}</span>
+                      </div>
+                      <div className="text-gray-800">
+                        <FormattedSimulationResponse content={pr.content} isUser={false} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
               {isReport && (
                 <>
                   <p className="text-sm text-gray-600 mb-4 font-medium">Summary</p>
@@ -1290,6 +1328,8 @@ const SimulationPage: React.FC = () => {
               )}
               {isTyping && <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>}
               <div ref={scrollRef} />
+            </>
+              )}
             </div>
             )}
 
