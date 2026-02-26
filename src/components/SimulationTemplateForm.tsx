@@ -689,17 +689,23 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     value={field.name}
                     onChange={(e) => handleFieldChange(index, { name: e.target.value })}
                     required
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
-                    placeholder="e.g., bgInfo"
+                    readOnly={field.type === 'business_profile'}
+                    className={`w-full px-3 py-1.5 text-sm border border-gray-300 rounded ${field.type === 'business_profile' ? 'bg-gray-100' : ''}`}
+                    placeholder={field.type === 'business_profile' ? 'businessProfile' : 'e.g., bgInfo'}
                   />
+                  {field.type === 'business_profile' && (
+                    <p className="text-xs text-gray-500 mt-1">Uses the runner&apos;s saved business profile from Settings. Placeholder: &#123;&#123;BUSINESSPROFILE&#125;&#125;</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">Type *</label>
-                  <select
+                    <select
                     value={field.type === 'textarea' ? 'text' : field.type}
                     onChange={(e) => {
                       const newType = e.target.value as SimulationInputField['type'];
-                      handleFieldChange(index, newType === 'multiple_choice' && !(field.options?.length) ? { type: newType, options: [''] } : { type: newType });
+                      const updates: Partial<SimulationInputField> = newType === 'multiple_choice' && !(field.options?.length) ? { type: newType, options: [''] } : { type: newType };
+                      if (newType === 'business_profile') updates.name = 'businessProfile';
+                      handleFieldChange(index, updates);
                     }}
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
                   >
@@ -708,6 +714,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     <option value="table">Table (CSV, Excel)</option>
                     <option value="pdf">File upload (all file types)</option>
                     <option value="multiple_choice">Multiple choice</option>
+                    <option value="business_profile">Business profile</option>
                   </select>
                 </div>
               </div>

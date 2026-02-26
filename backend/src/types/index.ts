@@ -151,7 +151,7 @@ export interface AuthResponse {
 
 export interface SimulationInputField {
   name: string;
-  type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice';
+  type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice' | 'business_profile';
   required: boolean;
   options?: string[];
 }

@@ -18,10 +18,13 @@ import {
   Download,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
+import type { BusinessProfile } from '../models/types.js';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
+import { getBusinessProfile } from '../services/businessProfileApi.js';
+import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
@@ -159,6 +162,8 @@ const SimulationPage: React.FC = () => {
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string | null>(null);
   const [inputFields, setInputFields] = useState<Record<string, string>>({});
+  const [savedBusinessProfile, setSavedBusinessProfile] = useState<BusinessProfile | null>(null);
+  const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSimulations, setIsLoadingSimulations] = useState(true);
@@ -184,6 +189,11 @@ const SimulationPage: React.FC = () => {
   const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
   const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
   const selectedPersona = selectedPersonas[0] ?? null;
+  const requiredBusinessProfileMissing = Boolean(
+    selectedSimulation?.required_input_fields?.some((f) => f.type === 'business_profile' && f.required) &&
+    !businessProfileLoading &&
+    !savedBusinessProfile
+  );
 
   // Load simulations on mount
   useEffect(() => {
@@ -232,6 +242,20 @@ const SimulationPage: React.FC = () => {
       setSelectedPersonas(prev => prev.filter(p => allowed.includes(p.type)));
     }
   }, [selectedSimulation, stage, personas]);
+
+  const hasBusinessProfileField = selectedSimulation?.required_input_fields?.some(f => f.type === 'business_profile');
+  useEffect(() => {
+    if (!hasBusinessProfileField) {
+      setSavedBusinessProfile(null);
+      return;
+    }
+    let cancelled = false;
+    setBusinessProfileLoading(true);
+    getBusinessProfile()
+      .then((p) => { if (!cancelled) setSavedBusinessProfile(p ?? null); })
+      .finally(() => { if (!cancelled) setBusinessProfileLoading(false); });
+    return () => { cancelled = true; };
+  }, [hasBusinessProfileField]);
 
   // Restore last active simulation session after history is loaded
   useEffect(() => {
@@ -353,7 +377,13 @@ const SimulationPage: React.FC = () => {
     } else {
       // Validate required input fields (runner input fields)
       for (const field of selectedSimulation.required_input_fields) {
-        if (field.required && !inputFields[field.name]?.trim()) {
+        if (!field.required) continue;
+        if (field.type === 'business_profile') {
+          if (!savedBusinessProfile) {
+            alert('This simulation requires your business profile. Add one in Settings → Business Profile, then try again.');
+            return;
+          }
+        } else if (!inputFields[field.name]?.trim()) {
           alert(`Please fill in the required field: ${field.name}`);
           return;
         }
@@ -366,6 +396,14 @@ const SimulationPage: React.FC = () => {
       bgInfo: bgInfo,
       ...inputFields,
     };
+    // Inject saved business profile for any business_profile input fields
+    if (savedBusinessProfile && selectedSimulation.required_input_fields) {
+      for (const field of selectedSimulation.required_input_fields) {
+        if (field.type === 'business_profile') {
+          fieldMap[field.name] = businessProfileToPromptString(savedBusinessProfile);
+        }
+      }
+    }
     // Build user inputs string for {{OPENING_LINE}}: all user-provided values except bgInfo (which is {{BACKGROUND_INFO}})
     const buildUserInputsString = (map: Record<string, string>, fields?: { name: string }[]) => {
       const entries = Object.entries(map).filter(([k, v]) => k !== 'bgInfo' && v != null && String(v).trim() !== '');
@@ -1089,7 +1127,7 @@ const SimulationPage: React.FC = () => {
                       </div>
                     ))}
                     <button
-                      disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation}
+                      disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
                       onClick={startSimulation}
                       className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                     >
@@ -1100,6 +1138,29 @@ const SimulationPage: React.FC = () => {
                 <>
                 {selectedSimulation?.required_input_fields.map((field, index) => {
                   const fieldNumber = index + 2;
+                  if (field.type === 'business_profile') {
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. Business profile {field.required && '*'}
+                        </span>
+                        <div className="p-6 bg-gray-50 border border-gray-100 rounded-3xl">
+                          {businessProfileLoading ? (
+                            <div className="flex items-center gap-2 text-gray-500 font-medium">
+                              <Loader2 className="w-5 h-5 animate-spin" /> Loading business profile...
+                            </div>
+                          ) : savedBusinessProfile ? (
+                            <div>
+                              <p className="text-sm font-bold text-indigo-700 mb-1">Using your saved business profile</p>
+                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from Settings will be included in the simulation.</p>
+                            </div>
+                          ) : (
+                            <p className="text-amber-800 font-medium">No business profile saved. Add one in Settings → Business Profile to use this simulation.</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
                   if (field.type === 'image') {
                     return (
                       <div key={field.name} className="space-y-4">
@@ -1288,7 +1349,7 @@ const SimulationPage: React.FC = () => {
                 })}
 
                 <button
-                  disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation}
+                  disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
                   onClick={startSimulation}
                   className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                 >

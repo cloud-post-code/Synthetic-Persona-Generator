@@ -9,7 +9,7 @@ export type SimulationType =
 
 export interface SimulationInputField {
   name: string;
-  type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice';
+  type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice' | 'business_profile';
   required: boolean;
   /** For multiple_choice: list of option strings */
   options?: string[];

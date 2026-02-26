@@ -91,16 +91,27 @@ export async function upsert(
   const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
   const values: (string | null)[] = [
     userId,
-    ...COLUMNS.map((c) => sanitized[c] ?? null),
+    ...COLUMNS.map((c) => (sanitized[c] !== undefined ? sanitized[c] : null)),
   ];
 
-  const result = await pool.query(
-    `INSERT INTO business_profiles (${cols.join(', ')})
-     VALUES (${placeholders})
-     ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
-     RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-    values
-  );
+  try {
+    const result = await pool.query(
+      `INSERT INTO business_profiles (${cols.join(', ')})
+       VALUES (${placeholders})
+       ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
+       RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
+      values
+    );
 
-  return mapRow(result.rows[0]);
+    if (!result.rows || result.rows.length === 0) {
+      throw new Error('Business profile upsert returned no row');
+    }
+
+    return mapRow(result.rows[0]);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;
+    console.error('businessProfileService.upsert error:', msg, code, err);
+    throw err;
+  }
 }

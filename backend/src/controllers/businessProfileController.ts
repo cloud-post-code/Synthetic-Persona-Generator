@@ -29,8 +29,14 @@ export async function upsertBusinessProfile(req: AuthRequest, res: Response, nex
     if (!userId || typeof userId !== 'string') {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const profile = await businessProfileService.upsert(userId, body);
+    const rawBody = req.body;
+    const body =
+      rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody)
+        ? rawBody
+        : {};
+    // Strip server-only fields so they are never taken from client
+    const { id: _id, user_id: _uid, created_at: _ca, updated_at: _ua, ...rest } = body as Record<string, unknown>;
+    const profile = await businessProfileService.upsert(userId, rest);
     // Ensure JSON-serializable response (dates to ISO strings)
     const payload = {
       ...profile,
@@ -39,6 +45,7 @@ export async function upsertBusinessProfile(req: AuthRequest, res: Response, nex
     };
     res.json(payload);
   } catch (error) {
+    console.error('upsertBusinessProfile error:', error);
     next(error);
   }
 }
