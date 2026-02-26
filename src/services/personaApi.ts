@@ -10,6 +10,26 @@ export const personaApi = {
     return apiClient.get<Persona>(`/personas/${id}`);
   },
 
+  getLibrary: async (): Promise<Persona[]> => {
+    return apiClient.get<Persona[]>('/personas/library');
+  },
+
+  getStarred: async (): Promise<Persona[]> => {
+    return apiClient.get<Persona[]>('/personas/starred');
+  },
+
+  getAvailable: async (): Promise<Persona[]> => {
+    return apiClient.get<Persona[]>('/personas/available');
+  },
+
+  star: async (id: string): Promise<void> => {
+    return apiClient.post<void>(`/personas/${id}/star`);
+  },
+
+  unstar: async (id: string): Promise<void> => {
+    return apiClient.delete<void>(`/personas/${id}/star`);
+  },
+
   create: async (persona: Omit<Persona, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Persona> => {
     // Validate required fields
     if (!persona.name || !persona.name.trim()) {
@@ -28,6 +48,7 @@ export const personaApi = {
       type: persona.type,
       description: persona.description.trim(),
       avatar_url: persona.avatarUrl || persona.avatar_url || '',
+      visibility: persona.visibility || 'private',
       metadata: persona.metadata || {},
     };
     
@@ -49,6 +70,7 @@ export const personaApi = {
     if (updates.name) payload.name = updates.name;
     if (updates.description !== undefined) payload.description = updates.description;
     if (updates.avatarUrl || updates.avatar_url) payload.avatar_url = updates.avatarUrl || updates.avatar_url;
+    if (updates.visibility) payload.visibility = updates.visibility;
     if (updates.metadata) payload.metadata = updates.metadata;
     return apiClient.put<Persona>(`/personas/${id}`, payload);
   },

@@ -1,5 +1,7 @@
 export type PersonaType = 'synthetic_user' | 'advisor';
 
+export type PersonaVisibility = 'private' | 'public' | 'global';
+
 export interface User {
   id: string;
   username: string;
@@ -17,6 +19,7 @@ export interface Persona {
   type: PersonaType;
   description: string;
   avatar_url: string;
+  visibility?: PersonaVisibility;
   metadata: Record<string, any>;
   created_at: Date;
   updated_at: Date;
@@ -113,6 +116,7 @@ export interface SimulationSession {
   id: string;
   user_id: string;
   persona_id: string;
+  persona_ids?: string[];
   mode: SimulationMode;
   bg_info: string;
   opening_line?: string;
@@ -154,10 +158,10 @@ export interface SimulationInputField {
 
 export type SimulationType =
   | 'report'
-  | 'business_profile'
   | 'persuasion_simulation'
   | 'response_simulation'
-  | 'survey';
+  | 'survey'
+  | 'persona_conversation';
 
 /** Survey question shape for generated survey mode (type_specific_config.survey_questions). */
 export interface SurveyQuestion {
@@ -172,7 +176,6 @@ export interface SurveyQuestion {
  * - survey: survey_mode ('generated'|'custom'), survey_purpose, survey_questions (SurveyQuestion[] when generated)
  * - report: report_structure, etc.
  * - response_simulation: decision_type, question, possible_outputs, etc.
- * - business_profile: profile_structure, etc.
  */
 export interface SimulationTemplate {
   id: string;

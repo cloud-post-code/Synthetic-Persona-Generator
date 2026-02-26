@@ -59,6 +59,10 @@ export const adminApi = {
   getStats: async (): Promise<AdminStats> => {
     return apiClient.get<AdminStats>('/admin/stats');
   },
+
+  createPersona: async (data: { name: string; type: 'synthetic_user' | 'advisor'; description?: string; avatar_url?: string }): Promise<PersonaWithOwner> => {
+    return apiClient.post<PersonaWithOwner>('/admin/personas', data);
+  },
 };
 
 

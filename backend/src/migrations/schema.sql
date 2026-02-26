@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS simulation_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   persona_id UUID NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+  persona_ids JSONB,
   mode VARCHAR(50) NOT NULL CHECK (mode IN ('web_page', 'marketing', 'sales_pitch', 'investor_pitch')),
   bg_info TEXT NOT NULL,
   opening_line TEXT,

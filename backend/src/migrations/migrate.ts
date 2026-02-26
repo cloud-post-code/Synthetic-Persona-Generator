@@ -40,6 +40,13 @@ async function migrate() {
       }
     }
 
+    // Add persona_ids to simulation_sessions for multi-persona simulations
+    try {
+      await pool.query(`ALTER TABLE simulation_sessions ADD COLUMN IF NOT EXISTS persona_ids JSONB DEFAULT NULL`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+
     // Migrate practice_person to advisor, then restrict persona type to synthetic_user and advisor only
     try {
       await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
@@ -54,6 +61,30 @@ async function migrate() {
       await pool.query(`UPDATE simulations SET simulation_type = 'persuasion_simulation' WHERE simulation_type = 'conversational_simulation'`);
     } catch (err: any) {
       // Non-fatal; column might not exist in very old DBs
+    }
+
+    // Persona visibility and persona_stars for library/starring
+    try {
+      await pool.query(`ALTER TABLE personas ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) NOT NULL DEFAULT 'private'`);
+      await pool.query(`ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_visibility_check`);
+      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_visibility_check CHECK (visibility IN ('private', 'public', 'global'))`);
+      await pool.query(`UPDATE personas SET visibility = 'private' WHERE visibility IS NULL OR visibility = ''`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_personas_visibility ON personas(visibility)`);
+    } catch (err: any) {
+      if (err.code !== '42701' && err.code !== '42P07') throw err;
+    }
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS persona_stars (
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          persona_id UUID NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+          PRIMARY KEY (user_id, persona_id)
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_persona_stars_user_id ON persona_stars(user_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_persona_stars_persona_id ON persona_stars(persona_id)`);
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
     }
     
     console.log('Seeding default simulations...');

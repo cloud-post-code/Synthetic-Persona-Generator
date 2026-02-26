@@ -15,9 +15,9 @@ import { IconPicker } from './IconPicker.js';
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.' },
   { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
-  { id: 'business_profile', label: 'Business Profile', description: 'A single business profile document: overview, value proposition, key offerings, target audience. No chat or follow-up.' },
   { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
   { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.' },
+  { id: 'persona_conversation', label: 'Persona v Persona Conversation', description: 'Moderated multi-persona discussion: multiple personas discuss an opening line in turns. An LLM moderator chooses who speaks next and when to end; after the conversation, the moderator summarizes and answers the opening line. Each persona turn is a separate API call; max 20 persona turns.' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -73,6 +73,14 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setReviewedSystemPrompt('');
     }
   }, [simulation]);
+
+  // When switching to persona_conversation, suggest multi-persona defaults
+  useEffect(() => {
+    if (simulationType === 'persona_conversation' && personaCountMin === 1 && personaCountMax === 1) {
+      setPersonaCountMin(2);
+      setPersonaCountMax(10);
+    }
+  }, [simulationType]);
 
   const handleAddField = () => {
     setInputFields([
@@ -449,21 +457,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     className="w-full text-sm text-gray-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                   />
                 )}
-              </div>
-            </>
-          )}
-
-          {simulationType === 'business_profile' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Profile structure (sections/headings) *</label>
-                <textarea
-                  value={(typeSpecificConfig.profile_structure as string) || ''}
-                  onChange={(e) => setConfig('profile_structure', e.target.value)}
-                  rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="e.g., Company Overview, Value Proposition, Key Offerings, Target Audience..."
-                />
               </div>
             </>
           )}

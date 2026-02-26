@@ -5,10 +5,10 @@ import { v4 as uuidv4 } from 'uuid';
 /** Per-type description of expected output and behavior; used when generating the system prompt. */
 const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.`,
-  business_profile: `Strict output: A single business profile document from the {{SELECTED_PROFILE_FULL}} perspective. Structured sections (e.g. company overview, value proposition, key offerings, target audience). Exactly one short paragraph of context or summary, then the full profile. No chat. No follow-up. Read-only output only.`,
   persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. 'Persuasion: 75%') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.`,
   response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
   survey: `Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.`,
+  persona_conversation: `Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line. No user chat—conversation is persona-to-persona only.`,
 };
 
 function parseJsonField(val: unknown): any[] | Record<string, unknown> | undefined {
@@ -172,11 +172,6 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     }
   }
 
-  if (type === 'business_profile') {
-    const profileStructure = (config.profile_structure as string)?.trim();
-    if (profileStructure) lines.push('### Profile structure\n' + profileStructure + '\n');
-  }
-
   if (type === 'survey') {
     const surveyMode = (config.survey_mode as string) || 'generated';
     lines.push('### Survey mode: ' + surveyMode + '\n');
@@ -221,9 +216,6 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
   if (type === 'report') {
     alreadyRenderedKeys.add('report_structure');
     alreadyRenderedKeys.add('report_example_file_name');
-  }
-  if (type === 'business_profile') {
-    alreadyRenderedKeys.add('profile_structure');
   }
   if (type === 'survey') {
     alreadyRenderedKeys.add('survey_mode');

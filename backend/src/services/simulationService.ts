@@ -4,19 +4,36 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function getSimulationSessionsByUserId(userId: string): Promise<SimulationSession[]> {
   const result = await pool.query(
-    `SELECT id, user_id, persona_id, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
+    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
      FROM simulation_sessions
      WHERE user_id = $1
      ORDER BY updated_at DESC`,
     [userId]
   );
 
-  return result.rows;
+  return result.rows.map(mapRowToSession);
+}
+
+function mapRowToSession(row: any): SimulationSession {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    persona_id: row.persona_id,
+    persona_ids: row.persona_ids != null ? (Array.isArray(row.persona_ids) ? row.persona_ids : (typeof row.persona_ids === 'string' ? JSON.parse(row.persona_ids) : row.persona_ids)) : undefined,
+    mode: row.mode,
+    bg_info: row.bg_info,
+    opening_line: row.opening_line,
+    stimulus_image: row.stimulus_image,
+    mime_type: row.mime_type,
+    name: row.name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 export async function getSimulationSessionById(sessionId: string, userId: string): Promise<SimulationSession | null> {
   const result = await pool.query(
-    `SELECT id, user_id, persona_id, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
+    `SELECT id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at
      FROM simulation_sessions
      WHERE id = $1 AND user_id = $2`,
     [sessionId, userId]
@@ -26,7 +43,7 @@ export async function getSimulationSessionById(sessionId: string, userId: string
     return null;
   }
 
-  return result.rows[0];
+  return mapRowToSession(result.rows[0]);
 }
 
 export async function createSimulationSession(
@@ -34,15 +51,20 @@ export async function createSimulationSession(
   sessionData: Omit<SimulationSession, 'id' | 'user_id' | 'created_at' | 'updated_at'>
 ): Promise<SimulationSession> {
   const id = uuidv4();
-  
+  const personaIdsJson = sessionData.persona_ids != null && Array.isArray(sessionData.persona_ids)
+    ? JSON.stringify(sessionData.persona_ids)
+    : null;
+  const personaId = sessionData.persona_ids?.[0] ?? sessionData.persona_id;
+
   const result = await pool.query(
-    `INSERT INTO simulation_sessions (id, user_id, persona_id, mode, bg_info, opening_line, stimulus_image, mime_type, name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, user_id, persona_id, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
+    `INSERT INTO simulation_sessions (id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
     [
       id,
       userId,
-      sessionData.persona_id,
+      personaId,
+      personaIdsJson,
       sessionData.mode,
       sessionData.bg_info,
       sessionData.opening_line || null,
@@ -52,7 +74,7 @@ export async function createSimulationSession(
     ]
   );
 
-  return result.rows[0];
+  return mapRowToSession(result.rows[0]);
 }
 
 export async function updateSimulationSession(
@@ -95,7 +117,7 @@ export async function updateSimulationSession(
     `UPDATE simulation_sessions
      SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
      WHERE id = $${paramCount} AND user_id = $${paramCount + 1}
-     RETURNING id, user_id, persona_id, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
+     RETURNING id, user_id, persona_id, persona_ids, mode, bg_info, opening_line, stimulus_image, mime_type, name, created_at, updated_at`,
     values
   );
 
@@ -103,7 +125,7 @@ export async function updateSimulationSession(
     return null;
   }
 
-  return result.rows[0];
+  return mapRowToSession(result.rows[0]);
 }
 
 export async function deleteSimulationSession(sessionId: string, userId: string): Promise<boolean> {

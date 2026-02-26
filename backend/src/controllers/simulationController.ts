@@ -30,17 +30,20 @@ export async function getSimulationSession(req: AuthRequest, res: Response, next
 export async function createSimulationSession(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const sessionData: Omit<SimulationSession, 'id' | 'user_id' | 'created_at' | 'updated_at'> = req.body;
-    
-    // Validate required fields (bg_info can be empty string, but must be present)
-    if (!sessionData.persona_id || !sessionData.mode || sessionData.bg_info === undefined || sessionData.bg_info === null || !sessionData.name) {
+    const hasPersonaId = !!sessionData.persona_id;
+    const hasPersonaIds = Array.isArray(sessionData.persona_ids) && sessionData.persona_ids.length >= 2;
+
+    // Validate required fields: need either persona_id or persona_ids (at least 2)
+    if ((!hasPersonaId && !hasPersonaIds) || !sessionData.mode || sessionData.bg_info === undefined || sessionData.bg_info === null || !sessionData.name) {
       console.error('Validation failed. Received data:', {
         persona_id: sessionData.persona_id,
+        persona_ids: sessionData.persona_ids,
         mode: sessionData.mode,
         bg_info: sessionData.bg_info,
         name: sessionData.name,
         fullBody: req.body
       });
-      return res.status(400).json({ error: 'persona_id, mode, bg_info, and name are required' });
+      return res.status(400).json({ error: 'persona_id (or persona_ids with at least 2 IDs), mode, bg_info, and name are required' });
     }
 
     const session = await simulationService.createSimulationSession(req.userId!, sessionData);

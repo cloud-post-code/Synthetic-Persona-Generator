@@ -9,7 +9,6 @@ This file collects every AI/LLM prompt used across the codebase. Prompts are gro
 ### 1.1 SIMULATION_TYPE_OUTPUT_SPECS (per-type output behavior for system prompt generation)
 
 - **report:** `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective...`
-- **business_profile:** `Strict output: A single business profile document...`
 - **persuasion_simulation:** `Strict output: Back-and-forth chat...`
 - **response_simulation:** `Strict output: Exactly one response...`
 - **survey:** `Strict output: Survey results only...`

@@ -1,10 +1,10 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle, Building2, HelpCircle, FileText } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
-import { PersonaType, Persona } from '../models/types.js';
+import { getBusinessProfile } from '../services/businessProfileApi.js';
+import type { BusinessProfile } from '../models/types.js';
 
 // Import split templates
 import { marketCanvasTemplate } from '../../templates/marketCanvasTemplate.js';
@@ -55,16 +55,60 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
 };
 
 // --- SYNTHETIC USER FORM ---
-export type SyntheticBuildMode = 'business_profile' | 'problem_question' | 'supporting_docs';
+/** Three ways to generate synthetic users; only one is used per run. */
+export type SyntheticBuildMode = 'problem_solution' | 'supporting_docs' | 'business_profile';
 
-const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuildMode }> = ({ onComplete, mode }) => {
+function businessProfileToPromptString(profile: BusinessProfile): string {
+  const parts: string[] = [];
+  const add = (label: string, value: string | null | undefined) => {
+    if (value != null && String(value).trim() !== '') parts.push(`${label}: ${String(value).trim()}`);
+  };
+  add('Business name', profile.business_name);
+  add('Mission', profile.mission_statement);
+  add('Vision', profile.vision_statement);
+  add('Main offerings', profile.description_main_offerings);
+  add('Key features/benefits', profile.key_features_or_benefits);
+  add('USP', profile.unique_selling_proposition);
+  add('Pricing model', profile.pricing_model);
+  add('Customer segments', profile.customer_segments);
+  add('Geographic focus', profile.geographic_focus);
+  add('Industry served', profile.industry_served);
+  add('What differentiates', profile.what_differentiates);
+  add('Market niche', profile.market_niche);
+  add('Revenue streams', profile.revenue_streams);
+  add('Distribution channels', profile.distribution_channels);
+  add('Key personnel', profile.key_personnel);
+  add('Major achievements', profile.major_achievements);
+  add('Revenue', profile.revenue);
+  add('KPIs', profile.key_performance_indicators);
+  add('Funding', profile.funding_rounds);
+  add('Website', profile.website);
+  return parts.length ? parts.join('\n') : 'No business profile content.';
+}
+
+const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const [method, setMethod] = useState<SyntheticBuildMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [q6FileName, setQ6FileName] = useState('');
+  const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
+  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>('private');
+  const [savingVisibility, setSavingVisibility] = useState(false);
+  const [savedBusinessProfile, setSavedBusinessProfile] = useState<BusinessProfile | null>(null);
+  const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
   const [formData, setFormData] = useState({
     q1: '', q2: '', q3: '', q4: '', q5: 'B2B' as 'B2B' | 'B2C', q6: '', q7: 1,
-    businessProfile: '', // for business_profile mode
+    specificUserType: '', // optional, for business_profile: "specific type of user"
   });
+
+  useEffect(() => {
+    if (method === 'business_profile') {
+      setBusinessProfileLoading(true);
+      getBusinessProfile()
+        .then((p) => { setSavedBusinessProfile(p ?? null); })
+        .finally(() => setBusinessProfileLoading(false));
+    }
+  }, [method]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -87,19 +131,19 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!method) return;
     setLoading(true);
     try {
       const personaGroupId = crypto.randomUUID();
       let userQInputs: string;
-      if (mode === 'business_profile') {
-        const docPart = formData.q6 ? `\nSupporting doc (${q6FileName}): ${formData.q6}` : '';
-        userQInputs = `Business Profile: ${formData.businessProfile}${docPart}`;
-      } else if (mode === 'problem_question') {
-        userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}${formData.q6 ? `\nBusiness Data Source (${q6FileName}): ${formData.q6}` : ''}`;
-      } else if (mode === 'supporting_docs') {
-        userQInputs = `Supporting Docs (${q6FileName}): ${formData.q6}\nProblem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}`;
+      if (method === 'problem_solution') {
+        userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}`;
+      } else if (method === 'supporting_docs') {
+        userQInputs = `Supporting Docs (${q6FileName || 'document'}): ${formData.q6}`;
       } else {
-        userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}\nBusiness Data Source (${q6FileName}): ${formData.q6}`;
+        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business profile saved. Add one in Settings.';
+        const specificPart = formData.specificUserType.trim() ? `\n\nSpecific type of user requested: ${formData.specificUserType.trim()}` : '';
+        userQInputs = `Business Profile:\n${profileText}${specificPart}`;
       }
 
       setLoadingStage('Synthesizing Market Canvas...');
@@ -114,6 +158,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
       const idPrompt = `Identify ${formData.q7} distinct persona names and titles from this analysis. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
       const { personas } = await geminiService.generateBasic(idPrompt, true);
 
+      const createdIds: string[] = [];
       for (const pInfo of personas) {
         setLoadingStage(`Profiling Agent: ${pInfo.name}...`);
         const profile = await geminiService.generateChain(agentProfileDetailedTemplate, { 
@@ -151,8 +196,9 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
         for (const file of files) {
           await personaApi.createFile(persona.id, file);
         }
+        createdIds.push(persona.id);
       }
-      onComplete();
+      setCreatedPersonaIds(createdIds);
     } catch (err: any) {
       console.error('Generation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -164,27 +210,102 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
+      {createdPersonaIds && createdPersonaIds.length > 0 ? (
+        <div className="space-y-8">
+          <h3 className="text-xl font-bold text-gray-900">Set visibility</h3>
+          <p className="text-gray-500">Choose who can discover and use these personas.</p>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="visibility"
+                checked={visibilityChoice === 'public'}
+                onChange={() => setVisibilityChoice('public')}
+                className="border-gray-300 text-indigo-600"
+              />
+              <span className="font-medium">Public</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="visibility"
+                checked={visibilityChoice === 'private'}
+                onChange={() => setVisibilityChoice('private')}
+                className="border-gray-300 text-indigo-600"
+              />
+              <span className="font-medium">Private</span>
+            </label>
+          </div>
+          <p className="text-sm text-gray-400">
+            {visibilityChoice === 'public' ? 'Everyone can discover and use these personas in the Persona Library.' : 'Only you can see and use these personas.'}
+          </p>
+          <button
+            type="button"
+            disabled={savingVisibility}
+            onClick={async () => {
+              setSavingVisibility(true);
+              try {
+                for (const id of createdPersonaIds) {
+                  await personaApi.update(id, { visibility: visibilityChoice });
+                }
+                onComplete();
+              } catch (err: any) {
+                alert(err?.message || 'Failed to save visibility');
+              } finally {
+                setSavingVisibility(false);
+              }
+            }}
+            className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
+          >
+            {savingVisibility ? <Loader2 className="animate-spin mx-auto" /> : 'Save and go to My Personas'}
+          </button>
+        </div>
+      ) : (
+      <>
+      {/* Step 1: Choose how to generate synthetic users */}
+      {method == null ? (
+        <div className="space-y-6">
+          <h3 className="text-xl font-bold text-gray-900">How do you want to generate synthetic users?</h3>
+          <p className="text-gray-500">Pick one method. Each run uses only that input.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => setMethod('problem_solution')}
+              className="group bg-white border-2 border-gray-100 hover:border-amber-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <HelpCircle className="w-10 h-10 text-amber-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">Problem / Solution</h4>
+              <p className="text-sm text-gray-500">Define problem, solution, differentiation, and alternatives.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod('supporting_docs')}
+              className="group bg-white border-2 border-gray-100 hover:border-sky-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <FileText className="w-10 h-10 text-sky-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">Supporting Docs</h4>
+              <p className="text-sm text-gray-500">Upload business plans, market research, or strategy docs.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod('business_profile')}
+              className="group bg-white border-2 border-gray-100 hover:border-emerald-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <Building2 className="w-10 h-10 text-emerald-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">Business Profile</h4>
+              <p className="text-sm text-gray-500">Use your saved business profile from Settings; optionally specify a user type.</p>
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="space-y-8">
-        {mode === 'business_profile' && (
-          <>
-            <FormItem label="Business profile" value={formData.businessProfile} onChange={v => setFormData({ ...formData, businessProfile: v })} textarea placeholder="Describe your business: value proposition, offerings, target audience, key differentiators..." />
-            <div className="space-y-4">
-              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting doc (optional)</label>
-              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-emerald-300 transition-all bg-gray-50/50 group">
-                <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-emerald-500" />
-                <input type="file" id="bp-file" className="hidden" onChange={handleFile} />
-                <label htmlFor="bp-file" className="cursor-pointer px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors">{q6FileName || 'Select Document'}</label>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
-              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
-                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
-              </select>
-            </div>
-          </>
-        )}
-        {mode === 'problem_question' && (
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => setMethod(null)} className="text-sm font-bold text-gray-400 hover:text-indigo-600 uppercase tracking-widest">
+            ← Change method
+          </button>
+        </div>
+
+        {method === 'problem_solution' && (
           <>
             <FormItem label="Problem / question" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="What problem or question are you exploring?" />
             <FormItem label="Solution / hypothesis" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Proposed solution or direction..." />
@@ -198,14 +319,6 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
               </select>
             </div>
             <div className="space-y-4">
-              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting docs (optional)</label>
-              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-amber-300 transition-all bg-gray-50/50 group">
-                <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-amber-500" />
-                <input type="file" id="pq-file" className="hidden" onChange={handleFile} />
-                <label htmlFor="pq-file" className="cursor-pointer px-6 py-2 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors">{q6FileName || 'Select Document'}</label>
-              </div>
-            </div>
-            <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
               <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
@@ -213,10 +326,11 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
             </div>
           </>
         )}
-        {mode === 'supporting_docs' && (
+
+        {method === 'supporting_docs' && (
           <>
             <div className="space-y-4">
-              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting docs (Business Plan, Market Research, etc.) *</label>
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting docs (required)</label>
               <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center hover:border-sky-300 transition-all bg-gray-50/50 group">
                 <Upload className="w-12 h-12 text-gray-300 mb-4 group-hover:text-sky-500" />
                 <p className="text-lg font-bold text-gray-600 mb-4">Upload business plan, market research, or other strategy docs</p>
@@ -224,8 +338,6 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
                 <label htmlFor="sd-file" className="cursor-pointer px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg hover:bg-sky-700 transition-colors">{q6FileName || 'Select Document'}</label>
               </div>
             </div>
-            <FormItem label="Problem / context (optional)" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="Problem or context..." />
-            <FormItem label="Solution / focus (optional)" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Solution or focus..." />
             <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
               <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
@@ -234,35 +346,54 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuil
             </div>
           </>
         )}
-        {!mode && (
+
+        {method === 'business_profile' && (
           <>
-        <FormItem label="UserQ1: Problem" value={formData.q1} onChange={v => setFormData({...formData, q1: v})} textarea placeholder="Problem..." />
-        <FormItem label="UserQ2: Solution" value={formData.q2} onChange={v => setFormData({...formData, q2: v})} textarea placeholder="Solution..." />
-        <FormItem label="UserQ3: Diff" value={formData.q3} onChange={v => setFormData({...formData, q3: v})} textarea placeholder="Differentiation..." />
-        <FormItem label="UserQ4: Alternatives" value={formData.q4} onChange={v => setFormData({...formData, q4: v})} textarea placeholder="Existing..." />
-        <div className="space-y-4">
-          <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">UserQ6: Supporting Docs (Business Plan, Market Research, etc.)</label>
-          <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center hover:border-indigo-300 transition-all bg-gray-50/50 group">
-            <Upload className="w-12 h-12 text-gray-300 mb-4 group-hover:text-indigo-500" />
-            <p className="text-lg font-bold text-gray-600 mb-4">Include docs about your business</p>
-            <input type="file" id="user-q6-file" className="hidden" onChange={handleFile} />
-            <label htmlFor="user-q6-file" className="cursor-pointer px-8 py-3 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg hover:bg-indigo-700 transition-colors">
-              {q6FileName || 'Select Document'}
-            </label>
-          </div>
-        </div>
-        <div className="space-y-4">
-          <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">UserQ7: Generation Count</label>
-          <select value={formData.q7} onChange={e => setFormData({...formData, q7: parseInt(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
-            {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
-          </select>
-        </div>
+            {businessProfileLoading ? (
+              <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="animate-spin w-8 h-8 mr-2" /> Loading business profile...</div>
+            ) : savedBusinessProfile ? (
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-6 space-y-2">
+                <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">Using your saved business profile</h4>
+                <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Settings will be included in generation.</p>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-6">
+                <p className="text-amber-800 font-medium">No business profile saved. Add one in Settings → Business Profile, then return here.</p>
+              </div>
+            )}
+            <FormItem
+              label="Specific type of user (optional)"
+              value={formData.specificUserType}
+              onChange={v => setFormData({ ...formData, specificUserType: v })}
+              placeholder="e.g. enterprise buyers, SMB decision-makers, end consumers in healthcare"
+            />
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
           </>
         )}
       </div>
-      <button type="submit" disabled={loading || (mode === 'business_profile' ? !formData.businessProfile.trim() : mode === 'supporting_docs' ? !formData.q6 : false)} className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
-        {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit Blueprint'}
+      )}
+
+      {method != null && (
+      <button
+        type="submit"
+        disabled={
+          loading ||
+          (method === 'problem_solution' && (!formData.q1.trim() || !formData.q2.trim() || !formData.q3.trim() || !formData.q4.trim())) ||
+          (method === 'supporting_docs' && !formData.q6.trim()) ||
+          (method === 'business_profile' && !savedBusinessProfile)
+        }
+        className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
+      >
+        {loading ? <div className="flex items-center justify-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest ml-2">{loadingStage}</span></div> : 'Submit Blueprint'}
       </button>
+      )}
+      </>
+      )}
     </form>
   );
 };
@@ -273,6 +404,9 @@ type AdvisorSourceMode = 'linkedin' | 'pdf';
 const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
+  const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
+  const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>('private');
+  const [savingVisibility, setSavingVisibility] = useState(false);
   const [sourceMode, setSourceMode] = useState<AdvisorSourceMode>('pdf');
   const [linkedinText, setLinkedinText] = useState('');
   const [otherDocsText, setOtherDocsText] = useState('');
@@ -399,7 +533,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
           content: storedContent,
           type: 'pdf_analysis'
         });
-        onComplete();
+        setCreatedPersonaIds([persona.id]);
         return;
       }
 
@@ -490,7 +624,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         content: storedContent,
         type: 'pdf_analysis'
       });
-      onComplete();
+      setCreatedPersonaIds([persona.id]);
     } catch (err: any) {
       console.error('Advisor generation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -502,6 +636,58 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
+      {createdPersonaIds && createdPersonaIds.length > 0 ? (
+        <div className="space-y-8">
+          <h3 className="text-xl font-bold text-gray-900">Set visibility</h3>
+          <p className="text-gray-500">Choose who can discover and use this persona.</p>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="advisor-visibility"
+                checked={visibilityChoice === 'public'}
+                onChange={() => setVisibilityChoice('public')}
+                className="border-gray-300 text-violet-600"
+              />
+              <span className="font-medium">Public</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="advisor-visibility"
+                checked={visibilityChoice === 'private'}
+                onChange={() => setVisibilityChoice('private')}
+                className="border-gray-300 text-violet-600"
+              />
+              <span className="font-medium">Private</span>
+            </label>
+          </div>
+          <p className="text-sm text-gray-400">
+            {visibilityChoice === 'public' ? 'Everyone can discover and use this persona in the Persona Library.' : 'Only you can see and use this persona.'}
+          </p>
+          <button
+            type="button"
+            disabled={savingVisibility}
+            onClick={async () => {
+              setSavingVisibility(true);
+              try {
+                for (const id of createdPersonaIds) {
+                  await personaApi.update(id, { visibility: visibilityChoice });
+                }
+                onComplete();
+              } catch (err: any) {
+                alert(err?.message || 'Failed to save visibility');
+              } finally {
+                setSavingVisibility(false);
+              }
+            }}
+            className="w-full py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
+          >
+            {savingVisibility ? <Loader2 className="animate-spin mx-auto" /> : 'Save and go to My Personas'}
+          </button>
+        </div>
+      ) : (
+      <>
       <div className="space-y-4">
         <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Source</label>
         <div className="flex gap-4">
@@ -577,12 +763,14 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       >
         {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
       </button>
+      </>
+      )}
     </form>
   );
 };
 
 // --- MAIN PAGE ---
-type BuildMode = 'synthetic_user' | 'business_profile' | 'problem_question' | 'supporting_docs' | 'advisor';
+type BuildMode = 'synthetic_user' | 'advisor';
 
 const BuildPersonaPage: React.FC = () => {
   const [selectedBuildMode, setSelectedBuildMode] = useState<BuildMode | null>(null);
@@ -600,35 +788,14 @@ const BuildPersonaPage: React.FC = () => {
           <h1 className="text-5xl font-extrabold text-gray-900 mb-4 tracking-tight">Intelligence Blueprints</h1>
           <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium">Select a specialized generation engine to build your synthetic workforce.</p>
         </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <TypeCard
             title="Synthetic User"
-            description="Multi-layered persona generation for market research and product stress-testing."
+            description="Generate personas from problem/solution, supporting docs, or your saved business profile. Choose one method per run."
             icon={Target}
             onClick={() => setSelectedBuildMode('synthetic_user')}
             theme="indigo"
-          />
-          <TypeCard
-            title="Business Profile"
-            description="Build personas from your business profile: value proposition, offerings, and target audience."
-            icon={Building2}
-            onClick={() => setSelectedBuildMode('business_profile')}
-            theme="emerald"
-          />
-          <TypeCard
-            title="Problem / Question"
-            description="Define a problem or question and generate personas to explore it from multiple angles."
-            icon={HelpCircle}
-            onClick={() => setSelectedBuildMode('problem_question')}
-            theme="amber"
-          />
-          <TypeCard
-            title="Supporting Docs"
-            description="Upload business plans, market research, or strategy docs to drive persona generation."
-            icon={FileText}
-            onClick={() => setSelectedBuildMode('supporting_docs')}
-            theme="sky"
           />
           <TypeCard
             title="Advisor"
@@ -654,9 +821,6 @@ const BuildPersonaPage: React.FC = () => {
       <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-gray-200/50 border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-500">
         <div className="p-8 sm:p-14">
           {selectedBuildMode === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} />}
-          {selectedBuildMode === 'business_profile' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="business_profile" />}
-          {selectedBuildMode === 'problem_question' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="problem_question" />}
-          {selectedBuildMode === 'supporting_docs' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="supporting_docs" />}
           {selectedBuildMode === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} />}
         </div>
       </div>

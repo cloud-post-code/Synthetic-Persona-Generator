@@ -87,4 +87,42 @@ export function usePersonas() {
   };
 }
 
+/** Personas the user can use in chat/simulations: owned + starred. */
+export function useAvailablePersonas() {
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchPersonas = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await personaApi.getAvailable();
+      const normalized = data.map((p: Persona) => ({
+        ...p,
+        avatarUrl: p.avatar_url || p.avatarUrl,
+        createdAt: p.created_at || p.createdAt,
+        updatedAt: p.updated_at || p.updatedAt,
+      }));
+      setPersonas(normalized);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch personas');
+      console.error('Error fetching available personas:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPersonas();
+  }, []);
+
+  return {
+    personas,
+    loading,
+    error,
+    fetchPersonas,
+  };
+}
+
 

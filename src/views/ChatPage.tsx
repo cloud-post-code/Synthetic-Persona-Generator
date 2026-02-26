@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Send, Plus, User, Bot, Loader2, ArrowLeft, MoreVertical, Trash2, History, Users, X, MessageSquare, XCircle } from 'lucide-react';
-import { usePersonas } from '../hooks/usePersonas.js';
+import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { useChatSessions } from '../hooks/useChatSessions.js';
 import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
@@ -141,7 +141,7 @@ const ChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeResponders, setActiveResponders] = useState<string[]>([]);
-  const { personas: allPersonas } = usePersonas();
+  const { personas: allPersonas } = useAvailablePersonas();
   const { sessions: pastSessions, fetchSessions } = useChatSessions();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

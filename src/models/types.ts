@@ -1,5 +1,7 @@
 export type PersonaType = 'synthetic_user' | 'advisor';
 
+export type PersonaVisibility = 'private' | 'public' | 'global';
+
 export interface Persona {
   id: string;
   user_id?: string;
@@ -8,6 +10,8 @@ export interface Persona {
   description: string;
   avatarUrl?: string;
   avatar_url?: string;
+  visibility?: PersonaVisibility;
+  starred?: boolean;
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;
@@ -30,8 +34,8 @@ export interface Message {
   id: string;
   sessionId?: string;
   session_id?: string;
-  senderType: 'user' | 'persona';
-  sender_type?: 'user' | 'persona';
+  senderType: 'user' | 'persona' | 'moderator';
+  sender_type?: 'user' | 'persona' | 'moderator';
   personaId?: string;
   persona_id?: string;
   content: string;
@@ -99,6 +103,8 @@ export interface SimulationSession {
   user_id?: string;
   personaId: string;
   persona_id?: string;
+  personaIds?: string[];
+  persona_ids?: string[];
   mode: SimulationMode;
   bgInfo?: string;
   bg_info?: string;

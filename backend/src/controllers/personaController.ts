@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import * as personaService from '../services/personaService.js';
-import { Persona, PersonaFile } from '../types/index.js';
+import { Persona, PersonaFile, PersonaVisibility } from '../types/index.js';
 
 export async function getPersonas(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -42,12 +42,14 @@ export async function createPersona(req: AuthRequest, res: Response, next: NextF
       return res.status(400).json({ error: 'Description is required and cannot be empty' });
     }
 
-    // Ensure avatar_url has a default value if not provided
+    // Ensure avatar_url has a default value if not provided; restrict visibility to private/public for non-admin
+    const visibility = personaData.visibility === 'public' ? 'public' : 'private';
     const sanitizedData = {
       ...personaData,
       name: personaData.name.trim(),
       description: personaData.description.trim(),
       avatar_url: personaData.avatar_url || '',
+      visibility: visibility as PersonaVisibility,
     };
 
     const persona = await personaService.createPersona(req.userId!, sanitizedData);
@@ -123,6 +125,56 @@ export async function createPersonaFile(req: AuthRequest, res: Response, next: N
     if (error.message === 'Persona not found') {
       return res.status(404).json({ error: error.message });
     }
+    next(error);
+  }
+}
+
+export async function getLibraryPersonas(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const personas = await personaService.getPublicPersonas(req.userId!);
+    res.json(personas);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStarredPersonas(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const personas = await personaService.getStarredPersonas(req.userId!);
+    res.json(personas);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function starPersona(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    await personaService.starPersona(id, req.userId!);
+    res.status(204).send();
+  } catch (error: any) {
+    if (error.message === 'Persona not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+}
+
+export async function unstarPersona(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    await personaService.unstarPersona(id, req.userId!);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAvailablePersonas(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const personas = await personaService.getPersonasAvailableForUser(req.userId!);
+    res.json(personas);
+  } catch (error) {
     next(error);
   }
 }

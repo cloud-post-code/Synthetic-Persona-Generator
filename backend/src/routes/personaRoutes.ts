@@ -7,6 +7,13 @@ const router = Router();
 // All routes require authentication
 router.use(authenticateToken);
 
+// Library and starring (must be before /:id)
+router.get('/library', personaController.getLibraryPersonas);
+router.get('/starred', personaController.getStarredPersonas);
+router.get('/available', personaController.getAvailablePersonas);
+router.post('/:id/star', personaController.starPersona);
+router.delete('/:id/star', personaController.unstarPersona);
+
 router.get('/', personaController.getPersonas);
 router.get('/:id', personaController.getPersona);
 router.post('/', personaController.createPersona);

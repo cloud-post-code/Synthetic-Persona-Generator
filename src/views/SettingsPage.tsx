@@ -18,11 +18,15 @@ import {
   LogOut,
   Monitor,
   Plus,
-  Briefcase
+  Briefcase,
+  Sparkles,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { useAuth } from '../context/AuthContext.js';
+import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language' | 'business';
 
@@ -111,6 +115,13 @@ const SettingsPage: React.FC = () => {
   const [website, setWebsite] = useState('');
   const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
 
+  // Generate business profile with AI
+  const [generateLoading, setGenerateLoading] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateFileName, setGenerateFileName] = useState('');
+  const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
+  const [companyHint, setCompanyHint] = useState('');
+
   // Load business profile when switching to business tab
   useEffect(() => {
     if (activeTab !== 'business') return;
@@ -191,6 +202,72 @@ const SettingsPage: React.FC = () => {
     } catch (err) {
       setSaveStatus(err instanceof Error ? err.message : 'Failed to save business profile');
       setTimeout(() => setSaveStatus(null), 5000);
+    }
+  };
+
+  const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setGenerateFileName('');
+      setGenerateFileData(null);
+      return;
+    }
+    setGenerateFileName(file.name);
+    setGenerateError(null);
+    const isBinary = ['application/pdf', 'image/'].some(t => (file.type || '').startsWith(t) || file.type === 'application/pdf');
+    if (isBinary || !['text/plain', 'text/csv', 'application/json'].includes(file.type)) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setGenerateFileData({ data: (ev.target?.result as string) || '', mimeType: file.type || 'application/octet-stream' });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setGenerateFileData({ data: (ev.target?.result as string) || '' });
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleGenerateBusinessProfile = async () => {
+    if (!generateFileData?.data && !companyHint.trim()) {
+      setGenerateError('Upload a document and/or enter a company name or website to generate from.');
+      return;
+    }
+    setGenerateLoading(true);
+    setGenerateError(null);
+    try {
+      const result = await geminiService.generateBusinessProfileFromDocument(
+        generateFileData?.data ?? companyHint.trim(),
+        { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined }
+      );
+      setBusinessName(result.business_name ?? '');
+      setMissionStatement(result.mission_statement ?? '');
+      setVisionStatement(result.vision_statement ?? '');
+      setDescriptionMainOfferings(result.description_main_offerings ?? '');
+      setKeyFeaturesOrBenefits(result.key_features_or_benefits ?? '');
+      setUniqueSellingProposition(result.unique_selling_proposition ?? '');
+      setPricingModel(result.pricing_model ?? '');
+      setCustomerSegments(result.customer_segments ?? '');
+      setGeographicFocus(result.geographic_focus ?? '');
+      setIndustryServed(result.industry_served ?? '');
+      setWhatDifferentiates(result.what_differentiates ?? '');
+      setMarketNiche(result.market_niche ?? '');
+      setRevenueStreams(result.revenue_streams ?? '');
+      setDistributionChannels(result.distribution_channels ?? '');
+      setKeyPersonnel(result.key_personnel ?? '');
+      setMajorAchievements(result.major_achievements ?? '');
+      setRevenue(result.revenue ?? '');
+      setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
+      setFundingRounds(result.funding_rounds ?? '');
+      setWebsite(result.website ?? '');
+      setSaveStatus('Business profile generated. Review and click Save to keep changes.');
+      setTimeout(() => setSaveStatus(null), 5000);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate business profile.');
+    } finally {
+      setGenerateLoading(false);
     }
   };
 
@@ -439,6 +516,63 @@ const SettingsPage: React.FC = () => {
                 <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading business profile...</div>
               ) : (
                 <>
+                  <Section title="Generate with AI">
+                    <p className="text-sm text-gray-500 mb-4">Upload a document (business plan, 10-K, pitch deck, etc.) and optionally add a company name or website. AI will fill in all profile fields using the document and public information.</p>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Document (optional)</label>
+                        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:border-indigo-200 transition-all bg-gray-50/50">
+                          <Upload className="w-10 h-10 text-gray-400 mb-3" />
+                          <p className="text-sm font-medium text-gray-600 mb-3">PDF, Word, text, or spreadsheet</p>
+                          <input
+                            type="file"
+                            id="generate-bp-file"
+                            className="hidden"
+                            accept={GEMINI_FILE_INPUT_ACCEPT}
+                            onChange={handleGenerateFileChange}
+                          />
+                          <label htmlFor="generate-bp-file" className="cursor-pointer px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all">
+                            {generateFileName || 'Select document'}
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Company name or website (optional)</label>
+                        <input
+                          type="text"
+                          value={companyHint}
+                          onChange={(e) => { setCompanyHint(e.target.value); setGenerateError(null); }}
+                          placeholder="e.g. Acme Inc or https://acme.com"
+                          className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Adds context from public information (filings, website, news).</p>
+                      </div>
+                      {generateError && (
+                        <div className="flex items-start gap-2 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm">
+                          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                          <span>{generateError}</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleGenerateBusinessProfile}
+                        disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
+                        className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        {generateLoading ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            Generating profile...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-5 h-5" />
+                            Generate business profile
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </Section>
                   <Section title="Company Overview">
                     <div className="space-y-4">
                       <InputField label="Business Name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />

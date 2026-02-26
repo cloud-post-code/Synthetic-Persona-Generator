@@ -1,19 +1,38 @@
 import { apiClient } from './api.js';
 import { SimulationSession } from '../models/types.js';
 
+function normalizeSession(s: SimulationSession & { persona_ids?: string[] }): SimulationSession {
+  return {
+    ...s,
+    personaId: s.persona_id ?? s.personaId,
+    personaIds: s.persona_ids ?? s.personaIds,
+    bgInfo: s.bg_info ?? s.bgInfo,
+    openingLine: s.opening_line ?? s.openingLine,
+    stimulusImage: s.stimulus_image ?? s.stimulusImage,
+    mimeType: s.mime_type ?? s.mimeType,
+    createdAt: s.created_at ?? s.createdAt,
+    updatedAt: s.updated_at ?? s.updatedAt,
+  };
+}
+
 export const simulationApi = {
   getAll: async (): Promise<SimulationSession[]> => {
-    return apiClient.get<SimulationSession[]>('/simulations');
+    const list = await apiClient.get<(SimulationSession & { persona_ids?: string[] })[]>('/simulations');
+    return list.map(normalizeSession);
   },
 
   getById: async (id: string): Promise<SimulationSession> => {
-    return apiClient.get<SimulationSession>(`/simulations/${id}`);
+    const s = await apiClient.get<SimulationSession & { persona_ids?: string[] }>(`/simulations/${id}`);
+    return normalizeSession(s);
   },
 
   create: async (session: Omit<SimulationSession, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<SimulationSession> => {
-    // Validate required fields before transformation
-    if (!session.personaId && !session.persona_id) {
-      throw new Error('persona_id is required: No persona selected');
+    const personaIds = session.personaIds ?? session.persona_ids;
+    const singlePersonaId = session.personaId || session.persona_id;
+    const hasMultiple = Array.isArray(personaIds) && personaIds.length >= 2;
+
+    if (!singlePersonaId && !hasMultiple) {
+      throw new Error('persona_id or persona_ids (at least 2) is required: No persona selected');
     }
     if (!session.mode) {
       throw new Error('mode is required: Simulation mode must be selected');
@@ -21,10 +40,9 @@ export const simulationApi = {
     if (!session.name || !session.name.trim()) {
       throw new Error('name is required: Simulation name cannot be empty');
     }
-    
-    // Transform frontend format to backend format
-    const payload = {
-      persona_id: session.personaId || session.persona_id,
+
+    const payload: Record<string, unknown> = {
+      persona_id: hasMultiple ? personaIds![0] : singlePersonaId,
       mode: session.mode,
       bg_info: session.bgInfo !== undefined ? String(session.bgInfo) : (session.bg_info !== undefined ? String(session.bg_info) : ''),
       opening_line: session.openingLine !== undefined ? (session.openingLine || null) : (session.opening_line !== undefined ? (session.opening_line || null) : null),
@@ -32,22 +50,16 @@ export const simulationApi = {
       mime_type: session.mimeType !== undefined ? (session.mimeType || null) : (session.mime_type !== undefined ? (session.mime_type || null) : null),
       name: session.name.trim(),
     };
-    
-    // Final validation before sending
-    if (!payload.persona_id) {
-      throw new Error('persona_id is required: Persona ID is missing');
+    if (hasMultiple) {
+      payload.persona_ids = personaIds;
     }
-    if (!payload.mode) {
-      throw new Error('mode is required: Simulation mode is missing');
-    }
-    if (!payload.name) {
-      throw new Error('name is required: Simulation name is missing');
-    }
+
     if (payload.bg_info === undefined || payload.bg_info === null) {
-      payload.bg_info = ''; // Ensure bg_info is at least an empty string
+      payload.bg_info = '';
     }
-    
-    return apiClient.post<SimulationSession>('/simulations', payload);
+
+    const result = await apiClient.post<SimulationSession & { persona_ids?: string[] }>('/simulations', payload);
+    return normalizeSession(result);
   },
 
   update: async (id: string, updates: Partial<SimulationSession>): Promise<SimulationSession> => {

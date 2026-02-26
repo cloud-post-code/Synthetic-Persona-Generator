@@ -2,10 +2,10 @@ import { apiClient } from './api.js';
 
 export type SimulationType =
   | 'report'
-  | 'business_profile'
   | 'persuasion_simulation'
   | 'response_simulation'
-  | 'survey';
+  | 'survey'
+  | 'persona_conversation';
 
 export interface SimulationInputField {
   name: string;

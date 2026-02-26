@@ -191,9 +191,12 @@ const PersonaCard: React.FC<{
              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
            </button>
         </div>
-        <div className="absolute bottom-4 left-4">
+        <div className="absolute bottom-4 left-4 flex gap-2 flex-wrap">
           <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${typeLabels[persona.type].color}`}>
             {typeLabels[persona.type].label}
+          </span>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${(persona.visibility || 'private') === 'public' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+            {(persona.visibility || 'private') === 'public' ? 'Public' : 'Private'}
           </span>
         </div>
       </div>

@@ -16,6 +16,7 @@ router.get('/personas', adminController.getPersonas);
 router.get('/chats', adminController.getChatSessions);
 router.get('/messages', adminController.getMessages);
 router.get('/stats', adminController.getStats);
+router.post('/personas', adminController.createPersona);
 
 // Simulation template management (admin only)
 router.get('/simulations', simulationTemplateController.getAllSimulations);

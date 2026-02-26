@@ -26,6 +26,9 @@ const AdminPage: React.FC = () => {
   const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
   const [showSimulationForm, setShowSimulationForm] = useState(false);
   const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
+  const [showPersonaForm, setShowPersonaForm] = useState(false);
+  const [personaForm, setPersonaForm] = useState({ name: '', type: 'synthetic_user' as 'synthetic_user' | 'advisor', description: '', avatar_url: '' });
+  const [savingPersona, setSavingPersona] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -84,6 +87,30 @@ const AdminPage: React.FC = () => {
       loadData();
     } catch (error: any) {
       alert(`Failed to delete: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleCreatePersona = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!personaForm.name.trim()) {
+      alert('Name is required');
+      return;
+    }
+    setSavingPersona(true);
+    try {
+      await adminApi.createPersona({
+        name: personaForm.name.trim(),
+        type: personaForm.type,
+        description: personaForm.description.trim() || 'Global persona',
+        avatar_url: personaForm.avatar_url.trim() || undefined,
+      });
+      setShowPersonaForm(false);
+      setPersonaForm({ name: '', type: 'synthetic_user', description: '', avatar_url: '' });
+      loadData();
+    } catch (error: any) {
+      alert(`Failed to create persona: ${error.message || 'Unknown error'}`);
+    } finally {
+      setSavingPersona(false);
     }
   };
 
@@ -248,8 +275,76 @@ const AdminPage: React.FC = () => {
 
             {/* Personas Tab */}
             {activeTab === 'personas' && (
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="overflow-x-auto">
+              <div>
+                <div className="mb-4 flex justify-between items-center">
+                  <h2 className="text-xl font-bold text-gray-900">All Personas</h2>
+                  <button
+                    onClick={() => setShowPersonaForm(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Persona
+                  </button>
+                </div>
+                {showPersonaForm ? (
+                  <div className="bg-white rounded-lg shadow p-6 mb-6">
+                    <h3 className="text-lg font-bold text-gray-900 mb-4">Create Global Persona</h3>
+                    <p className="text-sm text-gray-500 mb-4">This persona will be visible to everyone in the Persona Library.</p>
+                    <form onSubmit={handleCreatePersona} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                        <input
+                          type="text"
+                          value={personaForm.name}
+                          onChange={e => setPersonaForm(prev => ({ ...prev, name: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          placeholder="Persona name"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                        <select
+                          value={personaForm.type}
+                          onChange={e => setPersonaForm(prev => ({ ...prev, type: e.target.value as 'synthetic_user' | 'advisor' }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        >
+                          <option value="synthetic_user">Synthetic User</option>
+                          <option value="advisor">Advisor</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <input
+                          type="text"
+                          value={personaForm.description}
+                          onChange={e => setPersonaForm(prev => ({ ...prev, description: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          placeholder="Short description (optional)"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Avatar URL</label>
+                        <input
+                          type="url"
+                          value={personaForm.avatar_url}
+                          onChange={e => setPersonaForm(prev => ({ ...prev, avatar_url: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          placeholder="https://... (optional)"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="submit" disabled={savingPersona} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                          {savingPersona ? 'Creating...' : 'Create'}
+                        </button>
+                        <button type="button" onClick={() => { setShowPersonaForm(false); setPersonaForm({ name: '', type: 'synthetic_user', description: '', avatar_url: '' }); }} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
+                <div className="bg-white rounded-lg shadow overflow-hidden">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>

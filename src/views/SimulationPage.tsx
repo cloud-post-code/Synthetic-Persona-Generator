@@ -18,7 +18,7 @@ import {
   Download,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
-import { usePersonas } from '../hooks/usePersonas.js';
+import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
@@ -26,6 +26,7 @@ import { simulationTemplateApi, SimulationTemplate } from '../services/simulatio
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 
+const MAX_PERSONA_TURNS = 20;
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
 
 const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
@@ -173,7 +174,7 @@ const SimulationPage: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { personas: allPersonas } = usePersonas();
+  const { personas: allPersonas } = useAvailablePersonas();
 
   const allowedPersonasForSimulation =
     selectedSimulation?.allowed_persona_types?.length
@@ -282,6 +283,7 @@ const SimulationPage: React.FC = () => {
         ...s,
         createdAt: s.created_at || s.createdAt,
         personaId: s.persona_id || s.personaId,
+        personaIds: s.persona_ids ?? s.personaIds,
         bgInfo: s.bg_info || s.bgInfo,
         openingLine: s.opening_line || s.openingLine,
         stimulusImage: s.stimulus_image || s.stimulusImage,
@@ -398,6 +400,155 @@ const SimulationPage: React.FC = () => {
           break;
         }
       }
+    }
+
+    // --- Persona v Persona conversation flow ---
+    if (selectedSimulation.simulation_type === 'persona_conversation') {
+      const openingLineText = userInputsString || fieldMap.bgInfo || 'No opening line provided.';
+      try {
+        let sessionMode: SimulationMode = 'web_page';
+        const modeTitle = selectedSimulation.title.toLowerCase();
+        if (modeTitle.includes('marketing')) sessionMode = 'marketing';
+        else if (modeTitle.includes('sales')) sessionMode = 'sales_pitch';
+        else if (modeTitle.includes('investor')) sessionMode = 'investor_pitch';
+
+        const sessionName =
+          selectedPersonas.length >= 2
+            ? `${selectedPersonas[0].name} & ${selectedPersonas[1].name}${selectedPersonas.length > 2 ? ` +${selectedPersonas.length - 2}` : ''} - ${selectedSimulation.title}`
+            : `${selectedPersonas[0].name} - ${selectedSimulation.title}`;
+
+        const newSession = await simulationApi.create({
+          personaIds: selectedPersonas.map((p) => p.id),
+          personaId: selectedPersonas[0].id,
+          mode: sessionMode,
+          bgInfo: fieldMap.bgInfo?.trim() || bgInfo.trim() || '',
+          openingLine: openingLineText,
+          stimulusImage: effectiveStimulusImage || undefined,
+          mimeType: effectiveMimeType || undefined,
+          name: sessionName,
+        });
+        const newSessionId = newSession.id;
+        setCurrentSessionId(newSessionId);
+        setMessages([]);
+        loadHistory();
+
+        const personaList = selectedPersonas.map((p) => ({ id: p.id, name: p.name }));
+        const personaWithFiles: Persona[] = await Promise.all(
+          selectedPersonas.map(async (p) => {
+            const files = p.files?.length ? p.files : await personaApi.getFiles(p.id).then((fs) => fs.map((f) => ({ ...f, content: f.content, name: f.name })));
+            return { ...p, files };
+          })
+        );
+        const personaMap = new Map<string, Persona>(personaWithFiles.map((p) => [p.id, p]));
+
+        const getPersonaProfile = (persona: Persona): string => {
+          let profileData = `NAME: ${persona.name}\nDESCRIPTION: ${persona.description}\n\nCORE BLUEPRINT FILES:\n`;
+          const files = persona.files || [];
+          for (const f of files) {
+            profileData += `--- FILE: ${f.name} ---\n${(f.content || '').substring(0, 15000)}\n\n`;
+          }
+          return profileData;
+        };
+
+        let firstSpeakerId: string;
+        try {
+          firstSpeakerId = await geminiService.moderatorWhoSpeaksFirst(openingLineText, personaList);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`Moderator could not choose first speaker: ${msg}`);
+        }
+        const firstSpeaker = personaMap.get(firstSpeakerId) || personaWithFiles[0];
+        if (!firstSpeaker) {
+          firstSpeakerId = selectedPersonas[0].id;
+        }
+        let nextSpeakerId: string = firstSpeaker?.id ?? selectedPersonas[0].id;
+
+        let turnCount = 0;
+        const maxTurns = MAX_PERSONA_TURNS;
+        const conversationMessages: Message[] = [];
+
+        while (turnCount < maxTurns) {
+          const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
+          const systemPrompt =
+            `You are strictly acting as the persona: ${currentSpeaker.name}.\n\n` +
+            `Context: You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\n` +
+            getPersonaProfile(currentSpeaker) +
+            `\nRespond in character. Stay concise; this is one turn in a discussion.`;
+
+          const historyForChat = conversationMessages
+            .filter((m) => m.senderType === 'persona' && m.personaId)
+            .map((m) => {
+              const name = personaMap.get(m.personaId!)?.name ?? 'Unknown';
+              return { role: 'user' as const, text: `${name}: ${m.content}` };
+            });
+          const newMessage =
+            conversationMessages.length === 0
+              ? `The opening topic is: "${openingLineText.substring(0, 1000)}". You are starting the conversation. Share your thoughts in character.`
+              : `It's your turn. Respond in character to the discussion so far.`;
+
+          const response = await geminiService.chat(systemPrompt, historyForChat, newMessage);
+          const personaMsg: Message = {
+            id: crypto.randomUUID(),
+            sessionId: newSessionId,
+            senderType: 'persona',
+            personaId: currentSpeaker.id,
+            content: response,
+            createdAt: new Date().toISOString(),
+          };
+          conversationMessages.push(personaMsg);
+          setMessages([...conversationMessages]);
+          turnCount++;
+
+          if (turnCount >= maxTurns) break;
+
+          const conversationForModerator = conversationMessages
+            .filter((m) => m.senderType === 'persona' && m.personaId)
+            .map((m) => ({
+              speakerName: personaMap.get(m.personaId!)?.name ?? 'Unknown',
+              content: m.content,
+            }));
+          const nextOrEnd = await geminiService.moderatorNextOrEnd(
+            openingLineText,
+            personaList,
+            conversationForModerator,
+            turnCount,
+            maxTurns
+          );
+          if (nextOrEnd.action === 'END') break;
+          nextSpeakerId = nextOrEnd.persona_id!;
+        }
+
+        const conversationForSummary = conversationMessages
+          .filter((m) => m.senderType === 'persona' && m.personaId)
+          .map((m) => ({
+            speakerName: personaMap.get(m.personaId!)?.name ?? 'Unknown',
+            content: m.content,
+          }));
+        const summary = await geminiService.moderatorSummarize(openingLineText, conversationForSummary);
+        const moderatorMsg: Message = {
+          id: crypto.randomUUID(),
+          sessionId: newSessionId,
+          senderType: 'moderator',
+          content: summary,
+          createdAt: new Date().toISOString(),
+        };
+        conversationMessages.push(moderatorMsg);
+        setMessages([...conversationMessages]);
+
+        localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify(conversationMessages));
+        localStorage.setItem(`simulationPersonas_${newSessionId}`, JSON.stringify(selectedPersonas));
+        setStage('result');
+        loadHistory();
+      } catch (err: unknown) {
+        console.error('Persona conversation error:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        alert(
+          `Persona conversation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set\n2. You have sufficient API quota\n3. Check browser console for details`
+        );
+      } finally {
+        setIsLoading(false);
+      }
+      return;
     }
 
     const results: Array<{ personaId: string; name: string; avatarUrl?: string; content: string }> = [];
@@ -572,72 +723,83 @@ const SimulationPage: React.FC = () => {
     setOpeningLine(session.openingLine || '');
     setStimulusImage(session.stimulusImage || null);
     setMimeType(session.mimeType || null);
-    
-    // Try to load persona from localStorage first (faster)
-    let persona: Persona | null = null;
-    const cachedPersona = localStorage.getItem(`simulationPersona_${session.id}`);
-    if (cachedPersona) {
-      try {
-        persona = JSON.parse(cachedPersona);
-      } catch (err) {
-        console.error('Failed to parse cached persona:', err);
+
+    const personaIds = session.personaIds ?? session.persona_ids;
+    if (personaIds && Array.isArray(personaIds) && personaIds.length > 1) {
+      let restoredPersonas: Persona[] = [];
+      const cached = localStorage.getItem(`simulationPersonas_${session.id}`);
+      if (cached) {
+        try {
+          restoredPersonas = JSON.parse(cached);
+        } catch (err) {
+          console.error('Failed to parse cached personas:', err);
+        }
       }
-    }
-    
-    // If no cached persona, try to find in current personas list
-    if (!persona) {
-      persona = personas.find(p => p.id === session.personaId) || null;
-    }
-    
-    // If still no persona, fetch from API
-    if (!persona && session.personaId) {
-      try {
-        const fetchedPersona = await personaApi.getById(session.personaId);
-        // Normalize persona data
-        persona = {
-          ...fetchedPersona,
-          avatarUrl: fetchedPersona.avatar_url || fetchedPersona.avatarUrl,
-          createdAt: fetchedPersona.created_at || fetchedPersona.createdAt,
-          updatedAt: fetchedPersona.updated_at || fetchedPersona.updatedAt,
-          files: fetchedPersona.files || [],
-        };
-        
-        // Load files if not already loaded
-        if (!persona.files || persona.files.length === 0) {
-          try {
-            const files = await personaApi.getFiles(persona.id);
-            persona.files = files.map(f => ({
-              ...f,
-              createdAt: f.created_at || f.createdAt,
-            }));
-          } catch (err) {
-            console.error('Failed to load persona files:', err);
+      if (restoredPersonas.length < personaIds.length) {
+        for (const id of personaIds) {
+          if (restoredPersonas.some((p) => p.id === id)) continue;
+          const p = personas.find((x) => x.id === id);
+          if (p) restoredPersonas.push(p);
+          else {
+            try {
+              const fetched = await personaApi.getById(id);
+              const withFiles = { ...fetched, avatarUrl: fetched.avatar_url || fetched.avatarUrl, files: fetched.files || [] };
+              if (!withFiles.files?.length) {
+                const files = await personaApi.getFiles(id);
+                withFiles.files = files.map((f) => ({ ...f, createdAt: f.created_at || f.createdAt }));
+              }
+              restoredPersonas.push(withFiles);
+            } catch (err) {
+              console.error('Failed to fetch persona:', id, err);
+            }
           }
         }
-        
-        // Save to localStorage for next time
-        localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
-      } catch (err) {
-        console.error('Failed to fetch persona:', err);
       }
-    }
-    
-    // If we have a persona but files aren't loaded, load them
-    if (persona && (!persona.files || persona.files.length === 0)) {
-      try {
-        const files = await personaApi.getFiles(persona.id);
-        persona.files = files.map(f => ({
-          ...f,
-          createdAt: f.created_at || f.createdAt,
-        }));
-        // Update localStorage with files
-        localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
-      } catch (err) {
-        console.error('Failed to load persona files:', err);
+      setSelectedPersonas(restoredPersonas);
+    } else {
+      // Single-persona session
+      let persona: Persona | null = null;
+      const cachedPersona = localStorage.getItem(`simulationPersona_${session.id}`);
+      if (cachedPersona) {
+        try {
+          persona = JSON.parse(cachedPersona);
+        } catch (err) {
+          console.error('Failed to parse cached persona:', err);
+        }
       }
+      if (!persona) {
+        persona = personas.find((p) => p.id === session.personaId) || null;
+      }
+      if (!persona && session.personaId) {
+        try {
+          const fetchedPersona = await personaApi.getById(session.personaId);
+          persona = {
+            ...fetchedPersona,
+            avatarUrl: fetchedPersona.avatar_url || fetchedPersona.avatarUrl,
+            createdAt: fetchedPersona.created_at || fetchedPersona.createdAt,
+            updatedAt: fetchedPersona.updated_at || fetchedPersona.updatedAt,
+            files: fetchedPersona.files || [],
+          };
+          if (!persona.files || persona.files.length === 0) {
+            const files = await personaApi.getFiles(persona.id);
+            persona.files = files.map((f) => ({ ...f, createdAt: f.created_at || f.createdAt }));
+          }
+          localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+        } catch (err) {
+          console.error('Failed to fetch persona:', err);
+        }
+      }
+      if (persona && (!persona.files || persona.files.length === 0)) {
+        try {
+          const files = await personaApi.getFiles(persona.id);
+          persona.files = files.map((f) => ({ ...f, createdAt: f.created_at || f.createdAt }));
+          localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+        } catch (err) {
+          console.error('Failed to load persona files:', err);
+        }
+      }
+      setSelectedPersonas(persona ? [persona] : []);
     }
-    
-    setSelectedPersonas(persona ? [persona] : []);
 
     // Load messages from localStorage
     try {
@@ -1144,10 +1306,11 @@ const SimulationPage: React.FC = () => {
           // not on all simulation types; only simulationOutputType drives how we render.
           const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
           const isReport = simulationOutputType === 'report';
-          const isBusinessProfile = simulationOutputType === 'business_profile';
           const isSurvey = simulationOutputType === 'survey';
           const isResponseSim = simulationOutputType === 'response_simulation';
-          const isChatLike = simulationOutputType === 'persuasion_simulation';
+          const isChatLike = simulationOutputType === 'persuasion_simulation' || simulationOutputType === 'persona_conversation';
+          const isPersonaConversation = simulationOutputType === 'persona_conversation';
+          const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
           const handleDownloadReport = () => {
             const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
@@ -1156,17 +1319,6 @@ const SimulationPage: React.FC = () => {
             const a = document.createElement('a');
             a.href = url;
             a.download = `report-${selectedSimulation?.title || 'simulation'}-${new Date().toISOString().slice(0,10)}.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-          };
-
-          const handleDownloadProfile = () => {
-            const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
-            const blob = new Blob([text], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `business-profile-${selectedSimulation?.title || 'simulation'}-${new Date().toISOString().slice(0,10)}.txt`;
             a.click();
             URL.revokeObjectURL(url);
           };
@@ -1216,14 +1368,15 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl font-black text-gray-900">
-                  {isReport ? 'Report' : isBusinessProfile ? 'Business Profile' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : simulationOutputType === 'persona_conversation' ? 'Persona v Persona' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
-                {isChatLike && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
-                {(isReport || isSurvey || isBusinessProfile) && (
-                  <button onClick={isReport ? handleDownloadReport : isBusinessProfile ? handleDownloadProfile : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
-                    <Download className="w-4 h-4" /> {isReport ? 'Download Report' : isBusinessProfile ? 'Download Profile' : 'Download CSV'}
+                {isChatLike && !isPersonaConversation && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
+                {isPersonaConversation && <div className="px-3 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Moderated Discussion</div>}
+                {(isReport || isSurvey) && (
+                  <button onClick={isReport ? handleDownloadReport : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
+                    <Download className="w-4 h-4" /> {isReport ? 'Download Report' : 'Download CSV'}
                   </button>
                 )}
                 <button onClick={startNewSim} className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"><Plus className="w-5 h-5" /></button>
@@ -1235,20 +1388,27 @@ const SimulationPage: React.FC = () => {
             <div className="flex-grow overflow-y-auto p-10 space-y-10 bg-gray-50/20">
               {messages.map((m) => {
                 const isUser = m.senderType === 'user';
+                const isModerator = m.senderType === 'moderator';
+                const messagePersona = m.personaId ? personaById.get(m.personaId) : null;
+                const displayName = isModerator ? 'Moderator' : messagePersona?.name ?? (isUser ? 'User' : 'Persona');
+                const avatarUrl = messagePersona?.avatarUrl ?? messagePersona?.avatar_url;
                 return (
                   <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 group`}>
                     <div className={`flex gap-5 max-w-[85%] sm:max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                       <div className="shrink-0 mt-1">
                         {isUser ? (
                           <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center shadow-lg"><User className="text-white w-6 h-6" /></div>
+                        ) : isModerator ? (
+                          <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-sm">M</div>
                         ) : (
-                          <img src={selectedPersona?.avatarUrl} className="w-10 h-10 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100" />
+                          <img src={avatarUrl} alt={displayName} className="w-10 h-10 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100 object-cover" />
                         )}
                       </div>
                       <div className="space-y-1 min-w-0 relative">
-                        {!isUser && <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{selectedPersona?.name}</p>}
-                        <div className={`p-6 rounded-3xl shadow-sm text-lg relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                        {!isUser && <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{displayName}</p>}
+                        <div className={`p-6 rounded-3xl shadow-sm text-lg relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : isModerator ? 'bg-amber-50 border border-amber-200 text-gray-800 rounded-tl-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
                           <FormattedSimulationResponse content={m.content} isUser={isUser} />
+                          {!isPersonaConversation && (
                           <button
                             onClick={() => handleDeleteMessage(m.id)}
                             className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
@@ -1256,7 +1416,11 @@ const SimulationPage: React.FC = () => {
                           >
                             <XCircle className="w-4 h-4" />
                           </button>
+                          )}
                         </div>
+                        {isPersonaConversation && messagePersona && !isModerator && (
+                          <p className="text-xs text-gray-500 ml-1 mt-1 line-clamp-2">{messagePersona.description}</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1287,14 +1451,6 @@ const SimulationPage: React.FC = () => {
               {isReport && (
                 <>
                   <p className="text-sm text-gray-600 mb-4 font-medium">Summary</p>
-                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 whitespace-pre-wrap">
-                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
-                  </div>
-                </>
-              )}
-              {isBusinessProfile && (
-                <>
-                  <p className="text-sm text-gray-600 mb-4 font-medium">Profile</p>
                   <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 whitespace-pre-wrap">
                     <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                   </div>
@@ -1331,7 +1487,7 @@ const SimulationPage: React.FC = () => {
                 </div>
                 );
               })()}
-              {!isReport && !isSurvey && !isBusinessProfile && !isResponseSim && (
+              {!isReport && !isSurvey && !isResponseSim && (
                 <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>
@@ -1343,8 +1499,8 @@ const SimulationPage: React.FC = () => {
             </div>
             )}
 
-            {/* Follow-up input - only for chat and persuasion_simulation */}
-            {isChatLike && (
+            {/* Follow-up input - only for persuasion_simulation (not persona_conversation) */}
+            {isChatLike && !isPersonaConversation && (
             <div className="p-10 border-t border-gray-100 bg-white">
               <form onSubmit={handleSendFollowUp} className="max-w-4xl mx-auto">
                 <div className="relative">

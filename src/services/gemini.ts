@@ -24,10 +24,10 @@ export const GEMINI_FILE_INPUT_ACCEPT =
 /** Per-type description of expected output and behavior; passed when generating the system prompt. */
 export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: 'Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.',
-  business_profile: 'Strict output: A single business profile document from the {{SELECTED_PROFILE_FULL}} perspective. Structured sections (e.g. company overview, value proposition, key offerings, target audience). Exactly one short paragraph of context or summary, then the full profile. No chat. No follow-up. Read-only output only.',
   persuasion_simulation: 'Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. \'Persuasion: 75%\') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.',
   response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
+  persona_conversation: 'Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line.',
 };
 
 const truncate = (text: string, max: number) => {
@@ -298,6 +298,69 @@ export const geminiService = {
     }
   },
 
+  /**
+   * Generate a business profile from an uploaded document (e.g. business plan, 10-K) and optional company hint.
+   * Uses document content and, if provided, the model's knowledge of the company for public information.
+   * Returns a partial BusinessProfile object with snake_case keys.
+   */
+  generateBusinessProfileFromDocument: async (
+    documentInput: string,
+    options: { mimeType?: string; companyHint?: string } = {}
+  ): Promise<Record<string, string | null>> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    const { mimeType, companyHint } = options;
+    const hasFile = Boolean(mimeType && documentInput);
+    const hintSection = companyHint?.trim()
+      ? `\nThe user also provided this company identifier for context: "${companyHint.trim()}". Use your knowledge of this company's public information (website, filings, news) to enrich and validate the profile where the document does not specify something.`
+      : '';
+
+    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
+
+TASK: Fill in a complete business profile from the provided document${companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+
+OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
+business_name, mission_statement, vision_statement, description_main_offerings, key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments, geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams, distribution_channels, key_personnel, major_achievements, revenue, key_performance_indicators, funding_rounds, website
+
+RULES:
+- Extract and infer from the document; for public companies you may use known facts (10-K, website, news) to fill gaps.
+- Keep each value concise but informative (short paragraphs or bullet points where appropriate).
+- If a field cannot be determined, use null for that key.
+- Output only the JSON object.`;
+
+    let rawResult: string | object;
+    if (hasFile) {
+      let base64Data: string = documentInput;
+      if (documentInput.includes(',')) base64Data = documentInput.split(',')[1];
+      if (!base64Data?.trim()) throw new Error('Invalid file data.');
+      rawResult = await geminiService.runSimulation(prompt, base64Data, mimeType!);
+    } else {
+      const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(documentInput, 100000)}`;
+      rawResult = await geminiService.generateBasic(fullPrompt, true);
+    }
+
+    const parsed = typeof rawResult === 'string'
+      ? (() => {
+          const cleaned = rawResult.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1').trim();
+          try {
+            return JSON.parse(cleaned);
+          } catch {
+            return JSON.parse(rawResult);
+          }
+        })()
+      : rawResult;
+
+    const keys = ['business_name','mission_statement','vision_statement','description_main_offerings','key_features_or_benefits','unique_selling_proposition','pricing_model','customer_segments','geographic_focus','industry_served','what_differentiates','market_niche','revenue_streams','distribution_channels','key_personnel','major_achievements','revenue','key_performance_indicators','funding_rounds','website'];
+    const result: Record<string, string | null> = {};
+    for (const k of keys) {
+      const v = parsed[k];
+      result[k] = v === undefined || v === null ? null : String(v).trim() || null;
+    }
+    return result;
+  },
+
   chat: async (systemPrompt: string, history: { role: 'user' | 'model', text: string }[], newMessage: string): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
@@ -395,6 +458,137 @@ Output only the system prompt text, nothing else.`;
     const text = (response.text || '').trim();
     if (!text) throw new Error('AI did not return a system prompt.');
     return text;
-  }
+  },
+
+  /**
+   * Persona v Persona: Moderator decides who speaks first.
+   * Returns the persona_id (UUID string) of the chosen speaker.
+   */
+  moderatorWhoSpeaksFirst: async (
+    openingLine: string,
+    personas: { id: string; name: string }[]
+  ): Promise<string> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const list = personas.map((p) => `${p.name} (id: ${p.id})`).join('\n');
+    const prompt = `You are a moderator for a structured conversation between multiple personas. The topic or opening line for the conversation is:
+
+"${truncate(openingLine, 2000)}"
+
+The following personas are available to speak. Choose exactly ONE persona to speak first. Consider who would naturally start this kind of discussion.
+
+Personas:
+${list}
+
+Respond with a single JSON object only, no other text. Use this exact format:
+{"persona_id": "<paste the id of the chosen persona>"}`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    const text = response.text || '';
+    const parsed = extractJson(text);
+    const id = parsed?.persona_id;
+    if (typeof id !== 'string' || !id.trim()) {
+      throw new Error('Moderator did not return a valid persona_id. Please try again.');
+    }
+    return id.trim();
+  },
+
+  /**
+   * Persona v Persona: Moderator decides next speaker or end.
+   * Returns { action: 'NEXT', persona_id } or { action: 'END' }.
+   */
+  moderatorNextOrEnd: async (
+    openingLine: string,
+    personas: { id: string; name: string }[],
+    conversation: { speakerName: string; content: string }[],
+    personaTurnCount: number,
+    maxTurns: number
+  ): Promise<{ action: 'NEXT' | 'END'; persona_id?: string }> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const list = personas.map((p) => `${p.name} (id: ${p.id})`).join('\n');
+    const convoText = conversation
+      .map((m) => `${m.speakerName}: ${m.content}`)
+      .join('\n\n');
+    const mustEndHint =
+      personaTurnCount >= maxTurns
+        ? `\n\nIMPORTANT: The conversation has reached the maximum of ${maxTurns} persona turns. You MUST respond with {"action": "END"} and no further turns.`
+        : '';
+    const prompt = `You are a moderator for a structured conversation between multiple personas.
+
+Opening line / topic:
+"${truncate(openingLine, 2000)}"
+
+Personas (id required in your response when choosing NEXT):
+${list}
+
+Conversation so far:
+${truncate(convoText, 15000)}
+${mustEndHint}
+
+Decide either:
+1. Continue: another persona should respond. Reply with JSON: {"action": "NEXT", "persona_id": "<id of the persona who should speak next>"}
+2. End: the conversation is complete. Reply with JSON: {"action": "END"}
+
+Respond with a single JSON object only. Do not choose the same persona who just spoke unless others have spoken in between.`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    const text = response.text || '';
+    const parsed = extractJson(text);
+    const action = parsed?.action === 'END' ? 'END' : 'NEXT';
+    if (action === 'END') {
+      return { action: 'END' };
+    }
+    const persona_id = typeof parsed?.persona_id === 'string' ? parsed.persona_id.trim() : undefined;
+    if (!persona_id) {
+      throw new Error('Moderator did not return a valid persona_id for NEXT. Please try again.');
+    }
+    return { action: 'NEXT', persona_id };
+  },
+
+  /**
+   * Persona v Persona: Moderator summarizes the conversation and answers the opening line.
+   */
+  moderatorSummarize: async (
+    openingLine: string,
+    conversation: { speakerName: string; content: string }[]
+  ): Promise<string> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const convoText = conversation
+      .map((m) => `${m.speakerName}: ${m.content}`)
+      .join('\n\n');
+    const prompt = `You are a moderator summarizing a conversation between personas.
+
+Opening line / topic that the conversation addressed:
+"${truncate(openingLine, 2000)}"
+
+Full conversation:
+${truncate(convoText, 30000)}
+
+Provide:
+1. A concise summary of the conversation (key points, agreements or disagreements, outcomes).
+2. A direct answer or conclusion that addresses the opening line.
+
+Write in clear paragraphs. No JSON. Output only the summary and answer.`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return (response.text || '').trim() || 'No summary generated.';
+  },
 };
 
