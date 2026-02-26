@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 /** Per-type description of expected output and behavior; used when generating the system prompt. */
 const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.`,
-  persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. 'Persuasion: 75%') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.`,
+  persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona MUST state exactly one line: 'Persuasion: N%' where N is an integer from 1 to 100 indicating how persuaded the agent is. Example: 'Persuasion: 75%'. The score must be convincing and between 1-100. The UI displays this as the persuasion result. No other structured output—conversation plus this final line.`,
   response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
   survey: `Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.`,
   persona_conversation: `Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line. No user chat—conversation is persona-to-persona only.`,
@@ -129,16 +129,18 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     desc,
     '',
     '### Variables you can use',
-    '- {{SELECTED_PROFILE}} - Name of the selected persona',
-    '- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint',
-    '- {{BACKGROUND_INFO}} - Background context from user',
+    '- {{SELECTED_PROFILE}} - Name of the selected persona (defines **who** is responding)',
+    '- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint of the persona',
+    '- {{BACKGROUND_INFO}} - Background context from the **person running the simulation** (the user), not the persona',
+    '',
+    '**Inputs vs persona:** Only {{SELECTED_PROFILE}} and {{SELECTED_PROFILE_FULL}} define the persona (the synthetic character). All other variables above and in "User input variables" below are **input from the person running the simulation** (the user/client)—e.g. their business background, context, opening line—not the persona\'s. The persona responds using their profile and the user\'s inputs.',
     '',
   ];
 
   const requiredFields = data.required_input_fields;
   if (requiredFields && Array.isArray(requiredFields) && requiredFields.length > 0) {
     lines.push('### User input variables');
-    lines.push('At runtime the following placeholders will be replaced with the user\'s input. Include all of them when relevant:');
+    lines.push('At runtime the following placeholders will be replaced with **the person running the simulation\'s (the user\'s) input**. This is the user\'s context, business background, opening line, etc.—not the persona\'s. Include all of them when relevant:');
     for (const field of requiredFields) {
       const placeholder = `{{${(field.name || '').toUpperCase()}}}`;
       const typeLabel = field.type || 'text';

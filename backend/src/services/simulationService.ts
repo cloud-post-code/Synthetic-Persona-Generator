@@ -152,6 +152,12 @@ export async function deleteSimulationSession(sessionId: string, userId: string)
 
 const PERSUASION_REGEX = /Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i;
 
+/** Clamp persuasion score to 1-100 for display. */
+function clampPersuasionScore(n: number): number {
+  if (Number.isNaN(n)) return 0;
+  return Math.min(100, Math.max(1, Math.round(n)));
+}
+
 /** Human-like labels for persuasion context when actual names are not available. */
 const DEFAULT_USER_LABEL = 'Alex';
 const DEFAULT_PERSONA_LABEL = 'Jordan';
@@ -170,10 +176,14 @@ export async function getPersuasionContext(
     })
     .join('\n\n');
   let persuasionScore: number | null = null;
-  const lastPersona = [...messages].reverse().find((m) => m.sender_type === 'persona');
-  if (lastPersona) {
-    const match = lastPersona.content.match(PERSUASION_REGEX);
-    if (match) persuasionScore = parseFloat(match[1]);
+  // Search all persona messages (newest first) for the persuasion line so we always get a score when present
+  const personaMessages = messages.filter((m) => m.sender_type === 'persona');
+  for (let i = personaMessages.length - 1; i >= 0; i--) {
+    const match = personaMessages[i].content.match(PERSUASION_REGEX);
+    if (match) {
+      persuasionScore = clampPersuasionScore(parseFloat(match[1]));
+      break;
+    }
   }
   return {
     systemPrompt: session.system_prompt ?? null,

@@ -666,7 +666,7 @@ const SimulationPage: React.FC = () => {
       const hasRequiredInputs = (selectedSimulation.required_input_fields?.length ?? 0) > 0;
       if (hasRequiredInputs && !/Focus of this simulation/i.test(prompt)) {
         prompt =
-          '### Focus of this simulation\nThe **focus** of your response is always the **user\'s inputs**—the content that replaces the variables below (e.g. {{BACKGROUND_INFO}}, {{OPENING_LINE}}, {{BUSINESSPROFILE}}, or other placeholders). Your persona ({{SELECTED_PROFILE_FULL}}) is in the **background**: use your profile to inform your perspective and assist in decision-making, but center your analysis and recommendations on the **user\'s situation and inputs**. Do not center the response on your own organization or story.\n\n' +
+          '### Focus of this simulation\nThe **focus** of your response is always the **user\'s inputs**—the content provided by the **person running the simulation** (the user), not by the persona. Variables below (e.g. {{BACKGROUND_INFO}}, {{OPENING_LINE}}, {{BUSINESSPROFILE}}) are replaced with the user\'s context, business background, etc. Your persona ({{SELECTED_PROFILE_FULL}}) is in the **background**: use your profile to inform your perspective and assist in decision-making, but center your analysis and recommendations on the **user\'s situation and inputs**. Do not center the response on your own organization or story.\n\n' +
           prompt;
       }
       const hasBusinessProfileField = selectedSimulation.required_input_fields?.some(
@@ -674,7 +674,7 @@ const SimulationPage: React.FC = () => {
       );
       if (hasBusinessProfileField && !/Business to analyze/i.test(prompt)) {
         prompt =
-          '### Business to analyze (client company)\nThe {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—the company you are advising or analyzing. Your identity and expertise are in {{SELECTED_PROFILE_FULL}}. Base your analysis (e.g. SWOT, recommendations, report) exclusively on the business in {{BUSINESSPROFILE}}, not on your own organization.\n\n' +
+          '### Business to analyze (client company)\nThe {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—input from the **person running the simulation**, not the persona. The company you are advising or analyzing is the user\'s. Your identity and expertise are in {{SELECTED_PROFILE_FULL}}. Base your analysis (e.g. SWOT, recommendations, report) exclusively on the business in {{BUSINESSPROFILE}}, not on your own organization.\n\n' +
           prompt;
       }
       prompt = prompt
@@ -813,7 +813,7 @@ const SimulationPage: React.FC = () => {
       }));
 
       const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
-        `Focus of this conversation: The **user's context and inputs** (below) are the focus. You are the persona in the background—use your profile to inform your perspective and assist in their decision-making. Context: ${bgInfo}\n` +
+        `The context below (including any business background) is provided by the **person running the simulation** (the user), not by the persona. You are the persona; focus on the user's situation and inputs. Context: ${bgInfo}\n` +
         `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
       
       const response = await geminiService.chat(systemPrompt, history, currentInput);
@@ -1702,7 +1702,8 @@ const SimulationPage: React.FC = () => {
         const isPersuasion = simulationOutputType === 'persuasion_simulation';
         const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
         const parsedPersuasionLocal = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
-        const persuasionScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
+        const rawScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
+        const persuasionScore = rawScore != null ? Math.min(100, Math.max(1, Math.round(Number(rawScore)))) : null;
         return (
         <aside className="hidden lg:flex w-[42rem] min-w-[28rem] flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10">
           {isPersuasion && (
@@ -1715,10 +1716,22 @@ const SimulationPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  <p className="text-5xl font-black text-indigo-600 tracking-tight">
-                    {persuasionScore != null ? Math.round(Number(persuasionScore)) : '—'}
+                  <p className="text-5xl font-black text-indigo-600 tracking-tight tabular-nums">
+                    {persuasionScore != null ? (
+                      <span>{persuasionScore}</span>
+                    ) : (
+                      <span className="text-gray-400 font-medium text-2xl">No score</span>
+                    )}
                   </p>
-                  <p className="text-sm text-gray-500 mt-2 font-medium">out of 100</p>
+                  <div className="mt-3 w-full h-4 bg-gray-200 rounded-full overflow-hidden border border-gray-300 shadow-inner">
+                    <div
+                      className="h-full bg-indigo-600 rounded-full transition-all duration-500"
+                      style={{ width: persuasionScore != null ? `${persuasionScore}%` : '0%' }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-2 font-medium">
+                    {persuasionScore != null ? `${persuasionScore} out of 100` : 'out of 100'}
+                  </p>
                   <p className="text-xs text-gray-400 mt-1">How persuaded the agent is</p>
                 </>
               )}
@@ -1730,10 +1743,6 @@ const SimulationPage: React.FC = () => {
                <h3 className="text-xl font-black text-gray-900 leading-tight mb-1">{selectedPersona?.name}</h3>
                <p className="text-xs text-indigo-600 font-black uppercase tracking-widest">{selectedSimulation?.title || 'Simulation'}</p>
              </div>
-          </div>
-          <div className="space-y-3">
-            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Context Info</h4>
-            <p className="text-base text-gray-600 leading-relaxed font-medium bg-white p-5 rounded-2xl border border-gray-100 italic">"{bgInfo}"</p>
           </div>
           {stimulusImage && (
             <div className="space-y-3">

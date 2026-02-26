@@ -752,6 +752,14 @@ const BuildPersonaPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const defaultPublic = searchParams.get('visibility') === 'public';
 
+  // When arriving via /build?type=advisor or /build?type=synthetic_user, open that form directly
+  useEffect(() => {
+    const type = searchParams.get('type');
+    if (type === 'advisor' || type === 'synthetic_user') {
+      setSelectedBuildMode(type);
+    }
+  }, [searchParams]);
+
   const handleBack = () => {
     if (selectedBuildMode) setSelectedBuildMode(null);
     else navigate(-1);

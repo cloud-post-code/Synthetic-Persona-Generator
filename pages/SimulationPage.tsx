@@ -264,7 +264,7 @@ const SimulationPage: React.FC = () => {
       }));
 
       const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
-        `Context of Simulation: ${bgInfo}.\n` +
+        `The context below is provided by the **person running the simulation** (the user), not by the persona. You are the persona; respond based on your profile and the user's situation. Context of Simulation: ${bgInfo}.\n` +
         `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
       
       const response = await geminiService.chat(systemPrompt, history, userMsg.content);

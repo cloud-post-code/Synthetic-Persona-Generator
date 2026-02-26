@@ -291,16 +291,18 @@ const AdminPage: React.FC = () => {
               <div>
                 <div className="mb-4 flex justify-between items-center">
                   <h2 className="text-xl font-bold text-gray-900">Simulation Templates</h2>
-                  <button
-                    onClick={() => {
-                      setEditingSimulation(null);
-                      setShowSimulationForm(true);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Simulation
-                  </button>
+                  {!showSimulationForm && (
+                    <button
+                      onClick={() => {
+                        setEditingSimulation(null);
+                        setShowSimulationForm(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Simulation
+                    </button>
+                  )}
                 </div>
 
                 {showSimulationForm ? (
