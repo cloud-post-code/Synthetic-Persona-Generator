@@ -257,8 +257,23 @@ const SimulationPage: React.FC = () => {
     setPersuasionContextLoading(true);
     simulationApi
       .getPersuasionContext(currentSessionId)
-      .then((data) => {
-        if (!cancelled) {
+      .then(async (data) => {
+        if (cancelled) return;
+        if (data.persuasionScore != null) {
+          setPersuasionContext(data);
+          return;
+        }
+        if (data.fullConversation?.trim()) {
+          try {
+            const score = await geminiService.computePersuasionScore(data.fullConversation);
+            if (!cancelled) {
+              setPersuasionContext({ ...data, persuasionScore: score });
+            }
+          } catch (err) {
+            console.warn('Failed to compute persuasion score on load:', err);
+            if (!cancelled) setPersuasionContext(data);
+          }
+        } else {
           setPersuasionContext(data);
         }
       })
@@ -751,6 +766,18 @@ const SimulationPage: React.FC = () => {
         } catch (err) {
           console.warn('Failed to sync persuasion message to backend:', err);
         }
+        // Compute persuasion score via LLM so sidebar shows a value
+        try {
+          const conversationText = `Persona: ${results[0].content}`;
+          const score = await geminiService.computePersuasionScore(conversationText);
+          setPersuasionContext(prev => ({
+            systemPrompt: prev?.systemPrompt ?? null,
+            fullConversation: conversationText,
+            persuasionScore: score,
+          }));
+        } catch (err) {
+          console.warn('Failed to compute persuasion score:', err);
+        }
       }
       
       if (isGeneratedSurvey && surveyQuestions.length > 0) {
@@ -837,6 +864,21 @@ const SimulationPage: React.FC = () => {
           ]);
         } catch (err) {
           console.warn('Failed to sync persuasion messages to backend:', err);
+        }
+        // Compute persuasion score via LLM after each response so sidebar shows a value
+        try {
+          const conversationLines = [...messages, userMsg, aiMsg].map(m =>
+            m.senderType === 'user' ? `User: ${m.content}` : `Persona: ${m.content}`
+          );
+          const conversationText = conversationLines.join('\n\n');
+          const score = await geminiService.computePersuasionScore(conversationText);
+          setPersuasionContext(prev => ({
+            systemPrompt: prev?.systemPrompt ?? null,
+            fullConversation: conversationText,
+            persuasionScore: score,
+          }));
+        } catch (err) {
+          console.warn('Failed to compute persuasion score:', err);
         }
       }
       // Messages are saved to localStorage via useEffect

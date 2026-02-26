@@ -590,10 +590,6 @@ const SimulationPage: React.FC = () => {
                <p className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">{MODES.find(m => m.id === mode)?.label}</p>
              </div>
           </div>
-          <div className="space-y-3">
-            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Context Info</h4>
-            <p className="text-sm text-gray-600 leading-relaxed font-medium bg-white p-4 rounded-2xl border border-gray-100 italic">"{bgInfo}"</p>
-          </div>
           {stimulusImage && (
             <div className="space-y-3">
               <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Stimulus Asset</h4>

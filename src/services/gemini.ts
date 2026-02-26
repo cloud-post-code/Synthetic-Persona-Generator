@@ -513,6 +513,36 @@ RULES:
   },
 
   /**
+   * Compute persuasion score (1-100) from a full conversation by sending it to the LLM.
+   * Used after each persona response in persuasion simulations so the sidebar always shows a score.
+   */
+  computePersuasionScore: async (fullConversation: string): Promise<number> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `You are evaluating a persuasion conversation. The "persona" (the agent being persuaded) has been in a back-and-forth dialogue. Based on the conversation below, how persuaded is the persona on a scale of 1 to 100? Consider their stated position, willingness to agree, and any commitments or openness expressed.
+
+Conversation:
+${truncate(fullConversation, 50000)}
+
+Respond with exactly one line in this format: Persuasion: N%
+where N is an integer from 1 to 100. No other text.`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    const text = (response.text || '').trim();
+    const match = text.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%?/i) || text.match(/(\d{1,3})/);
+    if (match) {
+      const n = Math.min(100, Math.max(1, Math.round(parseFloat(match[1]))));
+      return n;
+    }
+    return 50; // fallback if parsing fails
+  },
+
+  /**
    * Generate a system prompt for a simulation from its full configuration.
    * Extracts intent, goals, and instructions from the user's description and
    * type-specific fields, then synthesizes a high-quality prompt while
