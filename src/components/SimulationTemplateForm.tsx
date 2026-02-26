@@ -78,7 +78,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const handleAddField = () => {
     setInputFields([
       ...inputFields,
-      { name: '', type: 'text', label: '', placeholder: '', required: false },
+      { name: '', type: 'text', required: false },
     ]);
   };
 
@@ -131,6 +131,13 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       alert('Min personas cannot exceed max personas');
       return;
     }
+    if (simulationType === 'response_simulation' && (typeSpecificConfig.decision_type as string) === 'numeric') {
+      const unit = (typeSpecificConfig.unit as string)?.trim();
+      if (!unit) {
+        alert('Unit is required for numeric Response Simulation (e.g. minutes, dollars, %)');
+        return;
+      }
+    }
     if (simulationType === 'survey' && (typeSpecificConfig.survey_mode as SurveyMode) === 'generated') {
       if (!surveyQuestions.length || surveyQuestions.some((q) => !q.question.trim())) {
         alert('Generated survey must have at least one question with text');
@@ -145,12 +152,12 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       }
     }
     for (const field of inputFields) {
-      if (!field.name.trim() || !field.label.trim()) {
-        alert('All runner input fields must have a name and label');
+      if (!field.name.trim()) {
+        alert('All runner input fields must have a name');
         return;
       }
       if (field.type === 'multiple_choice' && (!field.options || field.options.length === 0)) {
-        alert(`Field "${field.label || field.name}" (multiple choice) must have at least one option`);
+        alert(`Field "${field.name}" (multiple choice) must have at least one option`);
         return;
       }
     }
@@ -505,6 +512,19 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                   <option value="text">Text (answer to a question)</option>
                 </select>
               </div>
+              {(typeSpecificConfig.decision_type as string) === 'numeric' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit (required) *</label>
+                  <input
+                    type="text"
+                    value={(typeSpecificConfig.unit as string) || ''}
+                    onChange={(e) => setConfig('unit', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="e.g. minutes, dollars, %, hours, kg"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">The response will show the number with this unit (e.g. &quot;45 minutes&quot;).</p>
+                </div>
+              )}
               {(typeSpecificConfig.decision_type as string) === 'action' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Possible outputs (comma-separated)</label>
@@ -695,7 +715,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">Type *</label>
                   <select
-                    value={field.type}
+                    value={field.type === 'textarea' ? 'text' : field.type}
                     onChange={(e) => {
                       const newType = e.target.value as SimulationInputField['type'];
                       handleFieldChange(index, newType === 'multiple_choice' && !(field.options?.length) ? { type: newType, options: [''] } : { type: newType });
@@ -703,37 +723,12 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
                   >
                     <option value="text">Text</option>
-                    <option value="textarea">Text area</option>
                     <option value="image">Image</option>
                     <option value="table">Table (CSV, Excel)</option>
-                    <option value="pdf">File upload (PDF, images, or other supported types)</option>
+                    <option value="pdf">File upload (all file types)</option>
                     <option value="multiple_choice">Multiple choice</option>
                   </select>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Label *</label>
-                  <input
-                    type="text"
-                    value={field.label}
-                    onChange={(e) => handleFieldChange(index, { label: e.target.value })}
-                    required
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
-                    placeholder="e.g., Background context"
-                  />
-                </div>
-                {field.type !== 'multiple_choice' && (
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Placeholder</label>
-                    <input
-                      type="text"
-                      value={field.placeholder || ''}
-                      onChange={(e) => handleFieldChange(index, { placeholder: e.target.value })}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded"
-                    />
-                  </div>
-                )}
               </div>
               {field.type === 'multiple_choice' && (
                 <div className="mt-3 space-y-2">
@@ -794,7 +789,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
               required={!simulationType}
               rows={6}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-              placeholder="Use {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, {{OPENING_LINE}}"
+              placeholder="Use {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, and required input field names as {{FIELD_NAME}}"
             />
           </div>
         )}

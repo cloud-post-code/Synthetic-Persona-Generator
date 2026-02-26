@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
 
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
@@ -24,7 +25,7 @@ export const GEMINI_FILE_INPUT_ACCEPT =
 export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: 'Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.',
   persuasion_simulation: 'Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. \'Persuasion: 75%\') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.',
-  response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output (numeric, action, or text answer per decision type), and (3) at most one paragraph of reasoning. No chat. No further interaction.',
+  response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
   ideation: 'Strict output: A list of bulleted (or numbered) ideas only. No prose paragraphs, no chat. The persona must output a structured list of ideas based on the seed prompts. No follow-up.',
 };
@@ -342,17 +343,7 @@ export const geminiService = {
    * type-specific fields, then synthesizes a high-quality prompt while
    * preserving the required structured output format for the simulation type.
    */
-  generateSystemPromptFromConfig: async (config: {
-    title: string;
-    description?: string;
-    icon?: string;
-    simulation_type?: string;
-    allowed_persona_types?: string[];
-    persona_count_min?: number;
-    persona_count_max?: number;
-    type_specific_config?: Record<string, unknown>;
-    required_input_fields?: Array<{ name: string; type: string; label: string; placeholder?: string; required: boolean; options?: string[] }>;
-  }): Promise<string> => {
+  generateSystemPromptFromConfig: async (config: CreateSimulationRequest): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Set VITE_GEMINI_API_KEY to generate the system prompt with AI.');
@@ -384,8 +375,8 @@ export const geminiService = {
 
 ## Rules
 - **Do not** copy the description or config fields word-for-word. Interpret and extract; turn them into precise, actionable instructions.
-- **Do** document every required_input_fields entry as a template variable: {{FIELD_NAME}} (UPPERCASE), with type and label. These will be replaced at runtime.
-- **Do** include the core variables: {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, {{OPENING_LINE}}.
+- **Do** document every required_input_fields entry as a template variable: {{FIELD_NAME}} (UPPERCASE), with type and name. These will be replaced at runtime.
+- **Do** include the core variables: {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}. Use required_input_fields placeholders (e.g. {{FIELD_NAME}}) for user-provided content; do not require {{OPENING_LINE}}.
 - **Do** keep the same strict output behavior for this simulation type (see MANDATORY OUTPUT FORMAT). The persona's response format must match it exactly.
 - Output ONLY the system prompt text. No preamble, no "Here is the prompt", no explanation.
 ${typeSpecSection}

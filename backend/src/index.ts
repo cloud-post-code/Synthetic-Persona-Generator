@@ -6,6 +6,7 @@ import personaRoutes from './routes/personaRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import simulationRoutes from './routes/simulationRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import businessProfileRoutes from './routes/businessProfileRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -33,6 +34,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/personas', personaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/simulations', simulationRoutes);
+app.use('/api/profile/business', businessProfileRoutes);
 // Admin routes
 app.use('/api/admin', adminRoutes);
 

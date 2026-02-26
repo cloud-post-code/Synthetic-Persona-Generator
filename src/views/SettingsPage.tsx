@@ -17,12 +17,14 @@ import {
   AlertTriangle,
   LogOut,
   Monitor,
-  Plus
+  Plus,
+  Briefcase
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
+import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { useAuth } from '../context/AuthContext.js';
 
-type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language';
+type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language' | 'business';
 
 const SettingsLink: React.FC<{ icon: any; label: string; active: boolean; onClick: () => void }> = ({ icon: Icon, label, active, onClick }) => (
   <button
@@ -61,6 +63,19 @@ const InputField: React.FC<{ label: string; type?: string; value?: string; onCha
   </div>
 );
 
+const TextAreaField: React.FC<{ label: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number }> = ({ label, value, onChange, placeholder, rows = 3 }) => (
+  <div className="space-y-2">
+    <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
+    <textarea
+      value={value ?? ''}
+      onChange={onChange}
+      placeholder={placeholder}
+      rows={rows}
+      className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none"
+    />
+  </div>
+);
+
 const SettingsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
@@ -72,6 +87,66 @@ const SettingsPage: React.FC = () => {
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
   const [bio, setBio] = useState('');
+
+  // Business profile form state
+  const [businessName, setBusinessName] = useState('');
+  const [missionStatement, setMissionStatement] = useState('');
+  const [visionStatement, setVisionStatement] = useState('');
+  const [descriptionMainOfferings, setDescriptionMainOfferings] = useState('');
+  const [keyFeaturesOrBenefits, setKeyFeaturesOrBenefits] = useState('');
+  const [uniqueSellingProposition, setUniqueSellingProposition] = useState('');
+  const [pricingModel, setPricingModel] = useState('');
+  const [customerSegments, setCustomerSegments] = useState('');
+  const [geographicFocus, setGeographicFocus] = useState('');
+  const [industryServed, setIndustryServed] = useState('');
+  const [whatDifferentiates, setWhatDifferentiates] = useState('');
+  const [marketNiche, setMarketNiche] = useState('');
+  const [revenueStreams, setRevenueStreams] = useState('');
+  const [distributionChannels, setDistributionChannels] = useState('');
+  const [keyPersonnel, setKeyPersonnel] = useState('');
+  const [majorAchievements, setMajorAchievements] = useState('');
+  const [revenue, setRevenue] = useState('');
+  const [keyPerformanceIndicators, setKeyPerformanceIndicators] = useState('');
+  const [fundingRounds, setFundingRounds] = useState('');
+  const [website, setWebsite] = useState('');
+  const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
+
+  // Load business profile when switching to business tab
+  useEffect(() => {
+    if (activeTab !== 'business') return;
+    let cancelled = false;
+    setBusinessProfileLoading(true);
+    getBusinessProfile()
+      .then((profile) => {
+        if (cancelled) return;
+        if (profile) {
+          setBusinessName(profile.business_name ?? '');
+          setMissionStatement(profile.mission_statement ?? '');
+          setVisionStatement(profile.vision_statement ?? '');
+          setDescriptionMainOfferings(profile.description_main_offerings ?? '');
+          setKeyFeaturesOrBenefits(profile.key_features_or_benefits ?? '');
+          setUniqueSellingProposition(profile.unique_selling_proposition ?? '');
+          setPricingModel(profile.pricing_model ?? '');
+          setCustomerSegments(profile.customer_segments ?? '');
+          setGeographicFocus(profile.geographic_focus ?? '');
+          setIndustryServed(profile.industry_served ?? '');
+          setWhatDifferentiates(profile.what_differentiates ?? '');
+          setMarketNiche(profile.market_niche ?? '');
+          setRevenueStreams(profile.revenue_streams ?? '');
+          setDistributionChannels(profile.distribution_channels ?? '');
+          setKeyPersonnel(profile.key_personnel ?? '');
+          setMajorAchievements(profile.major_achievements ?? '');
+          setRevenue(profile.revenue ?? '');
+          setKeyPerformanceIndicators(profile.key_performance_indicators ?? '');
+          setFundingRounds(profile.funding_rounds ?? '');
+          setWebsite(profile.website ?? '');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusinessProfileLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab]);
 
   // Update form when user changes
   useEffect(() => {
@@ -85,6 +160,38 @@ const SettingsPage: React.FC = () => {
   const handleSave = () => {
     setSaveStatus('Settings saved successfully!');
     setTimeout(() => setSaveStatus(null), 3000);
+  };
+
+  const handleSaveBusiness = async () => {
+    try {
+      await saveBusinessProfile({
+        business_name: businessName || null,
+        mission_statement: missionStatement || null,
+        vision_statement: visionStatement || null,
+        description_main_offerings: descriptionMainOfferings || null,
+        key_features_or_benefits: keyFeaturesOrBenefits || null,
+        unique_selling_proposition: uniqueSellingProposition || null,
+        pricing_model: pricingModel || null,
+        customer_segments: customerSegments || null,
+        geographic_focus: geographicFocus || null,
+        industry_served: industryServed || null,
+        what_differentiates: whatDifferentiates || null,
+        market_niche: marketNiche || null,
+        revenue_streams: revenueStreams || null,
+        distribution_channels: distributionChannels || null,
+        key_personnel: keyPersonnel || null,
+        major_achievements: majorAchievements || null,
+        revenue: revenue || null,
+        key_performance_indicators: keyPerformanceIndicators || null,
+        funding_rounds: fundingRounds || null,
+        website: website || null,
+      });
+      setSaveStatus('Business profile saved successfully!');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err) {
+      setSaveStatus(err instanceof Error ? err.message : 'Failed to save business profile');
+      setTimeout(() => setSaveStatus(null), 5000);
+    }
   };
 
   const handleClearAll = async () => {
@@ -141,6 +248,12 @@ const SettingsPage: React.FC = () => {
             label="Language" 
             active={activeTab === 'language'} 
             onClick={() => setActiveTab('language')} 
+          />
+          <SettingsLink 
+            icon={Briefcase} 
+            label="Business Profile" 
+            active={activeTab === 'business'} 
+            onClick={() => setActiveTab('business')} 
           />
           
           <div className="pt-8 border-t border-gray-100 mt-4">
@@ -318,6 +431,54 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </Section>
+          )}
+
+          {activeTab === 'business' && (
+            <div className="space-y-6">
+              {businessProfileLoading ? (
+                <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading business profile...</div>
+              ) : (
+                <>
+                  <Section title="Company Overview">
+                    <div className="space-y-4">
+                      <InputField label="Business Name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+                      <TextAreaField label="Mission Statement" value={missionStatement} onChange={(e) => setMissionStatement(e.target.value)} placeholder="What is your company's mission?" />
+                      <TextAreaField label="Vision Statement" value={visionStatement} onChange={(e) => setVisionStatement(e.target.value)} placeholder="Where is your company headed?" />
+                      <TextAreaField label="Description of Main Offerings" value={descriptionMainOfferings} onChange={(e) => setDescriptionMainOfferings(e.target.value)} placeholder="Describe your main products or services" />
+                      <TextAreaField label="Key Features or Benefits" value={keyFeaturesOrBenefits} onChange={(e) => setKeyFeaturesOrBenefits(e.target.value)} placeholder="List key features or benefits" />
+                      <TextAreaField label="Unique Selling Proposition (USP)" value={uniqueSellingProposition} onChange={(e) => setUniqueSellingProposition(e.target.value)} placeholder="What makes you unique?" />
+                      <TextAreaField label="Pricing Model (if relevant)" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)} placeholder="e.g. subscription, one-time, tiered" />
+                      <InputField label="Website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
+                    </div>
+                  </Section>
+                  <Section title="Market & Positioning">
+                    <div className="space-y-4">
+                      <TextAreaField label="Customer Segments" value={customerSegments} onChange={(e) => setCustomerSegments(e.target.value)} placeholder="Who are your target customers?" />
+                      <TextAreaField label="Geographic Focus" value={geographicFocus} onChange={(e) => setGeographicFocus(e.target.value)} placeholder="Regions or markets you serve" />
+                      <InputField label="Industry Served (B2B or B2C)" value={industryServed} onChange={(e) => setIndustryServed(e.target.value)} placeholder="e.g. B2B, B2C, both" />
+                      <TextAreaField label="What Differentiates the Company" value={whatDifferentiates} onChange={(e) => setWhatDifferentiates(e.target.value)} placeholder="What sets you apart from competitors?" />
+                      <TextAreaField label="Market Niche" value={marketNiche} onChange={(e) => setMarketNiche(e.target.value)} placeholder="Your specific market niche" />
+                      <TextAreaField label="Distribution Channels" value={distributionChannels} onChange={(e) => setDistributionChannels(e.target.value)} placeholder="How you reach customers" />
+                    </div>
+                  </Section>
+                  <Section title="Performance & Funding">
+                    <div className="space-y-4">
+                      <TextAreaField label="Key Personnel" value={keyPersonnel} onChange={(e) => setKeyPersonnel(e.target.value)} placeholder="Key team members or roles" />
+                      <TextAreaField label="Major Achievements" value={majorAchievements} onChange={(e) => setMajorAchievements(e.target.value)} placeholder="Notable milestones or wins" />
+                      <TextAreaField label="Revenue" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="Revenue or revenue range (if relevant)" />
+                      <TextAreaField label="Key Performance Indicators" value={keyPerformanceIndicators} onChange={(e) => setKeyPerformanceIndicators(e.target.value)} placeholder="KPIs you track" />
+                      <TextAreaField label="Funding Rounds" value={fundingRounds} onChange={(e) => setFundingRounds(e.target.value)} placeholder="e.g. Seed, Series A" />
+                      <TextAreaField label="Revenue Streams" value={revenueStreams} onChange={(e) => setRevenueStreams(e.target.value)} placeholder="How you generate revenue" />
+                    </div>
+                  </Section>
+                  <div className="flex justify-end">
+                    <button onClick={handleSaveBusiness} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
+                      Save Business Profile
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

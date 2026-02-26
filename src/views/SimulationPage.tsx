@@ -21,7 +21,7 @@ import { Persona, SimulationMode, Message, SimulationSession } from '../models/t
 import { usePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
-import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
+import { geminiService } from '../services/gemini.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
@@ -352,7 +352,7 @@ const SimulationPage: React.FC = () => {
       // Validate required input fields (runner input fields)
       for (const field of selectedSimulation.required_input_fields) {
         if (field.required && !inputFields[field.name]?.trim()) {
-          alert(`Please fill in the required field: ${field.label}`);
+          alert(`Please fill in the required field: ${field.name}`);
           return;
         }
       }
@@ -362,9 +362,16 @@ const SimulationPage: React.FC = () => {
 
     const fieldMap: Record<string, string> = {
       bgInfo: bgInfo,
-      openingLine: openingLine,
       ...inputFields,
     };
+    // Build user inputs string for {{OPENING_LINE}}: all user-provided values except bgInfo (which is {{BACKGROUND_INFO}})
+    const buildUserInputsString = (map: Record<string, string>, fields?: { name: string }[]) => {
+      const entries = Object.entries(map).filter(([k, v]) => k !== 'bgInfo' && v != null && String(v).trim() !== '');
+      if (entries.length === 0) return '';
+      const getLabel = (name: string) => fields?.find(f => f.name === name)?.name ?? name;
+      return entries.map(([k, v]) => `${getLabel(k)}: ${String(v).trim()}`).join('\n');
+    };
+    const userInputsString = buildUserInputsString(fieldMap, selectedSimulation?.required_input_fields);
 
     if (isGeneratedSurvey && surveyQuestions.length > 0) {
       const surveyLines = surveyQuestions.map((q, i) => `${i + 1}. ${q.question}\n   Answer: ${(surveyGeneratedAnswers[i] ?? '').trim() || '(none)'}`).join('\n');
@@ -417,7 +424,7 @@ const SimulationPage: React.FC = () => {
         .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
         .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
         .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
-        .replace(/{{OPENING_LINE}}/g, fieldMap.openingLine || openingLine || '');
+        .replace(/{{OPENING_LINE}}/g, userInputsString || '');
       for (const [key, value] of Object.entries(fieldMap)) {
         prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
       }
@@ -448,7 +455,7 @@ const SimulationPage: React.FC = () => {
         personaId: firstPersona.id,
         mode: sessionMode,
         bgInfo: fieldMap.bgInfo?.trim() || bgInfo.trim() || '',
-        openingLine: fieldMap.openingLine || openingLine || undefined,
+        openingLine: userInputsString || undefined,
         stimulusImage: effectiveStimulusImage || undefined,
         mimeType: effectiveMimeType || undefined,
         name: `${firstPersona.name} - ${selectedSimulation.title}`
@@ -934,9 +941,9 @@ const SimulationPage: React.FC = () => {
                   if (field.type === 'image') {
                     return (
                       <div key={field.name} className="space-y-4">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {fieldNumber}. {field.label} {field.required && '*'}
-                        </label>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.name} {field.required && '*'}
+                        </span>
                         <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50 overflow-hidden">
                           {inputFields[field.name] || stimulusImage ? (
                             <div className="relative inline-block">
@@ -957,12 +964,12 @@ const SimulationPage: React.FC = () => {
                               <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
                                 <Upload className="w-8 h-8" />
                               </div>
-                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload Image'}</p>
+                              <p className="text-gray-500 font-bold">Upload file</p>
                             </div>
                           )}
                           <input 
                             type="file" 
-                            accept="image/*"
+                            accept="*/*"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
@@ -985,9 +992,9 @@ const SimulationPage: React.FC = () => {
                   if (field.type === 'table') {
                     return (
                       <div key={field.name} className="space-y-4">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {fieldNumber}. {field.label} {field.required && '*'}
-                        </label>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.name} {field.required && '*'}
+                        </span>
                         <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50">
                           {inputFields[field.name] ? (
                             <div className="relative">
@@ -1005,12 +1012,12 @@ const SimulationPage: React.FC = () => {
                               <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
                                 <Upload className="w-8 h-8" />
                               </div>
-                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload CSV or Excel'}</p>
+                              <p className="text-gray-500 font-bold">Upload file</p>
                             </div>
                           )}
                           <input
                             type="file"
-                            accept=".csv,.xlsx,.xls"
+                            accept="*/*"
                             className="absolute inset-0 opacity-0 cursor-pointer"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1034,9 +1041,9 @@ const SimulationPage: React.FC = () => {
                   if (field.type === 'pdf') {
                     return (
                       <div key={field.name} className="space-y-4">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {fieldNumber}. {field.label} {field.required && '*'}
-                        </label>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.name} {field.required && '*'}
+                        </span>
                         <div className="relative group cursor-pointer border-4 border-dashed border-gray-100 rounded-[2.5rem] p-12 text-center hover:border-indigo-300 transition-all bg-gray-50/50">
                           {inputFields[field.name] ? (
                             <div className="relative">
@@ -1054,12 +1061,12 @@ const SimulationPage: React.FC = () => {
                               <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto text-gray-400 group-hover:text-indigo-600 transition-colors">
                                 <Upload className="w-8 h-8" />
                               </div>
-                              <p className="text-gray-500 font-bold">{field.placeholder || 'Upload file (PDF, images, or other supported types)'}</p>
+                              <p className="text-gray-500 font-bold">Upload file</p>
                             </div>
                           )}
                           <input
                             type="file"
-                            accept={GEMINI_FILE_INPUT_ACCEPT}
+                            accept="*/*"
                             className="absolute inset-0 opacity-0 cursor-pointer"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1080,9 +1087,9 @@ const SimulationPage: React.FC = () => {
                     const value = inputFields[field.name] ?? '';
                     return (
                       <div key={field.name} className="space-y-4">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {fieldNumber}. {field.label} {field.required && '*'}
-                        </label>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.name} {field.required && '*'}
+                        </span>
                         <select
                           value={value}
                           onChange={(e) => setInputFields({ ...inputFields, [field.name]: e.target.value })}
@@ -1097,41 +1104,23 @@ const SimulationPage: React.FC = () => {
                       </div>
                     );
                   }
-                  const isTextarea = field.type === 'textarea';
-                  const value = inputFields[field.name] || (field.name === 'bgInfo' ? bgInfo : field.name === 'openingLine' ? openingLine : '');
+                  const value = inputFields[field.name] || (field.name === 'bgInfo' ? bgInfo : '');
                   return (
                     <div key={field.name} className="space-y-4">
-                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        {fieldNumber}. {field.label} {field.required && '*'}
-                      </label>
-                      {isTextarea ? (
-                        <textarea
-                          value={value}
-                          onChange={(e) => {
-                            const newValue = e.target.value;
-                            setInputFields({ ...inputFields, [field.name]: newValue });
-                            if (field.name === 'bgInfo') setBgInfo(newValue);
-                            if (field.name === 'openingLine') setOpeningLine(newValue);
-                          }}
-                          placeholder={field.placeholder}
-                          required={field.required}
-                          className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-none"
-                        />
-                      ) : (
-                        <input
-                          type="text"
-                          value={value}
-                          onChange={(e) => {
-                            const newValue = e.target.value;
-                            setInputFields({ ...inputFields, [field.name]: newValue });
-                            if (field.name === 'bgInfo') setBgInfo(newValue);
-                            if (field.name === 'openingLine') setOpeningLine(newValue);
-                          }}
-                          placeholder={field.placeholder}
-                          required={field.required}
-                          className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                        />
-                      )}
+                      <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        {fieldNumber}. {field.name} {field.required && '*'}
+                      </span>
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => {
+                          const newValue = e.target.value;
+                          setInputFields({ ...inputFields, [field.name]: newValue });
+                          if (field.name === 'bgInfo') setBgInfo(newValue);
+                        }}
+                        required={field.required}
+                        className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                      />
                     </div>
                   );
                 })}
@@ -1308,11 +1297,29 @@ const SimulationPage: React.FC = () => {
                   </div>
                 </>
               )}
-              {isResponseSim && (
-                <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
-                  <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+              {isResponseSim && (() => {
+                const typeConfig = selectedSimulation?.type_specific_config || {};
+                const decisionType = (typeConfig.decision_type as string) || 'numeric';
+                const unit = (typeConfig.unit as string)?.trim();
+                // Extract first numeric value (with optional decimals/thousands) for prominent display
+                const numMatch = firstPersonaContent.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)/);
+                const displayNumber = numMatch ? numMatch[1].replace(/,/g, '') : null;
+                return (
+                <div className="space-y-6">
+                  {decisionType === 'numeric' && (displayNumber != null || unit) && (
+                    <div className="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-6 text-center">
+                      <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Result</p>
+                      <p className="text-3xl font-black text-indigo-900">
+                        {displayNumber != null ? <>{displayNumber} </> : null}<span className="text-indigo-600">{unit || '—'}</span>
+                      </p>
+                    </div>
+                  )}
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  </div>
                 </div>
-              )}
+                );
+              })()}
               {!isReport && !isSurvey && !isIdeation && !isResponseSim && (
                 <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />

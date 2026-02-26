@@ -9,6 +9,34 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Business profiles table (1:1 with users)
+CREATE TABLE IF NOT EXISTS business_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  business_name VARCHAR(255),
+  mission_statement TEXT,
+  vision_statement TEXT,
+  description_main_offerings TEXT,
+  key_features_or_benefits TEXT,
+  unique_selling_proposition TEXT,
+  pricing_model TEXT,
+  customer_segments TEXT,
+  geographic_focus TEXT,
+  industry_served VARCHAR(100),
+  what_differentiates TEXT,
+  market_niche TEXT,
+  revenue_streams TEXT,
+  distribution_channels TEXT,
+  key_personnel TEXT,
+  major_achievements TEXT,
+  revenue TEXT,
+  key_performance_indicators TEXT,
+  funding_rounds TEXT,
+  website VARCHAR(500),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Personas table
 CREATE TABLE IF NOT EXISTS personas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,6 +120,7 @@ CREATE TABLE IF NOT EXISTS simulations (
 );
 
 -- Create indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_personas_user_id ON personas(user_id);
 CREATE INDEX IF NOT EXISTS idx_persona_files_persona_id ON persona_files(persona_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
@@ -112,6 +141,10 @@ $$ language 'plpgsql';
 -- Create triggers for updated_at (drop if exists first to make idempotent)
 DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_business_profiles_updated_at ON business_profiles;
+CREATE TRIGGER update_business_profiles_updated_at BEFORE UPDATE ON business_profiles
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_personas_updated_at ON personas;

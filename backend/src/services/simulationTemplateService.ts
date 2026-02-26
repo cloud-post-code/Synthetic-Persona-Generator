@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.`,
   persuasion_simulation: `Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. 'Persuasion: 75%') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.`,
-  response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output (numeric, action, or text answer per decision type), and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
+  response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
   survey: `Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.`,
   ideation: `Strict output: A list of bulleted (or numbered) ideas only. No prose paragraphs, no chat. The persona must output a structured list of ideas based on the seed prompts. No follow-up.`,
 };
@@ -129,7 +129,6 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     '- {{SELECTED_PROFILE}} - Name of the selected persona',
     '- {{SELECTED_PROFILE_FULL}} - Full profile and blueprint',
     '- {{BACKGROUND_INFO}} - Background context from user',
-    '- {{OPENING_LINE}} - Opening line or content from user',
     '',
   ];
 
@@ -140,11 +139,10 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     for (const field of requiredFields) {
       const placeholder = `{{${(field.name || '').toUpperCase()}}}`;
       const typeLabel = field.type || 'text';
-      const label = field.label || field.name || '';
       const opts = field.type === 'multiple_choice' && field.options?.length
         ? ' Options: ' + field.options.filter(Boolean).join(', ')
         : '';
-      lines.push(`- ${placeholder} - [${typeLabel}] ${label}${opts}`);
+      lines.push(`- ${placeholder} - [${typeLabel}] ${field.name}${opts}`);
     }
     lines.push('');
   }
@@ -192,6 +190,23 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     }
   }
 
+  if (type === 'response_simulation') {
+    const decisionType = (config.decision_type as string) || 'numeric';
+    lines.push('### Decision type: ' + decisionType + '\n');
+    if (decisionType === 'numeric') {
+      const unit = (config.unit as string)?.trim();
+      if (unit) {
+        lines.push('### Unit (required for numeric output)');
+        lines.push(`The numeric answer MUST be expressed as: [number] ${unit}`);
+        lines.push('Example: "30 minutes", "€500", "85%". Always include the unit in your response.\n');
+      }
+    }
+    if (decisionType === 'action') {
+      const actionOptions = (config.action_options as string)?.trim();
+      if (actionOptions) lines.push('### Possible outputs (comma-separated)\n' + actionOptions + '\n');
+    }
+  }
+
   // Optional: add any type_specific_config keys not already rendered above (so we avoid duplicating)
   const alreadyRenderedKeys = new Set<string>();
   if (type === 'persuasion_simulation') {
@@ -206,6 +221,11 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     alreadyRenderedKeys.add('survey_mode');
     alreadyRenderedKeys.add('survey_purpose');
     alreadyRenderedKeys.add('survey_questions');
+  }
+  if (type === 'response_simulation') {
+    alreadyRenderedKeys.add('decision_type');
+    alreadyRenderedKeys.add('unit');
+    alreadyRenderedKeys.add('action_options');
   }
   const extraConfig: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(config)) {

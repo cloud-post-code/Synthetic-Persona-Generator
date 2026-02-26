@@ -53,6 +53,56 @@ export interface Message {
   created_at: Date;
 }
 
+export interface BusinessProfile {
+  id: string;
+  user_id: string;
+  business_name?: string | null;
+  mission_statement?: string | null;
+  vision_statement?: string | null;
+  description_main_offerings?: string | null;
+  key_features_or_benefits?: string | null;
+  unique_selling_proposition?: string | null;
+  pricing_model?: string | null;
+  customer_segments?: string | null;
+  geographic_focus?: string | null;
+  industry_served?: string | null;
+  what_differentiates?: string | null;
+  market_niche?: string | null;
+  revenue_streams?: string | null;
+  distribution_channels?: string | null;
+  key_personnel?: string | null;
+  major_achievements?: string | null;
+  revenue?: string | null;
+  key_performance_indicators?: string | null;
+  funding_rounds?: string | null;
+  website?: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateOrUpdateBusinessProfileRequest {
+  business_name?: string | null;
+  mission_statement?: string | null;
+  vision_statement?: string | null;
+  description_main_offerings?: string | null;
+  key_features_or_benefits?: string | null;
+  unique_selling_proposition?: string | null;
+  pricing_model?: string | null;
+  customer_segments?: string | null;
+  geographic_focus?: string | null;
+  industry_served?: string | null;
+  what_differentiates?: string | null;
+  market_niche?: string | null;
+  revenue_streams?: string | null;
+  distribution_channels?: string | null;
+  key_personnel?: string | null;
+  major_achievements?: string | null;
+  revenue?: string | null;
+  key_performance_indicators?: string | null;
+  funding_rounds?: string | null;
+  website?: string | null;
+}
+
 export type SimulationMode = 
   | 'web_page' 
   | 'marketing' 
@@ -97,9 +147,7 @@ export interface AuthResponse {
 
 export interface SimulationInputField {
   name: string;
-  type: 'text' | 'textarea' | 'image' | 'table' | 'pdf' | 'multiple_choice';
-  label: string;
-  placeholder?: string;
+  type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice';
   required: boolean;
   options?: string[];
 }
