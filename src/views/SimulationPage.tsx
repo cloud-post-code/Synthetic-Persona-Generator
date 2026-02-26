@@ -1144,8 +1144,8 @@ const SimulationPage: React.FC = () => {
           // not on all simulation types; only simulationOutputType drives how we render.
           const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
           const isReport = simulationOutputType === 'report';
+          const isBusinessProfile = simulationOutputType === 'business_profile';
           const isSurvey = simulationOutputType === 'survey';
-          const isIdeation = simulationOutputType === 'ideation';
           const isResponseSim = simulationOutputType === 'response_simulation';
           const isChatLike = simulationOutputType === 'persuasion_simulation';
           const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
@@ -1156,6 +1156,17 @@ const SimulationPage: React.FC = () => {
             const a = document.createElement('a');
             a.href = url;
             a.download = `report-${selectedSimulation?.title || 'simulation'}-${new Date().toISOString().slice(0,10)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          const handleDownloadProfile = () => {
+            const text = messages.map(m => `${m.senderType === 'user' ? 'User' : selectedPersona?.name}: ${m.content}`).join('\n\n');
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `business-profile-${selectedSimulation?.title || 'simulation'}-${new Date().toISOString().slice(0,10)}.txt`;
             a.click();
             URL.revokeObjectURL(url);
           };
@@ -1205,14 +1216,14 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl font-black text-gray-900">
-                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isIdeation ? 'Ideation' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isBusinessProfile ? 'Business Profile' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
                 {isChatLike && <div className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-[10px] font-black uppercase tracking-widest">Live Roleplay</div>}
-                {(isReport || isSurvey) && (
-                  <button onClick={isReport ? handleDownloadReport : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
-                    <Download className="w-4 h-4" /> {isReport ? 'Download Report' : 'Download CSV'}
+                {(isReport || isSurvey || isBusinessProfile) && (
+                  <button onClick={isReport ? handleDownloadReport : isBusinessProfile ? handleDownloadProfile : handleDownloadSurveyCsv} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold">
+                    <Download className="w-4 h-4" /> {isReport ? 'Download Report' : isBusinessProfile ? 'Download Profile' : 'Download CSV'}
                   </button>
                 )}
                 <button onClick={startNewSim} className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"><Plus className="w-5 h-5" /></button>
@@ -1281,17 +1292,17 @@ const SimulationPage: React.FC = () => {
                   </div>
                 </>
               )}
-              {isSurvey && (
+              {isBusinessProfile && (
                 <>
-                  <p className="text-sm text-gray-600 mb-2 font-medium">Summary & key points</p>
-                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
+                  <p className="text-sm text-gray-600 mb-4 font-medium">Profile</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 whitespace-pre-wrap">
                     <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                   </div>
                 </>
               )}
-              {isIdeation && (
+              {isSurvey && (
                 <>
-                  <p className="text-sm text-gray-600 mb-2 font-medium">Ideas</p>
+                  <p className="text-sm text-gray-600 mb-2 font-medium">Summary & key points</p>
                   <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                     <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                   </div>
@@ -1320,7 +1331,7 @@ const SimulationPage: React.FC = () => {
                 </div>
                 );
               })()}
-              {!isReport && !isSurvey && !isIdeation && !isResponseSim && (
+              {!isReport && !isSurvey && !isBusinessProfile && !isResponseSim && (
                 <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>

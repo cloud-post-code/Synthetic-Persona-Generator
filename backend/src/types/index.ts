@@ -154,10 +154,10 @@ export interface SimulationInputField {
 
 export type SimulationType =
   | 'report'
+  | 'business_profile'
   | 'persuasion_simulation'
   | 'response_simulation'
-  | 'survey'
-  | 'ideation';
+  | 'survey';
 
 /** Survey question shape for generated survey mode (type_specific_config.survey_questions). */
 export interface SurveyQuestion {
@@ -172,7 +172,7 @@ export interface SurveyQuestion {
  * - survey: survey_mode ('generated'|'custom'), survey_purpose, survey_questions (SurveyQuestion[] when generated)
  * - report: report_structure, etc.
  * - response_simulation: decision_type, question, possible_outputs, etc.
- * - ideation: prompts, num_ideas, etc.
+ * - business_profile: profile_structure, etc.
  */
 export interface SimulationTemplate {
   id: string;

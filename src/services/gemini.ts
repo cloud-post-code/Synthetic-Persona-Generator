@@ -24,10 +24,10 @@ export const GEMINI_FILE_INPUT_ACCEPT =
 /** Per-type description of expected output and behavior; passed when generating the system prompt. */
 export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report: 'Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective. Exactly one paragraph of reasoning (or summary), then the full report in a structured/column format. No chat. No follow-up. Read-only output only.',
+  business_profile: 'Strict output: A single business profile document from the {{SELECTED_PROFILE_FULL}} perspective. Structured sections (e.g. company overview, value proposition, key offerings, target audience). Exactly one short paragraph of context or summary, then the full profile. No chat. No follow-up. Read-only output only.',
   persuasion_simulation: 'Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. \'Persuasion: 75%\') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.',
   response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
-  ideation: 'Strict output: A list of ideas only. Output MUST be a list: use bullets (- or *) or numbers (1. 2. 3.), one idea per item. No introductory paragraph, no closing paragraph, no chat. Generate a clear list of ideas based on the ideation prompts and context. No follow-up.',
 };
 
 const truncate = (text: string, max: number) => {
@@ -361,7 +361,7 @@ export const geminiService = {
     const prompt = `You are an expert at turning product and simulation configs into clear, high-quality system prompts for AI personas.
 
 ## Your task
-1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, survey_purpose, ideation_prompts, etc.). Infer:
+1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, profile_structure, survey_purpose, etc.). Infer:
    - The **purpose** and **goal** of the simulation (what the user wants to achieve).
    - **Tone and style** (e.g. professional, conversational, formal, advisory).
    - **Key instructions** the persona must follow (what to emphasize, what to avoid, how to use context).

@@ -15,9 +15,9 @@ import { IconPicker } from './IconPicker.js';
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.' },
   { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
+  { id: 'business_profile', label: 'Business Profile', description: 'A single business profile document: overview, value proposition, key offerings, target audience. No chat or follow-up.' },
   { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
   { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.' },
-  { id: 'ideation', label: 'Ideation', description: 'Creates a list of ideas from the persona (bulleted or numbered). No prose paragraphs or chat.' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -453,6 +453,21 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             </>
           )}
 
+          {simulationType === 'business_profile' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Profile structure (sections/headings) *</label>
+                <textarea
+                  value={(typeSpecificConfig.profile_structure as string) || ''}
+                  onChange={(e) => setConfig('profile_structure', e.target.value)}
+                  rows={4}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  placeholder="e.g., Company Overview, Value Proposition, Key Offerings, Target Audience..."
+                />
+              </div>
+            </>
+          )}
+
           {simulationType === 'persuasion_simulation' && (
             <>
               <div>
@@ -657,32 +672,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
             </>
           )}
 
-          {simulationType === 'ideation' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Ideation prompts or questions</label>
-                <textarea
-                  value={(typeSpecificConfig.ideation_prompts as string) || ''}
-                  onChange={(e) => setConfig('ideation_prompts', e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  placeholder="Questions or prompts for brainstorming..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Number of ideas (default)</label>
-                <select
-                  value={(typeSpecificConfig.num_ideas as number) ?? 5}
-                  onChange={(e) => setConfig('num_ideas', Number(e.target.value))}
-                  className="w-full max-w-[200px] px-4 py-2 border border-gray-300 rounded-lg"
-                >
-                  {[3, 5, 10, 15, 20].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
         </section>
       )}
 

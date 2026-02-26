@@ -9,10 +9,10 @@ This file collects every AI/LLM prompt used across the codebase. Prompts are gro
 ### 1.1 SIMULATION_TYPE_OUTPUT_SPECS (per-type output behavior for system prompt generation)
 
 - **report:** `Strict output: A single downloadable report from the {{SELECTED_PROFILE_FULL}} perspective...`
+- **business_profile:** `Strict output: A single business profile document...`
 - **persuasion_simulation:** `Strict output: Back-and-forth chat...`
 - **response_simulation:** `Strict output: Exactly one response...`
 - **survey:** `Strict output: Survey results only...`
-- **ideation:** `Strict output: A list of ideas only. Output MUST be a list: use bullets (- or *) or numbers (1. 2. 3.), one idea per item...`
 
 ### 1.2 extractFacts
 
@@ -80,7 +80,7 @@ INSTRUCTIONS:
 You are an expert at turning product and simulation configs into clear, high-quality system prompts for AI personas.
 
 ## Your task
-1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, survey_purpose, ideation_prompts, etc.). Infer:
+1. **Extract** meaning from the user's inputs: read the title, description, and every type-specific field (decision_point, decision_criteria, report_structure, profile_structure, survey_purpose, etc.). Infer:
    - The **purpose** and **goal** of the simulation (what the user wants to achieve).
    - **Tone and style** (e.g. professional, conversational, formal, advisory).
    - **Key instructions** the persona must follow (what to emphasize, what to avoid, how to use context).

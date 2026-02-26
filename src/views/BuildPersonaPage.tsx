@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, AlertCircle, Building2, HelpCircle, FileText } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { PersonaType, Persona } from '../models/types.js';
@@ -32,6 +32,9 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
     indigo: 'hover:border-indigo-600 shadow-indigo-100/50 bg-indigo-50 text-indigo-600',
     violet: 'hover:border-violet-600 shadow-violet-100/50 bg-violet-50 text-violet-600',
     pink: 'hover:border-pink-600 shadow-pink-100/50 bg-pink-50 text-pink-600',
+    emerald: 'hover:border-emerald-600 shadow-emerald-100/50 bg-emerald-50 text-emerald-600',
+    amber: 'hover:border-amber-600 shadow-amber-100/50 bg-amber-50 text-amber-600',
+    sky: 'hover:border-sky-600 shadow-sky-100/50 bg-sky-50 text-sky-600',
   };
 
   return (
@@ -52,12 +55,15 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
 };
 
 // --- SYNTHETIC USER FORM ---
-const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+export type SyntheticBuildMode = 'business_profile' | 'problem_question' | 'supporting_docs';
+
+const SyntheticUserForm: React.FC<{ onComplete: () => void; mode?: SyntheticBuildMode }> = ({ onComplete, mode }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [q6FileName, setQ6FileName] = useState('');
   const [formData, setFormData] = useState({
-    q1: '', q2: '', q3: '', q4: '', q5: 'B2B' as 'B2B' | 'B2C', q6: '', q7: 1
+    q1: '', q2: '', q3: '', q4: '', q5: 'B2B' as 'B2B' | 'B2C', q6: '', q7: 1,
+    businessProfile: '', // for business_profile mode
   });
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,7 +90,17 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
     setLoading(true);
     try {
       const personaGroupId = crypto.randomUUID();
-      const userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}\nBusiness Data Source (${q6FileName}): ${formData.q6}`;
+      let userQInputs: string;
+      if (mode === 'business_profile') {
+        const docPart = formData.q6 ? `\nSupporting doc (${q6FileName}): ${formData.q6}` : '';
+        userQInputs = `Business Profile: ${formData.businessProfile}${docPart}`;
+      } else if (mode === 'problem_question') {
+        userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}${formData.q6 ? `\nBusiness Data Source (${q6FileName}): ${formData.q6}` : ''}`;
+      } else if (mode === 'supporting_docs') {
+        userQInputs = `Supporting Docs (${q6FileName}): ${formData.q6}\nProblem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}`;
+      } else {
+        userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}\nBusiness Data Source (${q6FileName}): ${formData.q6}`;
+      }
 
       setLoadingStage('Synthesizing Market Canvas...');
       const marketCanvas = await geminiService.generateChain(marketCanvasTemplate, { "Strategic Input": userQInputs });
@@ -149,11 +165,81 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
       <div className="space-y-8">
+        {mode === 'business_profile' && (
+          <>
+            <FormItem label="Business profile" value={formData.businessProfile} onChange={v => setFormData({ ...formData, businessProfile: v })} textarea placeholder="Describe your business: value proposition, offerings, target audience, key differentiators..." />
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting doc (optional)</label>
+              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-emerald-300 transition-all bg-gray-50/50 group">
+                <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-emerald-500" />
+                <input type="file" id="bp-file" className="hidden" onChange={handleFile} />
+                <label htmlFor="bp-file" className="cursor-pointer px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors">{q6FileName || 'Select Document'}</label>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        {mode === 'problem_question' && (
+          <>
+            <FormItem label="Problem / question" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="What problem or question are you exploring?" />
+            <FormItem label="Solution / hypothesis" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Proposed solution or direction..." />
+            <FormItem label="Differentiation" value={formData.q3} onChange={v => setFormData({ ...formData, q3: v })} textarea placeholder="What makes this different?" />
+            <FormItem label="Existing alternatives" value={formData.q4} onChange={v => setFormData({ ...formData, q4: v })} textarea placeholder="What exists today?" />
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Context</label>
+              <select value={formData.q5} onChange={e => setFormData({ ...formData, q5: e.target.value as 'B2B' | 'B2C' })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                <option value="B2B">B2B</option>
+                <option value="B2C">B2C</option>
+              </select>
+            </div>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting docs (optional)</label>
+              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-amber-300 transition-all bg-gray-50/50 group">
+                <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-amber-500" />
+                <input type="file" id="pq-file" className="hidden" onChange={handleFile} />
+                <label htmlFor="pq-file" className="cursor-pointer px-6 py-2 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors">{q6FileName || 'Select Document'}</label>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        {mode === 'supporting_docs' && (
+          <>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Supporting docs (Business Plan, Market Research, etc.) *</label>
+              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center hover:border-sky-300 transition-all bg-gray-50/50 group">
+                <Upload className="w-12 h-12 text-gray-300 mb-4 group-hover:text-sky-500" />
+                <p className="text-lg font-bold text-gray-600 mb-4">Upload business plan, market research, or other strategy docs</p>
+                <input type="file" id="sd-file" className="hidden" onChange={handleFile} />
+                <label htmlFor="sd-file" className="cursor-pointer px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg hover:bg-sky-700 transition-colors">{q6FileName || 'Select Document'}</label>
+              </div>
+            </div>
+            <FormItem label="Problem / context (optional)" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="Problem or context..." />
+            <FormItem label="Solution / focus (optional)" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Solution or focus..." />
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        {!mode && (
+          <>
         <FormItem label="UserQ1: Problem" value={formData.q1} onChange={v => setFormData({...formData, q1: v})} textarea placeholder="Problem..." />
         <FormItem label="UserQ2: Solution" value={formData.q2} onChange={v => setFormData({...formData, q2: v})} textarea placeholder="Solution..." />
         <FormItem label="UserQ3: Diff" value={formData.q3} onChange={v => setFormData({...formData, q3: v})} textarea placeholder="Differentiation..." />
         <FormItem label="UserQ4: Alternatives" value={formData.q4} onChange={v => setFormData({...formData, q4: v})} textarea placeholder="Existing..." />
-        
         <div className="space-y-4">
           <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">UserQ6: Supporting Docs (Business Plan, Market Research, etc.)</label>
           <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center hover:border-indigo-300 transition-all bg-gray-50/50 group">
@@ -165,15 +251,16 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
             </label>
           </div>
         </div>
-
         <div className="space-y-4">
           <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">UserQ7: Generation Count</label>
           <select value={formData.q7} onChange={e => setFormData({...formData, q7: parseInt(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
             {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
           </select>
         </div>
+          </>
+        )}
       </div>
-      <button type="submit" disabled={loading} className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
+      <button type="submit" disabled={loading || (mode === 'business_profile' ? !formData.businessProfile.trim() : mode === 'supporting_docs' ? !formData.q6 : false)} className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
         {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit Blueprint'}
       </button>
     </form>
@@ -495,17 +582,18 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
 };
 
 // --- MAIN PAGE ---
+type BuildMode = 'synthetic_user' | 'business_profile' | 'problem_question' | 'supporting_docs' | 'advisor';
 
 const BuildPersonaPage: React.FC = () => {
-  const [selectedType, setSelectedType] = useState<PersonaType | null>(null);
+  const [selectedBuildMode, setSelectedBuildMode] = useState<BuildMode | null>(null);
   const navigate = useNavigate();
 
   const handleBack = () => {
-    if (selectedType) setSelectedType(null);
+    if (selectedBuildMode) setSelectedBuildMode(null);
     else navigate(-1);
   };
 
-  if (!selectedType) {
+  if (!selectedBuildMode) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-12 w-full">
         <div className="text-center mb-16">
@@ -513,19 +601,40 @@ const BuildPersonaPage: React.FC = () => {
           <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium">Select a specialized generation engine to build your synthetic workforce.</p>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           <TypeCard
             title="Synthetic User"
             description="Multi-layered persona generation for market research and product stress-testing."
             icon={Target}
-            onClick={() => setSelectedType('synthetic_user')}
+            onClick={() => setSelectedBuildMode('synthetic_user')}
             theme="indigo"
+          />
+          <TypeCard
+            title="Business Profile"
+            description="Build personas from your business profile: value proposition, offerings, and target audience."
+            icon={Building2}
+            onClick={() => setSelectedBuildMode('business_profile')}
+            theme="emerald"
+          />
+          <TypeCard
+            title="Problem / Question"
+            description="Define a problem or question and generate personas to explore it from multiple angles."
+            icon={HelpCircle}
+            onClick={() => setSelectedBuildMode('problem_question')}
+            theme="amber"
+          />
+          <TypeCard
+            title="Supporting Docs"
+            description="Upload business plans, market research, or strategy docs to drive persona generation."
+            icon={FileText}
+            onClick={() => setSelectedBuildMode('supporting_docs')}
+            theme="sky"
           />
           <TypeCard
             title="Advisor"
             description="Create advisors from LinkedIn profile text or PDF/document upload. Deep analysis with Red Team critical evaluation."
             icon={Sparkles}
-            onClick={() => setSelectedType('advisor')}
+            onClick={() => setSelectedBuildMode('advisor')}
             theme="violet"
           />
         </div>
@@ -544,8 +653,11 @@ const BuildPersonaPage: React.FC = () => {
 
       <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-gray-200/50 border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-500">
         <div className="p-8 sm:p-14">
-          {selectedType === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} />}
-          {selectedType === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} />}
+          {selectedBuildMode === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} />}
+          {selectedBuildMode === 'business_profile' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="business_profile" />}
+          {selectedBuildMode === 'problem_question' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="problem_question" />}
+          {selectedBuildMode === 'supporting_docs' && <SyntheticUserForm onComplete={() => navigate('/gallery')} mode="supporting_docs" />}
+          {selectedBuildMode === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} />}
         </div>
       </div>
     </div>
