@@ -17,7 +17,7 @@ const SIMULATION_TYPES: { id: SimulationType; label: string; description: string
   { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
   { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
   { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.' },
-  { id: 'ideation', label: 'Ideation', description: 'A structured list of bulleted or numbered ideas from the persona. No prose paragraphs or chat.' },
+  { id: 'ideation', label: 'Ideation', description: 'Creates a list of ideas from the persona (bulleted or numbered). No prose paragraphs or chat.' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [

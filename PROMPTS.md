@@ -12,7 +12,7 @@ This file collects every AI/LLM prompt used across the codebase. Prompts are gro
 - **persuasion_simulation:** `Strict output: Back-and-forth chat...`
 - **response_simulation:** `Strict output: Exactly one response...`
 - **survey:** `Strict output: Survey results only...`
-- **ideation:** `Strict output: A list of bulleted (or numbered) ideas only...`
+- **ideation:** `Strict output: A list of ideas only. Output MUST be a list: use bullets (- or *) or numbers (1. 2. 3.), one idea per item...`
 
 ### 1.2 extractFacts
 

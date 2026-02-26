@@ -27,7 +27,7 @@ export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   persuasion_simulation: 'Strict output: Back-and-forth chat. At the end, the persona must state clearly a single persuasion percentage (e.g. \'Persuasion: 75%\') indicating how persuaded the agent is. The UI will parse this to display the result. No other structured output—conversation plus this final percentage.',
   response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
-  ideation: 'Strict output: A list of bulleted (or numbered) ideas only. No prose paragraphs, no chat. The persona must output a structured list of ideas based on the seed prompts. No follow-up.',
+  ideation: 'Strict output: A list of ideas only. Output MUST be a list: use bullets (- or *) or numbers (1. 2. 3.), one idea per item. No introductory paragraph, no closing paragraph, no chat. Generate a clear list of ideas based on the ideation prompts and context. No follow-up.',
 };
 
 const truncate = (text: string, max: number) => {
