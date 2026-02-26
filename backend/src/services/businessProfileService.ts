@@ -85,29 +85,47 @@ export async function upsert(
       }
     }
   }
-  // Always produce a full row: userId + one value per column (null if not provided)
-  const values: (string | null)[] = [
-    userId,
-    ...COLUMNS.map((c) => (sanitized[c] !== undefined ? sanitized[c] : null)),
-  ];
-
-  const cols = ['user_id', ...COLUMNS];
-  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  const valuesForColumns = COLUMNS.map((c) => (sanitized[c] !== undefined ? sanitized[c] : null));
 
   try {
+    const existing = await pool.query(
+      `SELECT id FROM business_profiles WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (existing.rows.length > 0) {
+      const updateSet = COLUMNS.map((c, i) => `${c} = $${i + 1}`).join(', ');
+      const updateValues = [...valuesForColumns, userId];
+      const result = await pool.query(
+        `UPDATE business_profiles SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $${COLUMNS.length + 1}
+         RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
+        updateValues
+      );
+      if (result.rows && result.rows.length > 0) {
+        return mapRow(result.rows[0]);
+      }
+      const refetch = await pool.query(
+        `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
+         FROM business_profiles WHERE user_id = $1`,
+        [userId]
+      );
+      if (refetch.rows.length === 0) throw new Error('Business profile update returned no row');
+      return mapRow(refetch.rows[0]);
+    }
+
+    const insertValues = [userId, ...valuesForColumns];
+    const placeholders = insertValues.map((_, i) => `$${i + 1}`).join(', ');
+    const cols = ['user_id', ...COLUMNS];
     const result = await pool.query(
       `INSERT INTO business_profiles (${cols.join(', ')})
        VALUES (${placeholders})
-       ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
        RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-      values
+      insertValues
     );
-
     if (!result.rows || result.rows.length === 0) {
-      throw new Error('Business profile upsert returned no row');
+      throw new Error('Business profile insert returned no row');
     }
-
     return mapRow(result.rows[0]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
