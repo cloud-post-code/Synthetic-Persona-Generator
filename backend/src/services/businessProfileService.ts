@@ -74,8 +74,7 @@ export async function upsert(
 ): Promise<BusinessProfile> {
   const allowedKeys = new Set(COLUMNS);
   const sanitized: Record<string, string | null> = {};
-  const input: Record<string, unknown> =
-    data != null && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  const input = (data != null && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, unknown>;
   for (const [key, value] of Object.entries(input)) {
     if (allowedKeys.has(key)) {
       if (value === undefined || value === null || value === '') {
