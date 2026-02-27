@@ -198,10 +198,10 @@ const SettingsPage: React.FC = () => {
     };
     try {
       await saveBusinessProfile(payload);
-      setSaveStatus('Business background saved successfully!');
+      setSaveStatus('Business Profile saved successfully!');
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
-      setSaveStatus(err instanceof Error ? err.message : 'Failed to save business background');
+      setSaveStatus(err instanceof Error ? err.message : 'Failed to save Business Profile');
       setTimeout(() => setSaveStatus(null), 5000);
     }
   };
@@ -263,10 +263,10 @@ const SettingsPage: React.FC = () => {
       setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
       setFundingRounds(result.funding_rounds ?? '');
       setWebsite(result.website ?? '');
-      setSaveStatus('Business background generated. Review and click Save to keep changes.');
+      setSaveStatus('Business Profile generated. Review and click Save to keep changes.');
       setTimeout(() => setSaveStatus(null), 5000);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to generate business background.');
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate Business Profile.');
     } finally {
       setGenerateLoading(false);
     }
@@ -329,7 +329,7 @@ const SettingsPage: React.FC = () => {
           />
           <SettingsLink 
             icon={Briefcase} 
-            label="Business background" 
+            label="Business Profile" 
             active={activeTab === 'business'} 
             onClick={() => setActiveTab('business')} 
           />
@@ -513,9 +513,9 @@ const SettingsPage: React.FC = () => {
 
           {activeTab === 'business' && (
             <div className="space-y-6">
-              <p className="text-sm text-gray-500">Background info about your company. Saved once here and used when building personas or running simulations. All fields are optional.</p>
+              <p className="text-sm text-gray-500">Profile info about your company. Saved once here and used when building personas or running simulations. All fields are optional.</p>
               {businessProfileLoading ? (
-                <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading business background...</div>
+                <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading Business Profile...</div>
               ) : (
                 <>
                   <Section title="Generate with AI">
@@ -609,7 +609,7 @@ const SettingsPage: React.FC = () => {
                   </Section>
                   <div className="flex justify-end">
                     <button onClick={handleSaveBusiness} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                      Save business background
+                      Save Business Profile
                     </button>
                   </div>
                 </>

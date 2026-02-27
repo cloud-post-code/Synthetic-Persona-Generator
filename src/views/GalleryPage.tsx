@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star } from 'lucide-react';
+import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
 import { Persona, PersonaFile } from '../models/types.js';
@@ -15,6 +15,10 @@ const GalleryPage: React.FC = () => {
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [unstarringId, setUnstarringId] = useState<string | null>(null);
+  const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  const [savingNameId, setSavingNameId] = useState<string | null>(null);
 
   useEffect(() => {
     // Load files when viewing a persona
@@ -64,6 +68,47 @@ const GalleryPage: React.FC = () => {
       alert(err.message || 'Could not remove persona. Please try again.');
     } finally {
       setUnstarringId(null);
+    }
+  };
+
+  const handleVisibilityChange = async (id: string, visibility: 'public' | 'private') => {
+    setUpdatingVisibilityId(id);
+    try {
+      await personaApi.update(id, { visibility });
+      await fetchPersonas();
+    } catch (err: any) {
+      alert(err?.message || 'Could not update visibility. Please try again.');
+    } finally {
+      setUpdatingVisibilityId(null);
+    }
+  };
+
+  const handleStartEditName = (persona: Persona) => {
+    setEditingNameId(persona.id);
+    setEditingNameValue(persona.name?.trim() || getPersonaDisplayName(persona));
+  };
+
+  const handleCancelEditName = () => {
+    setEditingNameId(null);
+    setEditingNameValue('');
+  };
+
+  const handleSaveName = async (id: string) => {
+    const name = editingNameValue.trim();
+    if (!name) {
+      alert('Name cannot be empty.');
+      return;
+    }
+    setSavingNameId(id);
+    try {
+      await personaApi.update(id, { name });
+      await fetchPersonas();
+      setEditingNameId(null);
+      setEditingNameValue('');
+    } catch (err: any) {
+      alert(err?.message || 'Could not update name. Please try again.');
+    } finally {
+      setSavingNameId(null);
     }
   };
 
@@ -133,8 +178,17 @@ const GalleryPage: React.FC = () => {
               persona={persona}
               isDeleting={deletingId === persona.id}
               isUnstarring={unstarringId === persona.id}
+              isUpdatingVisibility={updatingVisibilityId === persona.id}
+              isEditingName={editingNameId === persona.id}
+              editingNameValue={editingNameId === persona.id ? editingNameValue : ''}
+              isSavingName={savingNameId === persona.id}
               onDelete={() => handleDelete(persona.id)}
               onUnstar={persona.source === 'starred' ? () => handleUnstar(persona.id) : undefined}
+              onVisibilityChange={persona.source === 'owned' ? (visibility) => handleVisibilityChange(persona.id, visibility) : undefined}
+              onStartEditName={persona.source === 'owned' ? () => handleStartEditName(persona) : undefined}
+              onSaveName={persona.source === 'owned' ? () => handleSaveName(persona.id) : undefined}
+              onCancelEditName={handleCancelEditName}
+              onEditingNameChange={editingNameId === persona.id ? setEditingNameValue : undefined}
               onViewFiles={() => setViewingFilesPersona(persona)}
             />
           ))}
@@ -165,13 +219,23 @@ const PersonaCard: React.FC<{
   persona: Persona; 
   isDeleting: boolean;
   isUnstarring?: boolean;
+  isUpdatingVisibility?: boolean;
+  isEditingName?: boolean;
+  editingNameValue: string;
+  isSavingName?: boolean;
   onDelete: () => void; 
   onUnstar?: () => void;
+  onVisibilityChange?: (visibility: 'public' | 'private') => void;
+  onStartEditName?: () => void;
+  onSaveName?: () => void;
+  onCancelEditName: () => void;
+  onEditingNameChange?: (value: string) => void;
   onViewFiles: () => void;
-}> = ({ persona, isDeleting, isUnstarring, onDelete, onUnstar, onViewFiles }) => {
+}> = ({ persona, isDeleting, isUnstarring, isUpdatingVisibility, isEditingName, editingNameValue, isSavingName, onDelete, onUnstar, onVisibilityChange, onStartEditName, onSaveName, onCancelEditName, onEditingNameChange, onViewFiles }) => {
   const navigate = useNavigate();
   const isOwned = persona.source === 'owned';
   const isStarred = persona.source === 'starred';
+  const isPublic = (persona.visibility || 'private') === 'public';
 
   const typeLabels: Record<string, { label: string; color: string }> = {
     synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
@@ -231,14 +295,90 @@ const PersonaCard: React.FC<{
           <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${typeLabels[persona.type].color}`}>
             {typeLabels[persona.type].label}
           </span>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${(persona.visibility || 'private') === 'public' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
-            {(persona.visibility || 'private') === 'public' ? 'Public' : 'Private'}
+          <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${isPublic ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+            {isPublic ? 'Public' : 'Private'}
           </span>
         </div>
       </div>
       <div className="p-6 flex-grow flex flex-col">
-        <h3 className="text-xl font-bold text-gray-900 mb-2">{getPersonaDisplayName(persona)}</h3>
-        <p className="text-gray-500 text-sm mb-4 line-clamp-2">{persona.description}</p>
+        {isEditingName ? (
+          <div className="mb-4 space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Name</label>
+            <input
+              type="text"
+              value={editingNameValue}
+              onChange={(e) => onEditingNameChange?.(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onSaveName?.();
+                if (e.key === 'Escape') onCancelEditName();
+              }}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+              placeholder="Persona name"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => onSaveName?.()}
+                disabled={isSavingName || !editingNameValue.trim()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSavingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={onCancelEditName}
+                disabled={isSavingName}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <h3 className="text-xl font-bold text-gray-900 min-w-0">{getPersonaDisplayName(persona)}</h3>
+              {isOwned && onStartEditName && (
+                <button
+                  type="button"
+                  onClick={onStartEditName}
+                  className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  title="Edit name"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <p className="text-gray-500 text-sm mb-4 line-clamp-2">{persona.description}</p>
+          </>
+        )}
+
+        {isOwned && onVisibilityChange && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => onVisibilityChange(isPublic ? 'private' : 'public')}
+              disabled={isUpdatingVisibility}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                isPublic 
+                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
+                  : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+              } ${isUpdatingVisibility ? 'opacity-70 cursor-wait' : 'cursor-pointer'}`}
+              title={isPublic ? 'Make private (only you can see this persona)' : 'Make public (others can discover this persona)'}
+            >
+              {isUpdatingVisibility ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : isPublic ? (
+                <Lock className="w-3.5 h-3.5" />
+              ) : (
+                <Globe className="w-3.5 h-3.5" />
+              )}
+              {isUpdatingVisibility ? 'Updating...' : isPublic ? 'Make Private' : 'Make Public'}
+            </button>
+          </div>
+        )}
         
         <div className="flex items-center text-xs text-gray-400 mb-6">
           <Calendar className="w-3 h-3 mr-1" /> {createdAt ? new Date(createdAt).toLocaleDateString() : 'N/A'}
