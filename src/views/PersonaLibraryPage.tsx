@@ -6,6 +6,7 @@ import { Persona, PersonaFile } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
 const PersonaLibraryPage: React.FC = () => {
+  const navigate = useNavigate();
   const [libraryPersonas, setLibraryPersonas] = useState<Persona[]>([]);
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -68,6 +69,7 @@ const PersonaLibraryPage: React.FC = () => {
       } else {
         await personaApi.star(id);
         setStarredIds(prev => new Set([...prev, id]));
+        navigate('/gallery?tab=saved');
       }
     } catch (err: any) {
       alert(err.message || 'Failed to update star');
@@ -87,7 +89,7 @@ const PersonaLibraryPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full relative">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Persona Library</h1>
-        <p className="text-gray-500">Discover public personas. Star any persona to add it to My Personas.</p>
+        <p className="text-gray-500">Discover public personas. Star any persona to add it to Saved Personas.</p>
       </div>
 
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-8 flex flex-col md:flex-row gap-4">
@@ -183,7 +185,7 @@ const LibraryPersonaCard: React.FC<{
             className={`p-2 rounded-lg transition-colors shadow-sm cursor-pointer ${
               isStarred ? 'bg-amber-100 text-amber-600 hover:bg-amber-200' : 'bg-white/80 backdrop-blur text-gray-400 hover:bg-white hover:text-amber-600'
             }`}
-            title={isStarred ? 'Remove from My Personas' : 'Add to My Personas'}
+            title={isStarred ? 'Remove from Saved Personas' : 'Add to Saved Personas'}
           >
             {isTogglingStar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className={`w-4 h-4 ${isStarred ? 'fill-current' : ''}`} />}
           </button>

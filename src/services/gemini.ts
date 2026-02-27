@@ -66,6 +66,34 @@ function throwIfServiceUnavailable(error: any, defaultMessage: string): void {
   }
 }
 
+/** Check if error is retryable (503, 502, 504, UNAVAILABLE). */
+function isRetryableError(error: any): boolean {
+  const status = error?.status ?? error?.statusCode ?? error?.code ?? error?.error?.code;
+  const msg = (error?.message ?? '') + (typeof error?.error === 'object' ? JSON.stringify(error.error) : '');
+  return (
+    status === 503 || status === 502 || status === 504 ||
+    msg.includes('503') || msg.includes('502') || msg.includes('504') ||
+    msg.includes('UNAVAILABLE') || msg.includes('currently unavailable')
+  );
+}
+
+/** Retry an async operation on 503/502/504 with exponential backoff (for simulation resilience). */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableError(err) || attempt === maxRetries) throw err;
+      const delayMs = Math.pow(2, attempt) * 1000;
+      console.warn(`Gemini API temporarily unavailable, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries + 1})`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastError;
+}
+
 async function runBusinessProfileGeneration(
   documentInput: string,
   mimeType: string | undefined,
@@ -300,13 +328,15 @@ export const geminiService = {
   },
 
   /**
-   * Run a specialized simulation with optional multi-modal input
+   * Run a specialized simulation with optional multi-modal input.
+   * Uses retry with exponential backoff on 503/502/504 for resilience.
    */
   runSimulation: async (prompt: string, imageData?: string, mimeType?: string): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
+    return withRetry(async () => {
     try {
       const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = [{ text: prompt }];
@@ -369,6 +399,7 @@ export const geminiService = {
       throwIfServiceUnavailable(error, 'Failed to run simulation.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to run simulation. Please check your API key and quota.'}`);
     }
+    });
   },
 
   /**
@@ -488,11 +519,13 @@ RULES:
     return result;
   },
 
+  /** Chat with retry on 503/502/504 for persona conversation resilience. */
   chat: async (systemPrompt: string, history: { role: 'user' | 'model', text: string }[], newMessage: string): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
+    return withRetry(async () => {
     try {
       const ai = new GoogleGenAI({ apiKey });
       
@@ -526,6 +559,7 @@ RULES:
       throwIfServiceUnavailable(error, 'Failed to generate chat response.');
       throw new Error(`Gemini API error: ${error?.message || 'Failed to generate chat response. Please check your API key and quota.'}`);
     }
+    });
   },
 
   /**
@@ -653,6 +687,7 @@ Output only the system prompt text, nothing else.`;
   /**
    * Persona v Persona: Moderator decides who speaks first.
    * Returns the persona_id (UUID string) of the chosen speaker.
+   * Uses retry on 503/502/504 for resilience.
    */
   moderatorWhoSpeaksFirst: async (
     openingLine: string,
@@ -662,6 +697,7 @@ Output only the system prompt text, nothing else.`;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
+    return withRetry(async () => {
     const ai = new GoogleGenAI({ apiKey });
     const list = personas.map((p) => `${p.name} (id: ${p.id})`).join('\n');
     const prompt = `You are a moderator for a structured conversation between multiple personas. The topic or opening line for the conversation is:
@@ -686,11 +722,13 @@ Respond with a single JSON object only, no other text. Use this exact format:
       throw new Error('Moderator did not return a valid persona_id. Please try again.');
     }
     return id.trim();
+    });
   },
 
   /**
    * Persona v Persona: Moderator decides next speaker or end.
    * Returns { action: 'NEXT', persona_id } or { action: 'END' }.
+   * Uses retry on 503/502/504 for resilience.
    */
   moderatorNextOrEnd: async (
     openingLine: string,
@@ -703,6 +741,7 @@ Respond with a single JSON object only, no other text. Use this exact format:
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
+    return withRetry(async () => {
     const ai = new GoogleGenAI({ apiKey });
     const list = personas.map((p) => `${p.name} (id: ${p.id})`).join('\n');
     const convoText = conversation
@@ -744,10 +783,12 @@ Respond with a single JSON object only. Do not choose the same persona who just 
       throw new Error('Moderator did not return a valid persona_id for NEXT. Please try again.');
     }
     return { action: 'NEXT', persona_id };
+    });
   },
 
   /**
    * Persona v Persona: Moderator summarizes the conversation and answers the opening line.
+   * Uses retry on 503/502/504 for resilience.
    */
   moderatorSummarize: async (
     openingLine: string,
@@ -757,6 +798,7 @@ Respond with a single JSON object only. Do not choose the same persona who just 
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
+    return withRetry(async () => {
     const ai = new GoogleGenAI({ apiKey });
     const convoText = conversation
       .map((m) => `${m.speakerName}: ${m.content}`)
@@ -779,6 +821,7 @@ Write in clear paragraphs. No JSON. Output only the summary and answer.`;
       contents: prompt,
     });
     return (response.text || '').trim() || 'No summary generated.';
+    });
   },
 };
 

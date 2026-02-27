@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus, BookOpen } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
@@ -10,8 +10,25 @@ import { getPersonaDisplayName } from '../utils/humanNames.js';
 type GalleryTab = 'my' | 'saved' | 'focusGroups';
 
 const GalleryPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
   const { personas, loading, fetchPersonas } = useAvailablePersonas();
-  const [activeTab, setActiveTab] = useState<GalleryTab>('my');
+  const [activeTab, setActiveTab] = useState<GalleryTab>(() => {
+    if (tabParam === 'saved' || tabParam === 'focusGroups') return tabParam;
+    return 'my';
+  });
+
+  // Sync URL tab param when activeTab changes
+  useEffect(() => {
+    if (tabParam !== activeTab) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        if (activeTab === 'my') next.delete('tab');
+        else next.set('tab', activeTab);
+        return next;
+      }, { replace: true });
+    }
+  }, [activeTab, tabParam, setSearchParams]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [viewingFilesPersona, setViewingFilesPersona] = useState<Persona | null>(null);
@@ -258,10 +275,21 @@ const GalleryPage: React.FC = () => {
         </div>
       ) : (
         <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
-          <User className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900">No personas found</h3>
-          <p className="text-gray-500">Start by building your first synthetic persona.</p>
-          <Link to="/build" className="mt-4 inline-block text-indigo-600 font-semibold hover:underline">Build Persona</Link>
+          {activeTab === 'saved' ? (
+            <>
+              <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900">No saved personas yet</h3>
+              <p className="text-gray-500">Star personas from the Persona Library to add them here.</p>
+              <Link to="/library" className="mt-4 inline-block text-indigo-600 font-semibold hover:underline">Browse Persona Library</Link>
+            </>
+          ) : (
+            <>
+              <User className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900">No personas found</h3>
+              <p className="text-gray-500">Start by building your first synthetic persona.</p>
+              <Link to="/build" className="mt-4 inline-block text-indigo-600 font-semibold hover:underline">Build Persona</Link>
+            </>
+          )}
         </div>
       )}
 

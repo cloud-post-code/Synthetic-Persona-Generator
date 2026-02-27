@@ -48,7 +48,9 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [personaCountMin, setPersonaCountMin] = useState(1);
   const [personaCountMax, setPersonaCountMax] = useState(1);
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
-  const [inputFields, setInputFields] = useState<SimulationInputField[]>([]);
+  const [inputFields, setInputFields] = useState<SimulationInputField[]>(() => [
+    { name: '', type: 'text', required: false },
+  ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showPromptReview, setShowPromptReview] = useState(false);
@@ -382,14 +384,19 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       {/* 3. What is this simulation about? */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-gray-900">What is this simulation about?</h2>
-        <p className="text-sm text-gray-600">Open-ended description used to generate the simulation behavior. Required when a type is selected.</p>
+        <p className="text-sm text-gray-600">
+          This description is used by AI to generate the simulation’s system prompt. Write clearly so the AI can infer purpose, tone, and behavior—it will not be shown verbatim to the persona.
+        </p>
+        <p className="text-xs text-gray-500">
+          Helpful to include: <strong>purpose/goal</strong> (what you want to achieve), <strong>tone</strong> (e.g. professional, advisory, conversational), <strong>audience/context</strong> (who the persona is addressing), and <strong>success criteria</strong> (what “good” looks like for this simulation).
+        </p>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           required={!!simulationType}
           rows={4}
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-          placeholder="Describe what this simulation is and what it tests..."
+          placeholder="e.g., The persona advises the user on a go-to-market strategy for their product. Tone: direct and data-driven. Audience: a founder or product lead. Success: concrete next steps and clear prioritization, no generic advice."
         />
       </section>
 

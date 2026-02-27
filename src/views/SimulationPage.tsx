@@ -186,6 +186,14 @@ const SimulationPage: React.FC = () => {
   } | null>(null);
   const [persuasionContextLoading, setPersuasionContextLoading] = useState(false);
 
+  /** Activity log: each API call step as it unfolds (for user to watch simulation progress) */
+  const [simulationActivityLog, setSimulationActivityLog] = useState<Array<{
+    id: string;
+    status: 'pending' | 'active' | 'done' | 'error';
+    label: string;
+    detail?: string;
+  }>>([]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -463,6 +471,23 @@ const SimulationPage: React.FC = () => {
     }
     
     setIsLoading(true);
+    setSimulationActivityLog([]);
+
+    const addActivity = (label: string, detail?: string) => {
+      const id = crypto.randomUUID();
+      setSimulationActivityLog((prev) => [...prev, { id, status: 'active', label, detail }]);
+      return id;
+    };
+    const markActivityDone = (id: string) => {
+      setSimulationActivityLog((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: 'done' as const } : a))
+      );
+    };
+    const markActivityError = (id: string) => {
+      setSimulationActivityLog((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: 'error' as const } : a))
+      );
+    };
 
     const fieldMap: Record<string, string> = {
       bgInfo: bgInfo,
@@ -561,9 +586,12 @@ const SimulationPage: React.FC = () => {
         };
 
         let firstSpeakerId: string;
+        const idChooseFirst = addActivity('Choosing first speaker...');
         try {
           firstSpeakerId = await geminiService.moderatorWhoSpeaksFirst(openingLineText, personaList);
+          markActivityDone(idChooseFirst);
         } catch (err: unknown) {
+          markActivityError(idChooseFirst);
           const msg = err instanceof Error ? err.message : String(err);
           throw new Error(`Moderator could not choose first speaker: ${msg}`);
         }
@@ -598,7 +626,16 @@ const SimulationPage: React.FC = () => {
               ? `The opening topic is: "${openingLineText.substring(0, 1000)}". You are starting the conversation. Share your thoughts in character.`
               : `It's your turn. Respond in character to the discussion so far.`;
 
-          const response = await geminiService.chat(systemPrompt, historyForChat, newMessage);
+          const speakerName = getPersonaDisplayName(currentSpeaker);
+          const idPersonaTurn = addActivity(`${speakerName} is responding...`, `Turn ${turnCount + 1}`);
+          let response: string;
+          try {
+            response = await geminiService.chat(systemPrompt, historyForChat, newMessage);
+            markActivityDone(idPersonaTurn);
+          } catch (err) {
+            markActivityError(idPersonaTurn);
+            throw err;
+          }
           const personaMsg: Message = {
             id: crypto.randomUUID(),
             sessionId: newSessionId,
@@ -619,13 +656,21 @@ const SimulationPage: React.FC = () => {
               speakerName: getPersonaDisplayName(personaMap.get(m.personaId!)),
               content: m.content,
             }));
-          const nextOrEnd = await geminiService.moderatorNextOrEnd(
-            openingLineText,
-            personaList,
-            conversationForModerator,
-            turnCount,
-            maxTurns
-          );
+          const idModeratorNext = addActivity('Moderator deciding next speaker...');
+          let nextOrEnd: { action: 'NEXT' | 'END'; persona_id?: string };
+          try {
+            nextOrEnd = await geminiService.moderatorNextOrEnd(
+              openingLineText,
+              personaList,
+              conversationForModerator,
+              turnCount,
+              maxTurns
+            );
+            markActivityDone(idModeratorNext);
+          } catch (err) {
+            markActivityError(idModeratorNext);
+            throw err;
+          }
           if (nextOrEnd.action === 'END') break;
           nextSpeakerId = nextOrEnd.persona_id!;
         }
@@ -636,7 +681,15 @@ const SimulationPage: React.FC = () => {
             speakerName: getPersonaDisplayName(personaMap.get(m.personaId!)),
             content: m.content,
           }));
-        const summary = await geminiService.moderatorSummarize(openingLineText, conversationForSummary);
+        const idSummarize = addActivity('Moderator summarizing conversation...');
+        let summary: string;
+        try {
+          summary = await geminiService.moderatorSummarize(openingLineText, conversationForSummary);
+          markActivityDone(idSummarize);
+        } catch (err) {
+          markActivityError(idSummarize);
+          throw err;
+        }
         const moderatorMsg: Message = {
           id: crypto.randomUUID(),
           sessionId: newSessionId,
@@ -713,7 +766,15 @@ const SimulationPage: React.FC = () => {
         persuasionSystemPrompt = prompt;
       }
 
-      const result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
+      const idPersonaSim = addActivity(`Generating response for ${selectedPersona.name}...`);
+      let result: string;
+      try {
+        result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
+        markActivityDone(idPersonaSim);
+      } catch (err) {
+        markActivityError(idPersonaSim);
+        throw err;
+      }
       results.push({
         personaId: selectedPersona.id,
         name: selectedPersona.name,
@@ -1173,6 +1234,44 @@ const SimulationPage: React.FC = () => {
             <button onClick={() => setStage('selection')} className="flex items-center text-sm font-black text-gray-400 uppercase tracking-widest mb-8 hover:text-indigo-600 transition-colors">
               <ArrowLeft className="w-4 h-4 mr-2" /> Back to Modes
             </button>
+
+            {/* Activity log: watch each API call unfold */}
+            {isLoading && simulationActivityLog.length > 0 && (
+              <div className="mb-8 p-6 bg-indigo-50 border-2 border-indigo-100 rounded-2xl shadow-sm">
+                <h3 className="text-sm font-black text-indigo-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Simulation in progress — API calls
+                </h3>
+                <ul className="space-y-2 max-h-48 overflow-y-auto">
+                  {simulationActivityLog.map((a) => (
+                    <li
+                      key={a.id}
+                      className={`flex items-center gap-3 text-sm font-medium ${
+                        a.status === 'done'
+                          ? 'text-green-700'
+                          : a.status === 'error'
+                            ? 'text-red-600'
+                            : a.status === 'active'
+                              ? 'text-indigo-700'
+                              : 'text-gray-500'
+                      }`}
+                    >
+                      {a.status === 'done' && (
+                        <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
+                      )}
+                      {a.status === 'error' && (
+                        <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                      )}
+                      {a.status === 'active' && (
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                      )}
+                      <span>{a.label}</span>
+                      {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-gray-100 p-8 sm:p-14 space-y-12">
               <div className="flex items-center gap-6 pb-8 border-b border-gray-50">
@@ -1634,6 +1733,15 @@ const SimulationPage: React.FC = () => {
                 <button onClick={startNewSim} className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"><Plus className="w-5 h-5" /></button>
               </div>
             </header>
+
+            {/* Activity log summary (when persona_conversation just completed) */}
+            {isPersonaConversation && simulationActivityLog.length > 0 && (
+              <div className="mx-10 mb-4 p-4 bg-green-50 border border-green-100 rounded-xl">
+                <p className="text-xs font-black text-green-700 uppercase tracking-widest">
+                  Completed in {simulationActivityLog.filter((a) => a.status === 'done').length} API calls
+                </p>
+              </div>
+            )}
 
             {/* Main content: chat UI for chat/persuasion, single-output for others */}
             {isChatLike ? (
