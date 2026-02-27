@@ -38,7 +38,7 @@ export const geminiService = {
    * Returns a single string "First Last". Uses AI so no fixed default name list.
    */
   generatePersonaName: async (context: string): Promise<string> => {
-    const prompt = `Generate a realistic full name (first and last name only) for a person in this role or context. Return only valid JSON: {"name": "First Last"}. No quotes in the name value. Context: ${context}`;
+    const prompt = `Generate a plausible, invented full name (first and last name only) for a person who might have this role. Return only valid JSON: {"name": "First Last"}. The value for "name" must be a real-sounding human name (e.g. "Sarah Chen", "Marcus Webb"), never a job title or role (e.g. not "Project Lead", "Marketing Director", or "Advisor"). Context/role: ${context}`;
     try {
       const parsed = await geminiService.generateBasic(prompt, true);
       const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';

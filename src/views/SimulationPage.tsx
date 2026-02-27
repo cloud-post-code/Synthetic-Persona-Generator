@@ -17,7 +17,7 @@ import {
   LucideIcon,
   Download,
 } from 'lucide-react';
-import { Persona, SimulationMode, Message, SimulationSession } from '../models/types.js';
+import { Persona, SimulationMode, Message, SimulationSession, FocusGroup } from '../models/types.js';
 import type { BusinessProfile } from '../models/types.js';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
@@ -26,6 +26,7 @@ import { geminiService } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
+import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -176,6 +177,7 @@ const SimulationPage: React.FC = () => {
 
   const [simulationHistory, setSimulationHistory] = useState<SimulationSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [focusGroups, setFocusGroups] = useState<FocusGroup[]>([]);
   const [surveyGeneratedAnswers, setSurveyGeneratedAnswers] = useState<Record<number, string>>({});
   const [persuasionContext, setPersuasionContext] = useState<{
     systemPrompt: string | null;
@@ -226,6 +228,12 @@ const SimulationPage: React.FC = () => {
     };
     loadSimulations();
   }, []);
+
+  useEffect(() => {
+    if (selectedSimulation) {
+      focusGroupApi.getAll().then(setFocusGroups).catch(() => setFocusGroups([]));
+    }
+  }, [selectedSimulation]);
 
   // Save messages to localStorage when they change
   useEffect(() => {
@@ -1196,6 +1204,46 @@ const SimulationPage: React.FC = () => {
                            : "You haven't built any personas yet."}
                     </div>
                   ) : (
+                    <>
+                      {personaCountMax > 1 && focusGroups.length > 0 && (
+                        <div className="flex items-center gap-3 flex-wrap mb-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                          <span className="text-sm font-semibold text-gray-700">Add focus group:</span>
+                          <select
+                            className="border border-gray-200 rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                            value=""
+                            onChange={(e) => {
+                              const id = e.target.value;
+                              e.target.value = '';
+                              if (!id) return;
+                              const group = focusGroups.find(g => g.id === id);
+                              if (!group) return;
+                              const allowedIds = new Set(allowedPersonasForSimulation.map(p => p.id));
+                              const toAdd = group.personaIds
+                                .map(pid => allowedPersonasForSimulation.find(p => p.id === pid))
+                                .filter((p): p is Persona => p != null);
+                              setSelectedPersonas(prev => {
+                                const currentIds = new Set(prev.map(p => p.id));
+                                const added: Persona[] = [];
+                                for (const p of toAdd) {
+                                  if (currentIds.size >= personaCountMax) break;
+                                  if (!currentIds.has(p.id)) {
+                                    currentIds.add(p.id);
+                                    added.push(p);
+                                  }
+                                }
+                                return added.length ? [...prev, ...added] : prev;
+                              });
+                            }}
+                          >
+                            <option value="">Choose a group...</option>
+                            {focusGroups.map(g => (
+                              <option key={g.id} value={g.id}>
+                                {g.name} ({g.personaIds.length})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       {allowedPersonasForSimulation.map(p => {
                         const isSelected = selectedPersonas.some(sp => sp.id === p.id);
@@ -1224,6 +1272,7 @@ const SimulationPage: React.FC = () => {
                         </button>
                       ); })}
                     </div>
+                    </>
                   )}
                 </div>
 

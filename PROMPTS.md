@@ -51,6 +51,14 @@ RULES:
 A clean, high-quality 2D cartoon face avatar of a ${title} named ${name}. Modern flat design style, friendly professional expression, centered, solid soft-colored background, vibrant colors, simplified features.
 ```
 
+### 1.3a generatePersonaName (fallback when identified "name" is missing or is a job title)
+
+**Purpose:** Produce a plausible human name (first + last) for a role. The prompt explicitly forbids returning job titles (e.g. "Project Lead") as the name.
+
+```
+Generate a plausible, invented full name (first and last name only) for a person who might have this role. Return only valid JSON: {"name": "First Last"}. The value for "name" must be a real-sounding human name (e.g. "Sarah Chen", "Marcus Webb"), never a job title or role (e.g. not "Project Lead", "Marketing Director", or "Advisor"). Context/role: ${context}
+```
+
 ### 1.4 generateChain (High-Fidelity Persona Architect)
 
 ```
@@ -265,8 +273,10 @@ CRITICAL: You ARE this persona. Respond only as them—never describe, reference
 
 ### 6.1 Identify personas from market canvas (generateBasic, JSON)
 
+**Persona names must be real-sounding human names (invented first + last), not job titles.** The model is instructed to put the role in `title` and a plausible person name in `name`.
+
 ```
-Identify ${formData.q7} distinct persona names and titles from this analysis. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}
+Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}
 ```
 
 ### 6.2 Identify author from file content (generateBasic, JSON) — pages

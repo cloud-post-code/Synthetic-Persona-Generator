@@ -256,12 +256,12 @@ const FileViewerModal: React.FC<{
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md" onClick={onClose} />
       <div className="relative bg-white w-full max-w-5xl h-[85vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row">
-        <aside className="w-full md:w-80 bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
+        <aside className="w-full md:w-[22rem] min-w-[18rem] bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
           <div className="p-8 border-b border-gray-100 bg-white">
-            <div className="flex items-center gap-3 mb-2">
-              <img src={avatarUrl} alt={getPersonaDisplayName(persona)} className="w-10 h-10 rounded-xl object-cover" />
-              <div>
-                <h3 className="font-bold text-gray-900 truncate max-w-[150px]">{getPersonaDisplayName(persona)}</h3>
+            <div className="flex items-center gap-3 mb-2 min-w-0">
+              <img src={avatarUrl} alt={getPersonaDisplayName(persona)} className="w-10 h-10 rounded-xl object-cover shrink-0" />
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-900 truncate">{getPersonaDisplayName(persona)}</h3>
                 <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Blueprint Files</p>
               </div>
             </div>

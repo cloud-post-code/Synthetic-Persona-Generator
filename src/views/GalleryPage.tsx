@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check } from 'lucide-react';
+import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
-import { Persona, PersonaFile } from '../models/types.js';
+import { focusGroupApi } from '../services/focusGroupApi.js';
+import { Persona, PersonaFile, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
+
+type GalleryTab = 'my' | 'saved' | 'focusGroups';
 
 const GalleryPage: React.FC = () => {
   const { personas, loading, fetchPersonas } = useAvailablePersonas();
+  const [activeTab, setActiveTab] = useState<GalleryTab>('my');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [viewingFilesPersona, setViewingFilesPersona] = useState<Persona | null>(null);
@@ -20,12 +24,36 @@ const GalleryPage: React.FC = () => {
   const [editingNameValue, setEditingNameValue] = useState('');
   const [savingNameId, setSavingNameId] = useState<string | null>(null);
 
+  const [focusGroups, setFocusGroups] = useState<FocusGroup[]>([]);
+  const [focusGroupsLoading, setFocusGroupsLoading] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<FocusGroup | null>(null);
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+
   useEffect(() => {
     // Load files when viewing a persona
     if (viewingFilesPersona && !personaFiles[viewingFilesPersona.id]) {
       loadPersonaFiles(viewingFilesPersona.id);
     }
   }, [viewingFilesPersona]);
+
+  const loadFocusGroups = async () => {
+    setFocusGroupsLoading(true);
+    try {
+      const list = await focusGroupApi.getAll();
+      setFocusGroups(list);
+    } catch (err) {
+      console.error('Failed to load focus groups:', err);
+    } finally {
+      setFocusGroupsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'focusGroups') {
+      loadFocusGroups();
+    }
+  }, [activeTab]);
 
   const loadPersonaFiles = async (personaId: string) => {
     if (loadingFiles[personaId]) return;
@@ -113,10 +141,14 @@ const GalleryPage: React.FC = () => {
   };
 
   const filteredPersonas = personas.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
+    const matchesTab =
+      activeTab === 'my' ? p.source === 'owned' :
+      activeTab === 'saved' ? p.source === 'starred' :
+      true;
+    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                           p.description.toLowerCase().includes(search.toLowerCase());
     const matchesType = typeFilter === 'all' || p.type === typeFilter;
-    return matchesSearch && matchesType;
+    return matchesTab && matchesSearch && matchesType;
   });
 
   // Normalize persona data for display
@@ -131,16 +163,47 @@ const GalleryPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Personas</h1>
-          <p className="text-gray-500">Personas you created and personas you’ve saved.</p>
+          <p className="text-gray-500">
+            {activeTab === 'my' && 'Personas you created.'}
+            {activeTab === 'saved' && 'Personas you saved from the Persona Library.'}
+            {activeTab === 'focusGroups' && 'Groups you can add all at once in Chat or Simulation.'}
+          </p>
         </div>
-        <Link
-          to="/build"
-          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <User className="w-4 h-4 mr-2" /> New Persona
-        </Link>
+        {activeTab === 'my' ? (
+          <Link
+            to="/build"
+            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            <User className="w-4 h-4 mr-2" /> New Persona
+          </Link>
+        ) : activeTab === 'focusGroups' ? (
+          <button
+            type="button"
+            onClick={() => setCreateGroupOpen(true)}
+            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            <Plus className="w-4 h-4 mr-2" /> Create focus group
+          </button>
+        ) : null}
       </div>
 
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
+        {(['my', 'saved', 'focusGroups'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            {tab === 'my' && 'My Personas'}
+            {tab === 'saved' && 'Saved Personas'}
+            {tab === 'focusGroups' && 'Focus Groups'}
+          </button>
+        ))}
+      </div>
+
+      {(activeTab === 'my' || activeTab === 'saved') && (
+      <>
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-8 flex flex-col md:flex-row gap-4">
         <div className="flex-grow relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -202,6 +265,90 @@ const GalleryPage: React.FC = () => {
         </div>
       )}
 
+      </>
+      )}
+
+      {activeTab === 'focusGroups' && (
+        <>
+          {focusGroupsLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+            </div>
+          ) : focusGroups.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {focusGroups.map((group) => (
+                <div
+                  key={group.id}
+                  className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col h-full hover:shadow-xl transition-all"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      {group.name}
+                    </h3>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setEditingGroup(group)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        title="Edit group"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete "${group.name}"?`)) return;
+                          setDeletingGroupId(group.id);
+                          try {
+                            await focusGroupApi.delete(group.id);
+                            await loadFocusGroups();
+                          } catch (err: any) {
+                            alert(err?.message || 'Could not delete group.');
+                          } finally {
+                            setDeletingGroupId(null);
+                          }
+                        }}
+                        disabled={deletingGroupId === group.id}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete group"
+                      >
+                        {deletingGroupId === group.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-gray-500 text-sm mb-4">
+                    {group.personaIds.length} persona{group.personaIds.length !== 1 ? 's' : ''}
+                  </p>
+                  <div className="mt-auto">
+                    <button
+                      type="button"
+                      onClick={() => setEditingGroup(group)}
+                      className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Pencil className="w-4 h-4" /> Edit personas
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900">No focus groups yet</h3>
+              <p className="text-gray-500">Create a group to add multiple personas at once in Chat or Simulation.</p>
+              <button
+                type="button"
+                onClick={() => setCreateGroupOpen(true)}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700"
+              >
+                <Plus className="w-4 h-4" /> Create focus group
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Blueprint/Files Modal */}
       {viewingFilesPersona && (
         <FileViewerModal 
@@ -211,6 +358,162 @@ const GalleryPage: React.FC = () => {
           onClose={() => setViewingFilesPersona(null)} 
         />
       )}
+
+      {/* Create Focus Group Modal */}
+      {createGroupOpen && (
+        <CreateFocusGroupModal
+          onClose={() => setCreateGroupOpen(false)}
+          onCreated={async (group) => {
+            setCreateGroupOpen(false);
+            await loadFocusGroups();
+          }}
+        />
+      )}
+
+      {/* Edit Focus Group Modal */}
+      {editingGroup && (
+        <EditFocusGroupModal
+          group={editingGroup}
+          availablePersonas={personas.map(p => ({ ...p, avatarUrl: p.avatarUrl || p.avatar_url }))}
+          onClose={() => setEditingGroup(null)}
+          onSaved={async () => {
+            setEditingGroup(null);
+            await loadFocusGroups();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+const CreateFocusGroupModal: React.FC<{
+  onClose: () => void;
+  onCreated: (group: FocusGroup) => void;
+}> = ({ onClose, onCreated }) => {
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      const group = await focusGroupApi.create({ name: trimmed });
+      onCreated(group);
+    } catch (err: any) {
+      alert(err?.message || 'Could not create group.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-xl p-8">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">Create focus group</h3>
+        <form onSubmit={handleSubmit}>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Beta testers"
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500"
+            autoFocus
+          />
+          <div className="flex gap-3 mt-6">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving || !name.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const EditFocusGroupModal: React.FC<{
+  group: FocusGroup;
+  availablePersonas: Persona[];
+  onClose: () => void;
+  onSaved: () => void;
+}> = ({ group, availablePersonas, onClose, onSaved }) => {
+  const [name, setName] = useState(group.name);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(group.personaIds));
+  const [saving, setSaving] = useState(false);
+  const togglePersona = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await focusGroupApi.update(group.id, { name: name.trim(), personaIds: Array.from(selectedIds) });
+      onSaved();
+    } catch (err: any) {
+      alert(err?.message || 'Could not save.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-lg max-h-[90vh] rounded-2xl shadow-xl flex flex-col overflow-hidden">
+        <div className="p-8 border-b border-gray-100">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Edit focus group</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Personas in this group</label>
+              <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+                {availablePersonas.length === 0 ? (
+                  <p className="p-4 text-gray-500 text-sm">No personas available. Add personas from My Personas or Saved Personas first.</p>
+                ) : (
+                  availablePersonas.map(p => (
+                    <label key={p.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => togglePersona(p.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                      />
+                      <img src={p.avatarUrl || p.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                      <span className="font-medium text-gray-900 truncate">{getPersonaDisplayName(p)}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };
@@ -355,13 +658,17 @@ const PersonaCard: React.FC<{
           </>
         )}
 
-        {isOwned && onVisibilityChange && (
-          <div className="mb-4">
+        <div className="flex items-center text-xs text-gray-400 mb-4">
+          <Calendar className="w-3 h-3 mr-1" /> {createdAt ? new Date(createdAt).toLocaleDateString() : 'N/A'}
+        </div>
+
+        <div className="flex flex-col gap-2 mt-auto">
+          {isOwned && onVisibilityChange && (
             <button
               type="button"
               onClick={() => onVisibilityChange(isPublic ? 'private' : 'public')}
               disabled={isUpdatingVisibility}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-xs font-bold transition-all ${
                 isPublic 
                   ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
                   : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
@@ -377,23 +684,16 @@ const PersonaCard: React.FC<{
               )}
               {isUpdatingVisibility ? 'Updating...' : isPublic ? 'Make Private' : 'Make Public'}
             </button>
-          </div>
-        )}
-        
-        <div className="flex items-center text-xs text-gray-400 mb-6">
-          <Calendar className="w-3 h-3 mr-1" /> {createdAt ? new Date(createdAt).toLocaleDateString() : 'N/A'}
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 mt-auto">
+          )}
           <button
             onClick={onViewFiles}
-            className="py-3 bg-gray-50 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3 bg-gray-50 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <FileText className="w-4 h-4" /> Files
           </button>
           <button
             onClick={() => navigate(`/chat?personaId=${persona.id}`)}
-            className="py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <MessageSquare className="w-4 h-4" /> Chat
           </button>
@@ -444,12 +744,12 @@ const FileViewerModal: React.FC<{
       <div className="relative bg-white w-full max-w-5xl h-[85vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row animate-in zoom-in-95 duration-200">
         
         {/* Sidebar - File List */}
-        <aside className="w-full md:w-80 bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
+        <aside className="w-full md:w-[22rem] min-w-[18rem] bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
           <div className="p-8 border-b border-gray-100 bg-white">
-            <div className="flex items-center gap-3 mb-2">
-              <img src={avatarUrl} alt={getPersonaDisplayName(persona)} className="w-10 h-10 rounded-xl object-cover" />
-              <div>
-                <h3 className="font-bold text-gray-900 truncate max-w-[150px]">{getPersonaDisplayName(persona)}</h3>
+            <div className="flex items-center gap-3 mb-2 min-w-0">
+              <img src={avatarUrl} alt={getPersonaDisplayName(persona)} className="w-10 h-10 rounded-xl object-cover shrink-0" />
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-900 truncate">{getPersonaDisplayName(persona)}</h3>
                 <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Blueprint Files</p>
               </div>
             </div>

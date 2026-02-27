@@ -125,3 +125,13 @@ export interface SimulationSession {
   updated_at?: string;
 }
 
+export interface FocusGroup {
+  id: string;
+  name: string;
+  personaIds: string[];
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+

@@ -220,12 +220,12 @@ const FileViewerModal: React.FC<{ persona: Persona; onClose: () => void }> = ({ 
       <div className="relative bg-white w-full max-w-5xl h-[85vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row animate-in zoom-in-95 duration-200">
         
         {/* Sidebar - File List */}
-        <aside className="w-full md:w-80 bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
+        <aside className="w-full md:w-[22rem] min-w-[18rem] bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
           <div className="p-8 border-b border-gray-100 bg-white">
-            <div className="flex items-center gap-3 mb-2">
-              <img src={persona.avatarUrl} alt={persona.name} className="w-10 h-10 rounded-xl object-cover" />
-              <div>
-                <h3 className="font-bold text-gray-900 truncate max-w-[150px]">{persona.name}</h3>
+            <div className="flex items-center gap-3 mb-2 min-w-0">
+              <img src={persona.avatarUrl} alt={persona.name} className="w-10 h-10 rounded-xl object-cover shrink-0" />
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-900 truncate">{persona.name}</h3>
                 <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Blueprint Files</p>
               </div>
             </div>

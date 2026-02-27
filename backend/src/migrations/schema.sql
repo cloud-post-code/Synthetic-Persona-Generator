@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS persona_files (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Focus groups (user-defined groups of personas for "add all" in Chat/Simulation)
+CREATE TABLE IF NOT EXISTS focus_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS focus_group_personas (
+  focus_group_id UUID NOT NULL REFERENCES focus_groups(id) ON DELETE CASCADE,
+  persona_id UUID NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+  position INTEGER DEFAULT 0,
+  PRIMARY KEY (focus_group_id, persona_id)
+);
+
 -- Chat sessions table
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -124,6 +139,9 @@ CREATE TABLE IF NOT EXISTS simulations (
 CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_personas_user_id ON personas(user_id);
 CREATE INDEX IF NOT EXISTS idx_persona_files_persona_id ON persona_files(persona_id);
+CREATE INDEX IF NOT EXISTS idx_focus_groups_user_id ON focus_groups(user_id);
+CREATE INDEX IF NOT EXISTS idx_focus_group_personas_group_id ON focus_group_personas(focus_group_id);
+CREATE INDEX IF NOT EXISTS idx_focus_group_personas_persona_id ON focus_group_personas(persona_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_simulation_sessions_user_id ON simulation_sessions(user_id);
@@ -150,6 +168,10 @@ CREATE TRIGGER update_business_profiles_updated_at BEFORE UPDATE ON business_pro
 
 DROP TRIGGER IF EXISTS update_personas_updated_at ON personas;
 CREATE TRIGGER update_personas_updated_at BEFORE UPDATE ON personas
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_focus_groups_updated_at ON focus_groups;
+CREATE TRIGGER update_focus_groups_updated_at BEFORE UPDATE ON focus_groups
   FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON chat_sessions;

@@ -128,7 +128,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       setLoadingStage('Quantifying Success Metrics...');
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
 
-      const idPrompt = `Identify ${formData.q7} distinct persona names and titles from this analysis. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
+      const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
       const raw = await geminiService.generateBasic(idPrompt, true);
       const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
       const personas: { name: string; title: string }[] = [];

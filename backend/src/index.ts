@@ -8,6 +8,7 @@ import chatRoutes from './routes/chatRoutes.js';
 import simulationRoutes from './routes/simulationRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import businessProfileRoutes from './routes/businessProfileRoutes.js';
+import focusGroupRoutes from './routes/focusGroupRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -36,6 +37,7 @@ app.use('/api/personas', personaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/simulations', simulationRoutes);
 app.use('/api/profile/business', businessProfileRoutes);
+app.use('/api/focus-groups', focusGroupRoutes);
 // Admin routes
 app.use('/api/admin', adminRoutes);
 

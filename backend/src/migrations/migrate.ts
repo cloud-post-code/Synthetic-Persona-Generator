@@ -152,6 +152,32 @@ async function migrate() {
     } catch (err: any) {
       if (err.code !== '42P07') throw err;
     }
+
+    // Focus groups: user-defined groups of personas (for "add all" in Chat/Simulation)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS focus_groups (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_focus_groups_user_id ON focus_groups(user_id)`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS focus_group_personas (
+          focus_group_id UUID NOT NULL REFERENCES focus_groups(id) ON DELETE CASCADE,
+          persona_id UUID NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+          position INTEGER DEFAULT 0,
+          PRIMARY KEY (focus_group_id, persona_id)
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_focus_group_personas_group_id ON focus_group_personas(focus_group_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_focus_group_personas_persona_id ON focus_group_personas(persona_id)`);
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
+    }
     
     console.log('Seeding default simulations...');
     

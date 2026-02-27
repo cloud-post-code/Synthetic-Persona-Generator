@@ -6,8 +6,9 @@ import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { useChatSessions } from '../hooks/useChatSessions.js';
 import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
+import { focusGroupApi } from '../services/focusGroupApi.js';
 import { geminiService } from '../services/gemini.js';
-import { Persona, ChatSession, Message } from '../models/types.js';
+import { Persona, ChatSession, Message, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
 /**
@@ -137,6 +138,7 @@ const ChatPage: React.FC = () => {
   const navigate = useNavigate();
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
+  const [focusGroups, setFocusGroups] = useState<FocusGroup[]>([]);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -210,6 +212,12 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeResponders]);
+
+  useEffect(() => {
+    if (isSelectorOpen) {
+      focusGroupApi.getAll().then(setFocusGroups).catch(() => setFocusGroups([]));
+    }
+  }, [isSelectorOpen]);
 
   // Adjust textarea height as user types
   useEffect(() => {
@@ -765,6 +773,45 @@ const ChatPage: React.FC = () => {
                 <X className="w-6 h-6" />
               </button>
             </div>
+
+            {focusGroups.length > 0 && (
+              <div className="px-10 py-4 bg-indigo-50/50 border-b border-indigo-100 flex items-center gap-3 flex-wrap">
+                <span className="text-sm font-semibold text-gray-700">Add focus group:</span>
+                <select
+                  className="border border-gray-200 rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                  value=""
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    e.target.value = '';
+                    if (!id) return;
+                    const group = focusGroups.find(g => g.id === id);
+                    if (!group) return;
+                    const toAdd = group.personaIds
+                      .map(pid => allPersonas.find(p => p.id === pid))
+                      .filter((p): p is Persona => p != null);
+                    setSelectedPersonas(prev => {
+                      const currentIds = new Set(prev.map(p => p.id));
+                      const added: Persona[] = [];
+                      for (const p of toAdd) {
+                        if (currentIds.size >= 5) break;
+                        if (!currentIds.has(p.id)) {
+                          currentIds.add(p.id);
+                          added.push(p);
+                        }
+                      }
+                      return added.length ? [...prev, ...added] : prev;
+                    });
+                  }}
+                >
+                  <option value="">Choose a group...</option>
+                  {focusGroups.map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.personaIds.length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             
             <div className="flex-grow overflow-y-auto p-10 grid grid-cols-1 sm:grid-cols-2 gap-5 bg-gray-50/50">
               {allPersonas.length > 0 ? allPersonas.map(p => {
