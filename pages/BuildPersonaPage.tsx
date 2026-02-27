@@ -14,10 +14,6 @@ import { agentProfileDetailedTemplate } from '../templates/agentProfileDetailedT
 import { agentBehaviorsTemplate } from '../templates/agentBehaviorsTemplate';
 import { highFidelityPersonaTemplate } from '../templates/highFidelityPersonaTemplate';
 
-// Human-like fallback when advisor name cannot be extracted from document
-const ADVISOR_FALLBACK_NAMES = ['Dr. Sarah Mitchell', 'James Chen', 'Maria Santos', 'David Park', 'Emily Foster', 'Robert Hayes', 'Jennifer Walsh', 'Michael Torres'];
-const getAdvisorFallbackName = () => ADVISOR_FALLBACK_NAMES[Math.floor(Math.random() * ADVISOR_FALLBACK_NAMES.length)];
-
 // --- HELPER COMPONENTS ---
 
 const FormItem: React.FC<{ label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string }> = ({ label, value, onChange, textarea, placeholder }) => (
@@ -93,7 +89,17 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
 
       const idPrompt = `Identify ${formData.q7} distinct persona names and titles from this analysis. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
-      const { personas } = await geminiService.generateBasic(idPrompt, true);
+      const raw = await geminiService.generateBasic(idPrompt, true);
+      const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
+      const personas: { name: string; title: string }[] = [];
+      for (let index = 0; index < personasRaw.length; index++) {
+        const p = personasRaw[index] as { name?: string; title?: string };
+        const titleStr = (typeof p?.title === 'string' && p.title.trim()) ? p.title.trim() : 'Synthetic Persona';
+        const nameStr = (typeof p?.name === 'string' && p.name.trim()) ? p.name.trim() : '';
+        const name = (nameStr && nameStr !== titleStr) ? nameStr : await geminiService.generatePersonaName(titleStr);
+        const finalName = (name && name !== 'Persona') ? name : titleStr;
+        personas.push({ name: finalName, title: titleStr });
+      }
 
       for (const pInfo of personas) {
         setLoadingStage(`Profiling Agent: ${pInfo.name}...`);
@@ -216,7 +222,12 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
         setLoadingStage('Discovering identity...');
         const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
         const identity = await geminiService.generateBasic(idPrompt, true);
-        const { name, title, summary } = identity as { name: string; title: string; summary?: string };
+        const rawName = (identity as { name?: string })?.name;
+        const rawTitle = (identity as { title?: string })?.title;
+        const rawSummary = (identity as { summary?: string })?.summary;
+        const name = (typeof rawName === 'string' && rawName.trim()) ? rawName.trim() : await geminiService.generatePersonaName('professional advisor');
+        const title = (typeof rawTitle === 'string' && rawTitle.trim()) ? rawTitle.trim() : 'Advisor';
+        const summary = (typeof rawSummary === 'string' && rawSummary.trim()) ? rawSummary.trim() : undefined;
         setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
         const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, {
           "Fact Extraction (Source of Truth)": extractedFacts,
@@ -228,10 +239,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
           "Target Name": name,
         }, true);
         setLoadingStage(`Generating Digital Likeness for ${name}...`);
-        const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
+        const avatarUrl = await geminiService.generateAvatar(name, title);
         const persona: Persona = {
           id: crypto.randomUUID(),
-          name: name || getAdvisorFallbackName(),
+          name: name,
           type: 'advisor',
           description: (summary || title) || "High-fidelity specialized advisor.",
           avatarUrl: avatarUrl,
@@ -249,7 +260,13 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
       extractedText = fileContent;
       setLoadingStage('Identifying Author Identity...');
       const idPrompt = `Analyze this text and identify the primary author/expert. Return JSON: { "name": string, "title": string, "summary": string }. Text: ${extractedText.substring(0, 5000)}`;
-      const { name, title, summary } = await geminiService.generateBasic(idPrompt, true);
+      const identity = await geminiService.generateBasic(idPrompt, true);
+      const rawName = (identity as { name?: string })?.name;
+      const rawTitle = (identity as { title?: string })?.title;
+      const rawSummary = (identity as { summary?: string })?.summary;
+      const name = (typeof rawName === 'string' && rawName.trim()) ? rawName.trim() : await geminiService.generatePersonaName('professional advisor');
+      const title = (typeof rawTitle === 'string' && rawTitle.trim()) ? rawTitle.trim() : 'Advisor';
+      const summary = (typeof rawSummary === 'string' && rawSummary.trim()) ? rawSummary.trim() : undefined;
       setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
       const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, {
         "Primary Source Material": extractedText,
@@ -257,10 +274,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
         "Context Summary": summary
       }, true);
       setLoadingStage(`Generating Digital Likeness for ${name}...`);
-      const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
+      const avatarUrl = await geminiService.generateAvatar(name, title);
       const persona: Persona = {
         id: crypto.randomUUID(),
-        name: name || getAdvisorFallbackName(),
+        name: name,
         type: 'advisor',
         description: summary || "High-fidelity specialized advisor.",
         avatarUrl: avatarUrl,

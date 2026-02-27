@@ -34,6 +34,22 @@ export const geminiService = {
   },
 
   /**
+   * Generate a realistic full name for a persona (e.g. for a job title or "advisor").
+   * Returns a single string "First Last". Uses AI so no fixed default name list.
+   */
+  generatePersonaName: async (context: string): Promise<string> => {
+    const prompt = `Generate a realistic full name (first and last name only) for a person in this role or context. Return only valid JSON: {"name": "First Last"}. No quotes in the name value. Context: ${context}`;
+    try {
+      const parsed = await geminiService.generateBasic(prompt, true);
+      const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
+      if (name.length > 0) return name;
+    } catch (e) {
+      console.warn('generatePersonaName failed, using generic fallback', e);
+    }
+    return 'Persona';
+  },
+
+  /**
    * Specifically for extracting raw facts from messy source data like LinkedIn text.
    */
   extractFacts: async (sourceData: string): Promise<string> => {

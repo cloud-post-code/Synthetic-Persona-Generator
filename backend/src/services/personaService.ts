@@ -56,6 +56,9 @@ export async function getPersonaById(personaId: string, userId: string): Promise
 export async function createPersona(userId: string, personaData: Omit<Persona, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<Persona> {
   const id = uuidv4();
   const visibility = personaData.visibility || 'private';
+  const name = (personaData.name && typeof personaData.name === 'string' && personaData.name.trim())
+    ? personaData.name.trim()
+    : 'Unnamed Persona';
 
   const result = await pool.query(
     `INSERT INTO personas (id, user_id, name, type, description, avatar_url, visibility, metadata)
@@ -64,7 +67,7 @@ export async function createPersona(userId: string, personaData: Omit<Persona, '
     [
       id,
       userId,
-      personaData.name,
+      name,
       personaData.type,
       personaData.description,
       personaData.avatar_url,
@@ -84,6 +87,9 @@ export async function createPersona(userId: string, personaData: Omit<Persona, '
 /** Admin-only: create a persona that is visible to everyone (visibility = 'global'). */
 export async function createGlobalPersona(adminUserId: string, personaData: Pick<Persona, 'name' | 'type' | 'description'> & { avatar_url?: string; metadata?: Record<string, any> }): Promise<Persona> {
   const id = uuidv4();
+  const name = (personaData.name && typeof personaData.name === 'string' && personaData.name.trim())
+    ? personaData.name.trim()
+    : 'Unnamed Persona';
   const result = await pool.query(
     `INSERT INTO personas (id, user_id, name, type, description, avatar_url, visibility, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, 'global', $7)
@@ -91,7 +97,7 @@ export async function createGlobalPersona(adminUserId: string, personaData: Pick
     [
       id,
       adminUserId,
-      personaData.name,
+      name,
       personaData.type,
       personaData.description || '',
       personaData.avatar_url || '',

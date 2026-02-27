@@ -29,7 +29,7 @@ import { simulationTemplateApi, SimulationTemplate } from '../services/simulatio
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
-import { getRunnerDisplayName, getStablePersonaFallbackName } from '../utils/humanNames.js';
+import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 
 const MAX_PERSONA_TURNS = 20;
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
@@ -158,7 +158,7 @@ const SimulationPage: React.FC = () => {
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
-  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; avatarUrl?: string; content: string }>>([]);
+  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string }>>([]);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
@@ -582,7 +582,7 @@ const SimulationPage: React.FC = () => {
           const historyForChat = conversationMessages
             .filter((m) => m.senderType === 'persona' && m.personaId)
             .map((m) => {
-              const name = personaMap.get(m.personaId!)?.name ?? 'Unknown';
+              const name = getPersonaDisplayName(personaMap.get(m.personaId!));
               return { role: 'user' as const, text: `${name}: ${m.content}` };
             });
           const newMessage =
@@ -608,7 +608,7 @@ const SimulationPage: React.FC = () => {
           const conversationForModerator = conversationMessages
             .filter((m) => m.senderType === 'persona' && m.personaId)
             .map((m) => ({
-              speakerName: personaMap.get(m.personaId!)?.name ?? 'Unknown',
+              speakerName: getPersonaDisplayName(personaMap.get(m.personaId!)),
               content: m.content,
             }));
           const nextOrEnd = await geminiService.moderatorNextOrEnd(
@@ -625,7 +625,7 @@ const SimulationPage: React.FC = () => {
         const conversationForSummary = conversationMessages
           .filter((m) => m.senderType === 'persona' && m.personaId)
           .map((m) => ({
-            speakerName: personaMap.get(m.personaId!)?.name ?? 'Unknown',
+            speakerName: getPersonaDisplayName(personaMap.get(m.personaId!)),
             content: m.content,
           }));
         const summary = await geminiService.moderatorSummarize(openingLineText, conversationForSummary);
@@ -655,7 +655,7 @@ const SimulationPage: React.FC = () => {
       return;
     }
 
-    const results: Array<{ personaId: string; name: string; avatarUrl?: string; content: string }> = [];
+    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string }> = [];
 
     let persuasionSystemPrompt: string | null = null;
 
@@ -709,6 +709,7 @@ const SimulationPage: React.FC = () => {
       results.push({
         personaId: selectedPersona.id,
         name: selectedPersona.name,
+        description: selectedPersona.description,
         avatarUrl: selectedPersona.avatarUrl,
         content: result,
       });
@@ -1214,9 +1215,10 @@ const SimulationPage: React.FC = () => {
                           }}
                           className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'} ${!canToggle ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
                         >
-                          <img src={p.avatarUrl} alt={p.name} className="w-10 h-10 rounded-xl object-cover" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-black text-gray-900 truncate">{p.name}</p>
+                          <img src={p.avatarUrl} alt={getPersonaDisplayName(p)} className="w-10 h-10 rounded-xl object-cover" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-black text-gray-900 truncate">{getPersonaDisplayName(p)}</p>
+                            {(p.description?.trim()) ? <p className="text-[10px] text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : null}
                             {isSelected && <p className="text-[10px] text-indigo-600 font-bold">Selected</p>}
                           </div>
                         </button>
@@ -1591,7 +1593,7 @@ const SimulationPage: React.FC = () => {
                 const isUser = m.senderType === 'user';
                 const isModerator = m.senderType === 'moderator';
                 const messagePersona = m.personaId ? personaById.get(m.personaId) : null;
-                const displayName = isModerator ? 'Moderator' : messagePersona?.name ?? (isUser ? runnerDisplayName : stablePersonaFallback);
+                const displayName = isModerator ? 'Moderator' : isUser ? runnerDisplayName : getPersonaDisplayName(messagePersona);
                 const avatarUrl = messagePersona?.avatarUrl ?? messagePersona?.avatar_url;
                 return (
                   <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 group`}>
@@ -1619,7 +1621,7 @@ const SimulationPage: React.FC = () => {
                           </button>
                           )}
                         </div>
-                        {isPersonaConversation && messagePersona && !isModerator && (
+                        {messagePersona && !isUser && !isModerator && (messagePersona.description?.trim()) && (
                           <p className="text-xs text-gray-500 ml-1 mt-1 line-clamp-2">{messagePersona.description}</p>
                         )}
                       </div>
@@ -1639,7 +1641,10 @@ const SimulationPage: React.FC = () => {
                     <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
                       <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-100">
                         {pr.avatarUrl && <img src={pr.avatarUrl} alt={pr.name} className="w-14 h-14 rounded-xl object-cover" />}
-                        <span className="text-lg font-black text-gray-900">{pr.name}</span>
+                        <div>
+                          <span className="text-lg font-black text-gray-900 block">{pr.name}</span>
+                          {(pr.description?.trim()) && <span className="text-sm text-gray-500">{pr.description.trim()}</span>}
+                        </div>
                       </div>
                       <div className="text-gray-800 text-lg leading-relaxed">
                         <FormattedSimulationResponse content={pr.content} isUser={false} />

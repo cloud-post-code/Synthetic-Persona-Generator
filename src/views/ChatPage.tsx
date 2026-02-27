@@ -8,6 +8,7 @@ import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
 import { Persona, ChatSession, Message } from '../models/types.js';
+import { getPersonaDisplayName } from '../utils/humanNames.js';
 
 /**
  * A simple internal component to render basic markdown-style formatting
@@ -361,7 +362,7 @@ const ChatPage: React.FC = () => {
       );
       
       const newSession = await chatApi.createSession(
-        `Chat with ${personasWithFiles.map(p => p.name).join(', ')}`,
+        `Chat with ${personasWithFiles.map(p => getPersonaDisplayName(p)).join(', ')}`,
         personasWithFiles.map(p => p.id)
       );
       // Normalize session data
@@ -414,7 +415,7 @@ const ChatPage: React.FC = () => {
       for (const persona of selectedPersonas) {
         setActiveResponders(prev => [...prev, persona.id]);
         
-        let systemPrompt = `You are strictly acting as the persona: ${persona.name}.\n`;
+        let systemPrompt = `You are strictly acting as the persona: ${getPersonaDisplayName(persona)}.\n`;
         systemPrompt += `Identity/Title: ${persona.description}\n\n`;
         systemPrompt += `CORE BLUEPRINT DATA:\n`;
         
@@ -601,14 +602,14 @@ const ChatPage: React.FC = () => {
                      <img
                        key={p.id}
                        src={p.avatarUrl}
-                       alt={p.name}
+                       alt={getPersonaDisplayName(p)}
                        className="inline-block h-12 w-12 rounded-2xl ring-4 ring-white object-cover shadow-sm"
                      />
                    ))}
                  </div>
                  <div>
                    <h2 className="font-black text-gray-900 text-lg leading-none mb-1">
-                     {selectedPersonas.length > 1 ? `Multi-Persona Intelligence Session` : selectedPersonas[0]?.name}
+                     {selectedPersonas.length > 1 ? `Multi-Persona Intelligence Session` : getPersonaDisplayName(selectedPersonas[0])}
                    </h2>
                    <div className="flex items-center text-[10px] text-green-500 font-black uppercase tracking-widest">
                      <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
@@ -654,7 +655,7 @@ const ChatPage: React.FC = () => {
                         ) : (
                           <img 
                             src={persona?.avatarUrl || 'https://picsum.photos/seed/bot/200'} 
-                            alt={persona?.name || 'Bot'} 
+                            alt={getPersonaDisplayName(persona)} 
                             className="w-10 h-10 rounded-xl object-cover shadow-md border border-white"
                           />
                         )}
@@ -662,7 +663,7 @@ const ChatPage: React.FC = () => {
                       <div className="space-y-1 min-w-0 flex-grow relative">
                         {!isUser && (
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                            {persona?.name || 'Assistant'}
+                            {getPersonaDisplayName(persona)}
                           </p>
                         )}
                         <div className={`p-5 rounded-3xl shadow-sm text-base relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
@@ -693,13 +694,13 @@ const ChatPage: React.FC = () => {
                       <div className="shrink-0">
                         <img 
                           src={persona?.avatarUrl || 'https://picsum.photos/seed/bot/200'} 
-                          alt={persona?.name} 
+                          alt={getPersonaDisplayName(persona)} 
                           className="w-10 h-10 rounded-xl object-cover grayscale opacity-50"
                         />
                       </div>
                       <div className="space-y-1">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                          {persona?.name} is processing...
+                          {getPersonaDisplayName(persona)} is processing...
                         </p>
                         <div className="bg-white border border-gray-100 p-5 rounded-3xl rounded-tl-none flex items-center gap-4 shadow-sm">
                            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
@@ -727,7 +728,7 @@ const ChatPage: React.FC = () => {
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={isLoading ? "Please wait for responders..." : `Message ${selectedPersonas.length > 1 ? 'the session agents' : selectedPersonas[0]?.name}...`}
+                    placeholder={isLoading ? "Please wait for responders..." : `Message ${selectedPersonas.length > 1 ? 'the session agents' : getPersonaDisplayName(selectedPersonas[0])}...`}
                     disabled={isLoading}
                     className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-[2rem] font-medium focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white transition-all pr-20 shadow-inner disabled:opacity-50 resize-none overflow-hidden min-h-[64px]"
                   />
@@ -780,10 +781,10 @@ const ChatPage: React.FC = () => {
                     }}
                     className={`flex items-center gap-5 p-5 rounded-3xl border-2 transition-all text-left ${isSelected ? 'border-indigo-600 bg-white shadow-xl shadow-indigo-100/50' : 'border-gray-100 bg-white hover:border-indigo-200'}`}
                   >
-                    <img src={p.avatarUrl} alt={p.name} className="w-14 h-14 rounded-2xl object-cover shrink-0 shadow-sm" />
+                    <img src={p.avatarUrl} alt={getPersonaDisplayName(p)} className="w-14 h-14 rounded-2xl object-cover shrink-0 shadow-sm" />
                     <div className="min-w-0">
-                      <p className="font-black text-gray-900 truncate">{p.name}</p>
-                      <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest truncate">{p.type.replace('_', ' ')}</p>
+                      <p className="font-black text-gray-900 truncate">{getPersonaDisplayName(p)}</p>
+                      {(p.description?.trim()) ? <p className="text-xs text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest truncate">{p.type.replace('_', ' ')}</p>}
                     </div>
                   </button>
                 );

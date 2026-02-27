@@ -4,6 +4,7 @@ import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, Che
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
 import { Persona, PersonaFile } from '../models/types.js';
+import { getPersonaDisplayName } from '../utils/humanNames.js';
 
 const GalleryPage: React.FC = () => {
   const { personas, loading, fetchPersonas } = useAvailablePersonas();
@@ -185,7 +186,7 @@ const PersonaCard: React.FC<{
       <div className="relative h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
         <img
           src={avatarUrl}
-          alt={persona.name}
+          alt={getPersonaDisplayName(persona)}
           className="w-full h-full object-cover transition-transform group-hover:scale-105"
         />
         <div className="absolute top-4 right-4 flex gap-2 z-10">
@@ -236,7 +237,7 @@ const PersonaCard: React.FC<{
         </div>
       </div>
       <div className="p-6 flex-grow flex flex-col">
-        <h3 className="text-xl font-bold text-gray-900 mb-2">{persona.name}</h3>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">{getPersonaDisplayName(persona)}</h3>
         <p className="text-gray-500 text-sm mb-4 line-clamp-2">{persona.description}</p>
         
         <div className="flex items-center text-xs text-gray-400 mb-6">
@@ -306,9 +307,9 @@ const FileViewerModal: React.FC<{
         <aside className="w-full md:w-80 bg-gray-50 border-r border-gray-100 flex flex-col overflow-hidden">
           <div className="p-8 border-b border-gray-100 bg-white">
             <div className="flex items-center gap-3 mb-2">
-              <img src={avatarUrl} alt={persona.name} className="w-10 h-10 rounded-xl object-cover" />
+              <img src={avatarUrl} alt={getPersonaDisplayName(persona)} className="w-10 h-10 rounded-xl object-cover" />
               <div>
-                <h3 className="font-bold text-gray-900 truncate max-w-[150px]">{persona.name}</h3>
+                <h3 className="font-bold text-gray-900 truncate max-w-[150px]">{getPersonaDisplayName(persona)}</h3>
                 <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Blueprint Files</p>
               </div>
             </div>

@@ -451,7 +451,7 @@ const ChatPage: React.FC = () => {
                     <img src={p.avatarUrl} alt={p.name} className="w-14 h-14 rounded-2xl object-cover shrink-0 shadow-sm" />
                     <div className="min-w-0">
                       <p className="font-black text-gray-900 truncate">{p.name}</p>
-                      <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest truncate">{p.type.replace('_', ' ')}</p>
+                      {(p.description?.trim()) ? <p className="text-xs text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest truncate">{p.type.replace('_', ' ')}</p>}
                     </div>
                   </button>
                 );

@@ -6,7 +6,6 @@ import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } f
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import type { BusinessProfile } from '../models/types.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
-import { getAdvisorFallbackName } from '../utils/humanNames.js';
 
 // Import split templates
 import { marketCanvasTemplate } from '../../templates/marketCanvasTemplate.js';
@@ -130,7 +129,18 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
 
       const idPrompt = `Identify ${formData.q7} distinct persona names and titles from this analysis. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
-      const { personas } = await geminiService.generateBasic(idPrompt, true);
+      const raw = await geminiService.generateBasic(idPrompt, true);
+      const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
+      const personas: { name: string; title: string }[] = [];
+      for (let index = 0; index < personasRaw.length; index++) {
+        const p = personasRaw[index] as { name?: string; title?: string };
+        const titleStr = (typeof p?.title === 'string' && p.title.trim()) ? p.title.trim() : 'Synthetic Persona';
+        const nameStr = (typeof p?.name === 'string' && p.name.trim()) ? p.name.trim() : '';
+        const name = (nameStr && nameStr !== titleStr) ? nameStr : await geminiService.generatePersonaName(titleStr);
+        // Ensure every synthetic user has a name: use title/role as fallback if name is missing or generic
+        const finalName = (name && name !== 'Persona') ? name : titleStr;
+        personas.push({ name: finalName, title: titleStr });
+      }
 
       const createdIds: string[] = [];
       for (const pInfo of personas) {
@@ -471,7 +481,12 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         setLoadingStage('Discovering identity...');
         const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
         const identity = await geminiService.generateBasic(idPrompt, true);
-        const { name, title, summary } = identity as { name: string; title: string; summary?: string };
+        const rawName = (identity as { name?: string })?.name;
+        const rawTitle = (identity as { title?: string })?.title;
+        const rawSummary = (identity as { summary?: string })?.summary;
+        const name = (typeof rawName === 'string' && rawName.trim()) ? rawName.trim() : await geminiService.generatePersonaName('professional advisor');
+        const title = (typeof rawTitle === 'string' && rawTitle.trim()) ? rawTitle.trim() : 'Advisor';
+        const summary = (typeof rawSummary === 'string' && rawSummary.trim()) ? rawSummary.trim() : undefined;
         setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
         const limitedMaterial = combined.length > 30000
           ? combined.substring(0, 30000) + '\n\n[Earlier content truncated for context management]'
@@ -485,10 +500,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
           "Context Summary": summary || title,
           "Target Name": name,
         }, true);
-        setLoadingStage(`Generating Digital Likeness for ${name || getAdvisorFallbackName()}...`);
-        const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
+        setLoadingStage(`Generating Digital Likeness for ${name || 'advisor'}...`);
+        const avatarUrl = await geminiService.generateAvatar(name, title);
         const persona = await personaApi.create({
-          name: name || getAdvisorFallbackName(),
+          name: name,
           type: 'advisor',
           description: (summary || title) || "High-fidelity specialized advisor.",
           avatarUrl: avatarUrl,
@@ -556,7 +571,13 @@ Return the extracted text in a structured format. Be concise but comprehensive.`
       // Use first 8000 chars for identity extraction to save tokens
       const idPrompt = `Analyze this text and identify the primary author/expert. Return JSON: { "name": string, "title": string, "summary": string }. 
 Limit your analysis to the key identifying information. Text sample: ${extractedText.substring(0, 8000)}`;
-      const { name, title, summary } = await geminiService.generateBasic(idPrompt, true);
+      const identity = await geminiService.generateBasic(idPrompt, true);
+      const rawName = (identity as { name?: string })?.name;
+      const rawTitle = (identity as { title?: string })?.title;
+      const rawSummary = (identity as { summary?: string })?.summary;
+      const name = (typeof rawName === 'string' && rawName.trim()) ? rawName.trim() : await geminiService.generatePersonaName('professional advisor');
+      const title = (typeof rawTitle === 'string' && rawTitle.trim()) ? rawTitle.trim() : 'Advisor';
+      const summary = (typeof rawSummary === 'string' && rawSummary.trim()) ? rawSummary.trim() : undefined;
 
       setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
       // Limit the source material to ~30000 chars to control context size
@@ -571,11 +592,11 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       }, true);
       
       setLoadingStage(`Generating Digital Likeness for ${name}...`);
-      const avatarUrl = await geminiService.generateAvatar(name || getAdvisorFallbackName(), title || "Advisor");
+      const avatarUrl = await geminiService.generateAvatar(name, title);
 
       // Create persona
       const persona = await personaApi.create({
-        name: name || getAdvisorFallbackName(),
+        name: name,
         type: 'advisor',
         description: summary || "High-fidelity specialized advisor.",
         avatarUrl: avatarUrl,

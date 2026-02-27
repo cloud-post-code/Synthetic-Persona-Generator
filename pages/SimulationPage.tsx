@@ -443,8 +443,9 @@ const SimulationPage: React.FC = () => {
                           className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${selectedPersona?.id === p.id ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'}`}
                         >
                           <img src={p.avatarUrl} alt={p.name} className="w-10 h-10 rounded-xl object-cover" />
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs font-black text-gray-900 truncate">{p.name}</p>
+                            {(p.description?.trim()) ? <p className="text-[10px] text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : null}
                           </div>
                         </button>
                       ))}
