@@ -6,7 +6,6 @@ import { Persona, PersonaFile } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
 const PersonaLibraryPage: React.FC = () => {
-  const navigate = useNavigate();
   const [libraryPersonas, setLibraryPersonas] = useState<Persona[]>([]);
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -37,7 +36,10 @@ const PersonaLibraryPage: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadLibrary(), loadStarredIds()]).finally(() => setLoading(false));
+    loadLibrary()
+      .then(() => setLoading(false))
+      .catch(() => setLoading(false));
+    loadStarredIds().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -69,7 +71,6 @@ const PersonaLibraryPage: React.FC = () => {
       } else {
         await personaApi.star(id);
         setStarredIds(prev => new Set([...prev, id]));
-        navigate('/gallery?tab=saved');
       }
     } catch (err: any) {
       alert(err.message || 'Failed to update star');

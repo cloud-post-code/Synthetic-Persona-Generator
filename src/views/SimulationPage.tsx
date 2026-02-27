@@ -35,6 +35,68 @@ import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayNa
 const MAX_PERSONA_TURNS = 20;
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
 
+const STORAGE_KEY_LEFT = 'simulation-left-panel-width';
+const STORAGE_KEY_RIGHT = 'simulation-right-panel-width';
+const DEFAULT_LEFT = 288;
+const DEFAULT_RIGHT = 448;
+const MIN_LEFT = 200;
+const MAX_LEFT = 500;
+const MIN_RIGHT = 280;
+const MAX_RIGHT = 600;
+
+const ResizableDivider: React.FC<{
+  onDrag: (delta: number) => void;
+  orientation?: 'vertical';
+}> = ({ onDrag, orientation = 'vertical' }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const lastX = useRef(0);
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - lastX.current;
+      lastX.current = e.clientX;
+      onDrag(delta);
+    };
+    const onUp = () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging, onDrag]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    lastX.current = e.clientX;
+    setIsDragging(true);
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation={orientation}
+      onMouseDown={handleMouseDown}
+      className={`shrink-0 w-1.5 flex items-center justify-center cursor-col-resize hover:bg-indigo-100 active:bg-indigo-200 transition-colors group select-none ${
+        isDragging ? 'bg-indigo-200' : 'bg-transparent'
+      }`}
+    >
+      <div className="w-0.5 h-8 rounded-full bg-gray-300 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors" />
+    </div>
+  );
+};
+
 const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
   const lines = content.split('\n');
   
@@ -193,6 +255,54 @@ const SimulationPage: React.FC = () => {
     label: string;
     detail?: string;
   }>>([]);
+
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_LEFT);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (!isNaN(n) && n >= MIN_LEFT && n <= MAX_LEFT) return n;
+      }
+    } catch (err) {
+      console.warn('Failed to load left panel width:', err);
+    }
+    return DEFAULT_LEFT;
+  });
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_RIGHT);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (!isNaN(n) && n >= MIN_RIGHT && n <= MAX_RIGHT) return n;
+      }
+    } catch (err) {
+      console.warn('Failed to load right panel width:', err);
+    }
+    return DEFAULT_RIGHT;
+  });
+
+  const updateLeftWidth = (delta: number) => {
+    setLeftPanelWidth((w) => {
+      const next = Math.max(MIN_LEFT, Math.min(MAX_LEFT, w + delta));
+      try {
+        localStorage.setItem(STORAGE_KEY_LEFT, String(next));
+      } catch (err) {
+        console.warn('Failed to save left panel width:', err);
+      }
+      return next;
+    });
+  };
+  const updateRightWidth = (delta: number) => {
+    setRightPanelWidth((w) => {
+      const next = Math.max(MIN_RIGHT, Math.min(MAX_RIGHT, w - delta));
+      try {
+        localStorage.setItem(STORAGE_KEY_RIGHT, String(next));
+      } catch (err) {
+        console.warn('Failed to save right panel width:', err);
+      }
+      return next;
+    });
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -568,12 +678,16 @@ const SimulationPage: React.FC = () => {
         loadHistory();
 
         const personaList = selectedPersonas.map((p) => ({ id: p.id, name: p.name }));
-        const personaWithFiles: Persona[] = await Promise.all(
-          selectedPersonas.map(async (p) => {
+        const personaWithFiles: Persona[] = [];
+        for (const p of selectedPersonas) {
+          const idLoad = addActivity(`Loading blueprint for ${p.name}...`);
+          try {
             const files = p.files?.length ? p.files : await personaApi.getFiles(p.id).then((fs) => fs.map((f) => ({ ...f, content: f.content, name: f.name })));
-            return { ...p, files };
-          })
-        );
+            personaWithFiles.push({ ...p, files });
+          } finally {
+            markActivityDone(idLoad);
+          }
+        }
         const personaMap = new Map<string, Persona>(personaWithFiles.map((p) => [p.id, p]));
 
         const getPersonaProfile = (persona: Persona): string => {
@@ -1113,7 +1227,10 @@ const SimulationPage: React.FC = () => {
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">
       {/* Sidebar - History */}
-      <aside className="hidden md:flex w-72 flex-col border-r border-gray-100 bg-gray-50/50">
+      <aside
+        className="hidden md:flex shrink-0 flex-col border-r border-gray-100 bg-gray-50/50"
+        style={{ width: leftPanelWidth }}
+      >
         <div className="p-4 border-b border-gray-100 bg-white">
           <button
             onClick={startNewSim}
@@ -1148,8 +1265,12 @@ const SimulationPage: React.FC = () => {
         </div>
       </aside>
 
+      <div className="hidden md:flex shrink-0">
+        <ResizableDivider onDrag={updateLeftWidth} />
+      </div>
+
       {/* Main Area */}
-      <main className="flex-grow flex flex-col relative bg-white overflow-hidden">
+      <main className="flex-grow flex flex-col relative bg-white overflow-hidden min-w-0">
         {stage === 'selection' && (
           <div className="max-w-6xl mx-auto px-6 py-12 w-full overflow-y-auto">
             <div className="text-center mb-16">
@@ -1900,6 +2021,13 @@ const SimulationPage: React.FC = () => {
         })()}
       </main>
 
+      {/* Resizable divider before right panel (only when right panel is shown) */}
+      {stage === 'result' && selectedSimulation && (
+        <div className="hidden lg:flex shrink-0">
+          <ResizableDivider onDrag={updateRightWidth} />
+        </div>
+      )}
+
       {/* Info Context Bar (Only shown in Result Stage) */}
       {stage === 'result' && selectedSimulation && (() => {
         const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
@@ -1909,7 +2037,10 @@ const SimulationPage: React.FC = () => {
         const rawScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
         const persuasionScore = rawScore != null ? Math.min(100, Math.max(1, Math.round(Number(rawScore)))) : null;
         return (
-        <aside className="hidden lg:flex w-[42rem] min-w-[28rem] flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10">
+        <aside
+          className="hidden lg:flex shrink-0 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10"
+          style={{ width: rightPanelWidth }}
+        >
           {isPersuasion && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Persuasion (from API)</h4>

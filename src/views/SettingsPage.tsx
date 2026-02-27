@@ -117,6 +117,7 @@ const SettingsPage: React.FC = () => {
 
   // Generate business profile with AI
   const [generateLoading, setGenerateLoading] = useState(false);
+  const [generateStage, setGenerateStage] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateFileName, setGenerateFileName] = useState('');
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
@@ -231,6 +232,29 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  const applyResultToForm = (result: Record<string, string | null>) => {
+    if (result.business_name != null) setBusinessName(result.business_name ?? '');
+    if (result.mission_statement != null) setMissionStatement(result.mission_statement ?? '');
+    if (result.vision_statement != null) setVisionStatement(result.vision_statement ?? '');
+    if (result.description_main_offerings != null) setDescriptionMainOfferings(result.description_main_offerings ?? '');
+    if (result.key_features_or_benefits != null) setKeyFeaturesOrBenefits(result.key_features_or_benefits ?? '');
+    if (result.unique_selling_proposition != null) setUniqueSellingProposition(result.unique_selling_proposition ?? '');
+    if (result.pricing_model != null) setPricingModel(result.pricing_model ?? '');
+    if (result.customer_segments != null) setCustomerSegments(result.customer_segments ?? '');
+    if (result.geographic_focus != null) setGeographicFocus(result.geographic_focus ?? '');
+    if (result.industry_served != null) setIndustryServed(result.industry_served ?? '');
+    if (result.what_differentiates != null) setWhatDifferentiates(result.what_differentiates ?? '');
+    if (result.market_niche != null) setMarketNiche(result.market_niche ?? '');
+    if (result.revenue_streams != null) setRevenueStreams(result.revenue_streams ?? '');
+    if (result.distribution_channels != null) setDistributionChannels(result.distribution_channels ?? '');
+    if (result.key_personnel != null) setKeyPersonnel(result.key_personnel ?? '');
+    if (result.major_achievements != null) setMajorAchievements(result.major_achievements ?? '');
+    if (result.revenue != null) setRevenue(result.revenue ?? '');
+    if (result.key_performance_indicators != null) setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
+    if (result.funding_rounds != null) setFundingRounds(result.funding_rounds ?? '');
+    if (result.website != null) setWebsite(result.website ?? '');
+  };
+
   const handleGenerateBusinessProfile = async () => {
     if (!generateFileData?.data && !companyHint.trim()) {
       setGenerateError('Upload a document and/or enter a company name or website to generate from.');
@@ -238,37 +262,29 @@ const SettingsPage: React.FC = () => {
     }
     setGenerateLoading(true);
     setGenerateError(null);
+    setGenerateStage(null);
+    const opts = { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined };
+    const input = generateFileData?.data ?? companyHint.trim();
     try {
-      const result = await geminiService.generateBusinessProfileFromDocument(
-        generateFileData?.data ?? companyHint.trim(),
-        { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined }
-      );
-      setBusinessName(result.business_name ?? '');
-      setMissionStatement(result.mission_statement ?? '');
-      setVisionStatement(result.vision_statement ?? '');
-      setDescriptionMainOfferings(result.description_main_offerings ?? '');
-      setKeyFeaturesOrBenefits(result.key_features_or_benefits ?? '');
-      setUniqueSellingProposition(result.unique_selling_proposition ?? '');
-      setPricingModel(result.pricing_model ?? '');
-      setCustomerSegments(result.customer_segments ?? '');
-      setGeographicFocus(result.geographic_focus ?? '');
-      setIndustryServed(result.industry_served ?? '');
-      setWhatDifferentiates(result.what_differentiates ?? '');
-      setMarketNiche(result.market_niche ?? '');
-      setRevenueStreams(result.revenue_streams ?? '');
-      setDistributionChannels(result.distribution_channels ?? '');
-      setKeyPersonnel(result.key_personnel ?? '');
-      setMajorAchievements(result.major_achievements ?? '');
-      setRevenue(result.revenue ?? '');
-      setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
-      setFundingRounds(result.funding_rounds ?? '');
-      setWebsite(result.website ?? '');
+      setGenerateStage('Extracting Company Overview...');
+      const company = await geminiService.generateBusinessProfileCompanyOverview(input, opts);
+      applyResultToForm(company);
+
+      setGenerateStage('Extracting Market & Positioning...');
+      const market = await geminiService.generateBusinessProfileMarketPositioning(input, opts);
+      applyResultToForm(market);
+
+      setGenerateStage('Extracting Performance & Funding...');
+      const performance = await geminiService.generateBusinessProfilePerformanceFunding(input, opts);
+      applyResultToForm(performance);
+
       setSaveStatus('Business Profile generated. Review and click Save to keep changes.');
       setTimeout(() => setSaveStatus(null), 5000);
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Failed to generate Business Profile.');
     } finally {
       setGenerateLoading(false);
+      setGenerateStage(null);
     }
   };
 
@@ -564,7 +580,7 @@ const SettingsPage: React.FC = () => {
                         {generateLoading ? (
                           <>
                             <Loader2 className="w-5 h-5 animate-spin" />
-                            Generating...
+                            {generateStage || 'Generating...'}
                           </>
                         ) : (
                           <>
