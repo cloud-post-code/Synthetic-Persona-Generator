@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Loader2 } from 'lucide-react';
 import {
   SimulationTemplate,
   SimulationInputField,
@@ -53,6 +53,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isImprovingWithAI, setIsImprovingWithAI] = useState(false);
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
 
@@ -106,6 +107,30 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     setAllowedPersonaTypes((prev) =>
       prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]
     );
+  };
+
+  const handleImproveWithAI = async () => {
+    setIsImprovingWithAI(true);
+    try {
+      const prompt = `You are helping improve a simulation description. The description is used by AI to generate a simulation's system prompt. Improve the following text so it clearly includes:
+- purpose/goal (what the simulation aims to achieve)
+- tone (e.g. professional, advisory, conversational)
+- audience/context (who the persona is addressing)
+- success criteria (what "good" looks like for this simulation)
+
+Return ONLY the improved description text, nothing else. No preamble, no quotes, no markdown. Plain text only.
+
+Current description:
+${description.trim() || '(empty - please create an initial description based on the simulation title and type)'}`;
+      const improved = await geminiService.generateBasic(prompt, false);
+      const text = typeof improved === 'string' ? improved.trim() : String(improved || '').trim();
+      if (text) setDescription(text);
+    } catch (err: any) {
+      console.error('Improve with AI error:', err);
+      alert(err?.message || 'Failed to improve description. Check your Gemini API key and try again.');
+    } finally {
+      setIsImprovingWithAI(false);
+    }
   };
 
   // Survey Generated: questions list
@@ -387,9 +412,26 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
         <p className="text-sm text-gray-600">
           This description is used by AI to generate the simulation’s system prompt. Write clearly so the AI can infer purpose, tone, and behavior—it will not be shown verbatim to the persona.
         </p>
-        <p className="text-xs text-gray-500">
-          Helpful to include: <strong>purpose/goal</strong> (what you want to achieve), <strong>tone</strong> (e.g. professional, advisory, conversational), <strong>audience/context</strong> (who the persona is addressing), and <strong>success criteria</strong> (what “good” looks like for this simulation).
-        </p>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleImproveWithAI}
+            disabled={isImprovingWithAI}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isImprovingWithAI ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Improving…
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Improve with AI
+              </>
+            )}
+          </button>
+        </div>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}

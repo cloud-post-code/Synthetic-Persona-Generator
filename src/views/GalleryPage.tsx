@@ -35,6 +35,7 @@ const GalleryPage: React.FC = () => {
   const [personaFiles, setPersonaFiles] = useState<Record<string, PersonaFile[]>>({});
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [starringId, setStarringId] = useState<string | null>(null);
   const [unstarringId, setUnstarringId] = useState<string | null>(null);
   const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
@@ -104,6 +105,18 @@ const GalleryPage: React.FC = () => {
     }
   };
 
+  const handleStar = async (id: string) => {
+    setStarringId(id);
+    try {
+      await personaApi.star(id);
+      await fetchPersonas();
+    } catch (err: any) {
+      alert(err?.message || 'Could not save persona. Please try again.');
+    } finally {
+      setStarringId(null);
+    }
+  };
+
   const handleUnstar = async (id: string) => {
     setUnstarringId(id);
     try {
@@ -160,7 +173,7 @@ const GalleryPage: React.FC = () => {
   const filteredPersonas = personas.filter(p => {
     const matchesTab =
       activeTab === 'my' ? p.source === 'owned' :
-      activeTab === 'saved' ? p.source === 'starred' :
+      activeTab === 'saved' ? (p.source === 'starred' || (p.source === 'owned' && p.starred)) :
       true;
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                           p.description.toLowerCase().includes(search.toLowerCase());
@@ -257,13 +270,15 @@ const GalleryPage: React.FC = () => {
               key={persona.id}
               persona={persona}
               isDeleting={deletingId === persona.id}
+              isStarring={starringId === persona.id}
               isUnstarring={unstarringId === persona.id}
               isUpdatingVisibility={updatingVisibilityId === persona.id}
               isEditingName={editingNameId === persona.id}
               editingNameValue={editingNameId === persona.id ? editingNameValue : ''}
               isSavingName={savingNameId === persona.id}
               onDelete={() => handleDelete(persona.id)}
-              onUnstar={persona.source === 'starred' ? () => handleUnstar(persona.id) : undefined}
+              onStar={persona.source === 'owned' ? () => handleStar(persona.id) : undefined}
+              onUnstar={(persona.source === 'starred' || (persona.source === 'owned' && persona.starred)) ? () => handleUnstar(persona.id) : undefined}
               onVisibilityChange={persona.source === 'owned' ? (visibility) => handleVisibilityChange(persona.id, visibility) : undefined}
               onStartEditName={persona.source === 'owned' ? () => handleStartEditName(persona) : undefined}
               onSaveName={persona.source === 'owned' ? () => handleSaveName(persona.id) : undefined}
@@ -549,12 +564,14 @@ const EditFocusGroupModal: React.FC<{
 const PersonaCard: React.FC<{ 
   persona: Persona; 
   isDeleting: boolean;
+  isStarring?: boolean;
   isUnstarring?: boolean;
   isUpdatingVisibility?: boolean;
   isEditingName?: boolean;
   editingNameValue: string;
   isSavingName?: boolean;
   onDelete: () => void; 
+  onStar?: () => void;
   onUnstar?: () => void;
   onVisibilityChange?: (visibility: 'public' | 'private') => void;
   onStartEditName?: () => void;
@@ -562,10 +579,10 @@ const PersonaCard: React.FC<{
   onCancelEditName: () => void;
   onEditingNameChange?: (value: string) => void;
   onViewFiles: () => void;
-}> = ({ persona, isDeleting, isUnstarring, isUpdatingVisibility, isEditingName, editingNameValue, isSavingName, onDelete, onUnstar, onVisibilityChange, onStartEditName, onSaveName, onCancelEditName, onEditingNameChange, onViewFiles }) => {
+}> = ({ persona, isDeleting, isStarring, isUnstarring, isUpdatingVisibility, isEditingName, editingNameValue, isSavingName, onDelete, onStar, onUnstar, onVisibilityChange, onStartEditName, onSaveName, onCancelEditName, onEditingNameChange, onViewFiles }) => {
   const navigate = useNavigate();
   const isOwned = persona.source === 'owned';
-  const isStarred = persona.source === 'starred';
+  const isStarred = persona.source === 'starred' || persona.starred;
   const isPublic = (persona.visibility || 'private') === 'public';
 
   const typeLabels: Record<string, { label: string; color: string }> = {
@@ -577,7 +594,7 @@ const PersonaCard: React.FC<{
   const createdAt = persona.createdAt || persona.created_at;
 
   return (
-    <div className={`bg-white border border-gray-100 rounded-2xl overflow-hidden group hover:shadow-xl transition-all flex flex-col h-full ${isDeleting || isUnstarring ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className={`bg-white border border-gray-100 rounded-2xl overflow-hidden group hover:shadow-xl transition-all flex flex-col h-full ${isDeleting || isStarring || isUnstarring ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="relative h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
         <img
           src={avatarUrl}
@@ -595,19 +612,22 @@ const PersonaCard: React.FC<{
            >
              <FileText className="w-4 h-4" />
            </button>
-           {isStarred && onUnstar && (
+           {(isStarred && onUnstar) || (!isStarred && onStar) ? (
              <button
                onClick={(e) => {
                  e.stopPropagation();
-                 onUnstar();
+                 if (isStarred && onUnstar) onUnstar();
+                 else if (!isStarred && onStar) onStar();
                }}
-               disabled={isUnstarring}
-               className="p-2 bg-amber-100 text-amber-600 rounded-lg hover:bg-amber-200 transition-colors shadow-sm cursor-pointer"
-               title="Remove from My Personas"
+               disabled={isStarring || isUnstarring}
+               className={`p-2 rounded-lg transition-colors shadow-sm cursor-pointer ${
+                 isStarred ? 'bg-amber-100 text-amber-600 hover:bg-amber-200' : 'bg-white/80 backdrop-blur text-gray-400 hover:bg-white hover:text-amber-600'
+               }`}
+               title={isStarred ? 'Remove from Saved Personas' : 'Add to Saved Personas'}
              >
-               {isUnstarring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4 fill-current" />}
+               {(isStarring || isUnstarring) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className={`w-4 h-4 ${isStarred ? 'fill-current' : ''}`} />}
              </button>
-           )}
+           ) : null}
            {isOwned && (
              <button
                onClick={(e) => {

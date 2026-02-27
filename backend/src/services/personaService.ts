@@ -277,14 +277,15 @@ export interface PersonaWithSource extends Persona {
   source: 'owned' | 'starred';
 }
 
-/** Personas the user can use in chat/simulations: owned + starred. */
+/** Personas the user can use in chat/simulations: owned + starred (no duplicates). */
 export async function getPersonasAvailableForUser(userId: string): Promise<PersonaWithSource[]> {
   const owned = await getPersonasByUserId(userId);
   const starred = await getStarredPersonas(userId);
   const ownedIds = new Set(owned.map(p => p.id));
+  const starredIds = new Set(starred.map(p => p.id));
   const combined: PersonaWithSource[] = [
-    ...owned.map(p => ({ ...p, source: 'owned' as const })),
-    ...starred.filter(p => !ownedIds.has(p.id)).map(p => ({ ...p, source: 'starred' as const })),
+    ...owned.map(p => ({ ...p, source: 'owned' as const, starred: starredIds.has(p.id) })),
+    ...starred.filter(p => !ownedIds.has(p.id)).map(p => ({ ...p, source: 'starred' as const, starred: true })),
   ];
   return combined;
 }
