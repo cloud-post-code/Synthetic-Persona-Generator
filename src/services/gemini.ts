@@ -664,6 +664,7 @@ where N is an integer from 1 to 100. No other text.`;
 - **If the config includes a business_profile (or businessProfile) input field:** The system prompt MUST explicitly state that {{BUSINESSPROFILE}} is the **client's/user's business**—the company the persona is advising or analyzing—and that the persona must base their analysis (e.g. SWOT, report, recommendations) on that business only, not on their own organization.
 - **Do** keep the same strict output behavior for this simulation type (see MANDATORY OUTPUT FORMAT). The persona's response format must match it exactly.
 - **For survey simulations with survey_mode "generated":** The system prompt MUST include a "Survey questions (in order)" section listing every question from type_specific_config.survey_questions verbatim, in order, with type and (for multiple_choice) options. Do not summarize or omit any question.
+- **If the config includes a survey_questions input field:** This means the person running the simulation will define their own survey questions at runtime. The system prompt MUST document the {{FIELD_NAME}} placeholder for that field and explain that it will contain the survey questions created by the runner (each question with its type and, for multiple choice, its options). The persona must use those runner-provided questions as the survey to answer, treating them the same way as admin-defined generated survey questions.
 - Output ONLY the system prompt text. No preamble, no "Here is the prompt", no explanation.
 ${typeSpecSection}
 ${surveyQuestionsSection}

@@ -33,6 +33,15 @@ import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 
 const MAX_PERSONA_TURNS = 20;
+
+/** Truncate text to at most maxWords; append "..." if longer. Used for simulation description on simulate page. */
+function truncateDescriptionToWords(text: string, maxWords: number = 25): string {
+  const t = (text || '').trim();
+  if (!t) return t;
+  const words = t.split(/\s+/);
+  if (words.length <= maxWords) return t;
+  return words.slice(0, maxWords).join(' ') + '...';
+}
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
 
 const STORAGE_KEY_LEFT = 'simulation-left-panel-width';
@@ -241,6 +250,7 @@ const SimulationPage: React.FC = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [focusGroups, setFocusGroups] = useState<FocusGroup[]>([]);
   const [surveyGeneratedAnswers, setSurveyGeneratedAnswers] = useState<Record<number, string>>({});
+  const [runnerSurveyQuestions, setRunnerSurveyQuestions] = useState<Record<string, SurveyQuestion[]>>({});
   const [persuasionContext, setPersuasionContext] = useState<{
     systemPrompt: string | null;
     fullConversation: string;
@@ -573,6 +583,18 @@ const SimulationPage: React.FC = () => {
             alert('This simulation needs your business background. Add it in Settings → Business background, then try again.');
             return;
           }
+        } else if (field.type === 'survey_questions') {
+          const qs = runnerSurveyQuestions[field.name] || [];
+          if (qs.length === 0 || qs.some((q) => !q.question.trim())) {
+            alert(`Please add at least one question with text for: ${field.name}`);
+            return;
+          }
+          for (let i = 0; i < qs.length; i++) {
+            if (qs[i].type === 'multiple_choice' && (!qs[i].options || qs[i].options!.filter(Boolean).length === 0)) {
+              alert(`Question ${i + 1} in "${field.name}" (multiple choice) must have at least one option`);
+              return;
+            }
+          }
         } else if (!inputFields[field.name]?.trim()) {
           alert(`Please fill in the required field: ${field.name}`);
           return;
@@ -603,6 +625,23 @@ const SimulationPage: React.FC = () => {
       bgInfo: bgInfo,
       ...inputFields,
     };
+    // Inject runner-created survey questions into fieldMap
+    if (selectedSimulation.required_input_fields) {
+      for (const field of selectedSimulation.required_input_fields) {
+        if (field.type !== 'survey_questions') continue;
+        const qs = runnerSurveyQuestions[field.name] || [];
+        if (qs.length > 0) {
+          const formatted = qs.map((q, i) => {
+            let line = `${i + 1}. [${q.type}] ${q.question}`;
+            if (q.type === 'multiple_choice' && q.options?.length) {
+              line += `\n   Options: ${q.options.filter(Boolean).join(', ')}`;
+            }
+            return line;
+          }).join('\n');
+          fieldMap[field.name] = formatted;
+        }
+      }
+    }
     // Inject saved business profile for any business_profile input fields
     if (savedBusinessProfile && selectedSimulation.required_input_fields) {
       for (const field of selectedSimulation.required_input_fields) {
@@ -865,6 +904,18 @@ const SimulationPage: React.FC = () => {
       if (hasBusinessProfileField && !/Business to analyze/i.test(prompt)) {
         prompt =
           '### Business to analyze (client company)\nThe {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—input from the **person running the simulation**, not the persona. The company you are advising or analyzing is the user\'s. Your identity and expertise are in {{SELECTED_PROFILE_FULL}}. Base your analysis (e.g. SWOT, recommendations, report) exclusively on the business in {{BUSINESSPROFILE}}, not on your own organization.\n\n' +
+          prompt;
+      }
+      const hasSurveyQuestionsField = selectedSimulation.required_input_fields?.some(
+        (f) => f.type === 'survey_questions'
+      );
+      if (hasSurveyQuestionsField && !/Survey questions provided by the runner/i.test(prompt)) {
+        const sqFieldNames = selectedSimulation.required_input_fields
+          .filter((f) => f.type === 'survey_questions')
+          .map((f) => `{{${f.name.toUpperCase()}}}`)
+          .join(', ');
+        prompt =
+          `### Survey questions provided by the runner\nThe variable(s) ${sqFieldNames} contain survey questions created by the person running the simulation. Each question includes its type (text, numeric, or multiple_choice) and, for multiple choice, the available options. You must answer every question listed, using the question type to determine the format of your answer. Treat these exactly as you would predefined survey questions.\n\n` +
           prompt;
       }
       prompt = prompt
@@ -1338,7 +1389,7 @@ const SimulationPage: React.FC = () => {
                         <Icon className="w-7 h-7" />
                       </div>
                       <h3 className="text-xl font-black text-gray-900 mb-2">{sim.title}</h3>
-                      <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow">{sim.description || 'Stress-test your strategy using this specialized simulation prompt.'}</p>
+                      <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow">{truncateDescriptionToWords(sim.description || 'Stress-test your strategy using this specialized simulation prompt.')}</p>
                       <div className="mt-8 flex items-center text-[10px] font-black uppercase tracking-[0.2em] text-gray-300 group-hover:text-indigo-600">
                         Configure Test <ChevronRight className="ml-2 w-3 h-3" />
                       </div>
@@ -1712,6 +1763,103 @@ const SimulationPage: React.FC = () => {
                               reader.readAsDataURL(file);
                             }}
                           />
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (field.type === 'survey_questions') {
+                    const qs = runnerSurveyQuestions[field.name] || [];
+                    const updateQ = (idx: number, patch: Partial<SurveyQuestion>) => {
+                      setRunnerSurveyQuestions((prev) => {
+                        const next = [...(prev[field.name] || [])];
+                        next[idx] = { ...next[idx], ...patch };
+                        return { ...prev, [field.name]: next };
+                      });
+                    };
+                    const removeQ = (idx: number) => {
+                      setRunnerSurveyQuestions((prev) => ({
+                        ...prev,
+                        [field.name]: (prev[field.name] || []).filter((_, i) => i !== idx),
+                      }));
+                    };
+                    const addQ = () => {
+                      setRunnerSurveyQuestions((prev) => ({
+                        ...prev,
+                        [field.name]: [...(prev[field.name] || []), { type: 'text', question: '' }],
+                      }));
+                    };
+                    return (
+                      <div key={field.name} className="space-y-4">
+                        <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {fieldNumber}. {field.name} {field.required && '*'}
+                        </span>
+                        <div className="space-y-3">
+                          {qs.map((q, idx) => (
+                            <div key={idx} className="p-4 border border-gray-200 rounded-2xl bg-gray-50 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-gray-700">Question {idx + 1}</span>
+                                <button type="button" onClick={() => removeQ(idx)} className="text-red-600 hover:text-red-800 text-sm">
+                                  Remove
+                                </button>
+                              </div>
+                              <select
+                                value={q.type}
+                                onChange={(e) => updateQ(idx, { type: e.target.value as SurveyQuestion['type'] })}
+                                className="w-full max-w-[180px] px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+                              >
+                                <option value="text">Text</option>
+                                <option value="numeric">Numeric</option>
+                                <option value="multiple_choice">Multiple choice</option>
+                              </select>
+                              <input
+                                type="text"
+                                value={q.question}
+                                onChange={(e) => updateQ(idx, { question: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                placeholder="Question text"
+                              />
+                              {q.type === 'multiple_choice' && (
+                                <div className="space-y-1 mt-2">
+                                  <span className="text-xs text-gray-600">Options</span>
+                                  {(q.options || []).map((opt, oi) => (
+                                    <div key={oi} className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={opt}
+                                        onChange={(e) => {
+                                          const opts = [...(q.options || [])];
+                                          opts[oi] = e.target.value;
+                                          updateQ(idx, { options: opts });
+                                        }}
+                                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => updateQ(idx, { options: (q.options || []).filter((_, i) => i !== oi) })}
+                                        className="text-red-600 text-sm"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQ(idx, { options: [...(q.options || []), ''] })}
+                                    className="text-sm text-indigo-600 flex items-center gap-1"
+                                  >
+                                    <Plus className="w-4 h-4" /> Add option
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addQ}
+                            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-gray-500 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center gap-2 text-sm transition-colors"
+                          >
+                            <Plus className="w-4 h-4" /> Add question
+                          </button>
                         </div>
                       </div>
                     );

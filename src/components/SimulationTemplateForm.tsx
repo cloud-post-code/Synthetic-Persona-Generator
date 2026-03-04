@@ -810,6 +810,7 @@ ${description.trim() || '(empty - please create an initial description based on 
                     <option value="pdf">File upload (all file types)</option>
                     <option value="multiple_choice">Multiple choice</option>
                     <option value="business_profile">Business background</option>
+                    <option value="survey_questions">Survey question creation</option>
                   </select>
                 </div>
               </div>
