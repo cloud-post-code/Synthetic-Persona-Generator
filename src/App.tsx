@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, BookOpen } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, BookOpen, Briefcase } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
@@ -10,6 +10,7 @@ import GalleryPage from './views/GalleryPage.js';
 import PersonaLibraryPage from './views/PersonaLibraryPage.js';
 import LoginPage from './views/LoginPage.js';
 import SettingsPage from './views/SettingsPage.js';
+import BusinessProfilePage from './views/BusinessProfilePage.js';
 import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
@@ -24,6 +25,7 @@ const Sidebar: React.FC = () => {
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
     { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'Simulation', path: '/simulate', icon: PlayCircle },
+    { label: 'Business Profile', path: '/business-profile', icon: Briefcase },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Persona Library', path: '/library', icon: BookOpen },
     { label: 'Settings', path: '/settings', icon: Settings },
@@ -211,6 +213,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <SimulationPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/business-profile"
+        element={
+          <ProtectedRoute>
+            <BusinessProfilePage />
           </ProtectedRoute>
         }
       />

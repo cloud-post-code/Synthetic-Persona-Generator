@@ -760,6 +760,22 @@ ${description.trim() || '(empty - please create an initial description based on 
             </>
           )}
 
+          {simulationType === 'persona_conversation' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Max persona turns (API calls)</label>
+              <p className="text-xs text-gray-500 mb-2">Each persona response is one API call. Set a cap so the conversation stops after this many turns (e.g. 10 = up to 10 persona responses).</p>
+              <select
+                value={(typeSpecificConfig.max_persona_turns as number) ?? 20}
+                onChange={(e) => setConfig('max_persona_turns', Number(e.target.value))}
+                className="w-full max-w-[200px] px-4 py-2 border border-gray-300 rounded-lg"
+              >
+                {[5, 8, 10, 12, 15, 20, 25, 30, 40, 50].map((n) => (
+                  <option key={n} value={n}>{n} turns</option>
+                ))}
+              </select>
+            </div>
+          )}
+
         </section>
       )}
 
@@ -789,7 +805,7 @@ ${description.trim() || '(empty - please create an initial description based on 
                     placeholder={field.type === 'business_profile' ? 'businessProfile' : 'e.g., bgInfo'}
                   />
                   {field.type === 'business_profile' && (
-                    <p className="text-xs text-gray-500 mt-1">Injects the runner&apos;s saved business/company background from Settings (used in personas and simulations). Placeholder: &#123;&#123;BUSINESSPROFILE&#125;&#125;</p>
+                    <p className="text-xs text-gray-500 mt-1">Injects the runner&apos;s saved business/company background from Business Profile (used in personas and simulations). Placeholder: &#123;&#123;BUSINESSPROFILE&#125;&#125;</p>
                   )}
                 </div>
                 <div>

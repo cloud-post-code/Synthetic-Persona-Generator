@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ChevronRight, 
   Upload, 
@@ -323,6 +323,14 @@ const SimulationPage: React.FC = () => {
     selectedSimulation?.allowed_persona_types?.length
       ? personas.filter((p) => selectedSimulation.allowed_persona_types.includes(p.type))
       : personas;
+
+  const focusGroupsWithAllowedPersonas = useMemo(() => {
+    if (!selectedSimulation?.allowed_persona_types?.length) return [];
+    const allowedIds = new Set(allowedPersonasForSimulation.map((p) => p.id));
+    return focusGroups.filter(
+      (g) => g.personaIds.some((pid) => allowedIds.has(pid))
+    );
+  }, [focusGroups, allowedPersonasForSimulation, selectedSimulation?.allowed_persona_types]);
 
   const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
   const { user } = useAuth();
@@ -755,7 +763,10 @@ const SimulationPage: React.FC = () => {
         let nextSpeakerId: string = firstSpeaker?.id ?? selectedPersonas[0].id;
 
         let turnCount = 0;
-        const maxTurns = MAX_PERSONA_TURNS;
+        const maxTurns =
+          typeof selectedSimulation.type_specific_config?.max_persona_turns === 'number'
+            ? Math.min(50, Math.max(1, selectedSimulation.type_specific_config.max_persona_turns))
+            : MAX_PERSONA_TURNS;
         const conversationMessages: Message[] = [];
 
         while (turnCount < maxTurns) {
@@ -1476,7 +1487,7 @@ const SimulationPage: React.FC = () => {
                     </div>
                   ) : (
                     <>
-                      {personaCountMax > 1 && focusGroups.length > 0 && (
+                      {personaCountMax > 1 && focusGroupsWithAllowedPersonas.length > 0 && (
                         <div className="flex items-center gap-3 flex-wrap mb-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
                           <span className="text-sm font-semibold text-gray-700">Add focus group:</span>
                           <select
@@ -1507,7 +1518,7 @@ const SimulationPage: React.FC = () => {
                             }}
                           >
                             <option value="">Choose a group...</option>
-                            {focusGroups.map(g => (
+                            {focusGroupsWithAllowedPersonas.map(g => (
                               <option key={g.id} value={g.id}>
                                 {g.name} ({g.personaIds.length})
                               </option>

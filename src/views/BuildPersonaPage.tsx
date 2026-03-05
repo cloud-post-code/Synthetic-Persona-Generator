@@ -113,7 +113,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       } else if (method === 'supporting_docs') {
         userQInputs = `Supporting Docs (${q6FileName || 'document'}): ${formData.q6}`;
       } else if (method === 'business_profile') {
-        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business background saved. Add it in Settings.';
+        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business background saved. Add it in Business Profile.';
         const specificPart = formData.specificUserType.trim() ? `\n\nSpecific type of user requested: ${formData.specificUserType.trim()}` : '';
         userQInputs = `Business background:\n${profileText}${specificPart}`;
       }
@@ -276,7 +276,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
             >
               <Building2 className="w-10 h-10 text-emerald-500 mb-3" />
               <h4 className="font-bold text-gray-900 mb-1">Business background</h4>
-              <p className="text-sm text-gray-500">Use your saved company/business background from Settings; optionally specify a user type.</p>
+              <p className="text-sm text-gray-500">Use your saved company/business background from Business Profile; optionally specify a user type.</p>
             </button>
           </div>
         </div>
@@ -337,11 +337,11 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
             ) : savedBusinessProfile ? (
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-6 space-y-2">
                 <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">Using your saved business background</h4>
-                <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Settings will be included in generation.</p>
+                <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Business Profile will be included in generation.</p>
               </div>
             ) : (
               <div className="rounded-2xl bg-amber-50 border border-amber-200 p-6">
-                <p className="text-amber-800 font-medium">No business background saved. Add it in Settings → Business background, then return here.</p>
+                <p className="text-amber-800 font-medium">No business background saved. Add it in Business Profile, then return here.</p>
               </div>
             )}
             <FormItem
@@ -717,32 +717,6 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             ← Change method
           </button>
         </div>
-
-      <div className="space-y-4">
-        <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Source</label>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="advisor-source"
-              checked={sourceMode === 'linkedin'}
-              onChange={() => setSourceMode('linkedin')}
-              className="border-gray-300 text-violet-600"
-            />
-            <span className="font-medium">LinkedIn (paste profile text)</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="advisor-source"
-              checked={sourceMode === 'pdf'}
-              onChange={() => setSourceMode('pdf')}
-              className="border-gray-300 text-violet-600"
-            />
-            <span className="font-medium">Upload PDF / document</span>
-          </label>
-        </div>
-      </div>
 
       {sourceMode === 'linkedin' && (
         <>
