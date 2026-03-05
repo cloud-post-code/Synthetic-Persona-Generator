@@ -393,7 +393,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [sourceMode, setSourceMode] = useState<AdvisorSourceMode | null>(null);
   const [linkedinText, setLinkedinText] = useState('');
-  const [otherDocsText, setOtherDocsText] = useState('');
+  const [otherDocsFileName, setOtherDocsFileName] = useState('');
+  const [otherDocsFileContent, setOtherDocsFileContent] = useState('');
+  const [otherDocsFileBase64, setOtherDocsFileBase64] = useState('');
+  const [otherDocsFileMimeType, setOtherDocsFileMimeType] = useState('');
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState('');
   const [fileBase64, setFileBase64] = useState<string>('');
@@ -455,6 +458,57 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
     }
   };
 
+  const handleOtherDocsFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const maxSize = 20 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert(`File size (${Math.round(file.size / 1024 / 1024)}MB) exceeds the maximum allowed size of 20MB.`);
+      return;
+    }
+    if (file.size === 0) {
+      alert('The selected file is empty. Please select a valid file.');
+      return;
+    }
+    setOtherDocsFileName(file.name);
+    const mime = (file.type || '').toLowerCase();
+    const isGeminiAccepted = mime && (GEMINI_ACCEPTED_MIME_TYPES as readonly string[]).includes(mime);
+    if (isGeminiAccepted && !['text/plain', 'text/csv', 'application/json'].includes(mime)) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const result = ev.target?.result as string;
+        if (result && result.length >= 100) {
+          setOtherDocsFileBase64(result);
+          setOtherDocsFileMimeType(mime);
+          setOtherDocsFileContent('');
+        }
+      };
+      reader.onerror = () => {
+        setOtherDocsFileName('');
+        setOtherDocsFileBase64('');
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = (ev.target?.result as string)?.replace(/\x00/g, '') || '';
+        setOtherDocsFileContent(text);
+        setOtherDocsFileBase64('');
+        setOtherDocsFileMimeType('');
+      };
+      reader.onerror = () => setOtherDocsFileName('');
+      reader.readAsText(file, 'UTF-8');
+    }
+    e.target.value = '';
+  };
+
+  const clearOtherDocsFile = () => {
+    setOtherDocsFileName('');
+    setOtherDocsFileContent('');
+    setOtherDocsFileBase64('');
+    setOtherDocsFileMimeType('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (sourceMode === null) return;
@@ -476,8 +530,22 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
       if (sourceMode === 'linkedin') {
         setLoadingStage('Analyzing professional facts...');
         const extractedFacts = await geminiService.extractFacts(linkedinText);
-        const combined = otherDocsText.trim()
-          ? `${extractedFacts}\n\n--- Additional context ---\n${otherDocsText.trim()}`
+        let otherDocsResolved = '';
+        if (otherDocsFileName) {
+          if (otherDocsFileBase64 && otherDocsFileMimeType) {
+            setLoadingStage('Extracting text from other docs...');
+            const extractPrompt = `Extract the key text content from this document (CV, portfolio, or similar). Focus on: professional background, roles, achievements, skills, and any other career-related content. Return plain text, concise but comprehensive (max ~8000 words).`;
+            let base64Data = otherDocsFileBase64.startsWith('data:') ? otherDocsFileBase64.split(',')[1] : otherDocsFileBase64;
+            if (base64Data && base64Data.length >= 100) {
+              otherDocsResolved = await geminiService.runSimulation(extractPrompt, otherDocsFileBase64, otherDocsFileMimeType);
+              if (otherDocsResolved.length > 30000) otherDocsResolved = otherDocsResolved.substring(0, 30000) + '\n\n[Content truncated]';
+            }
+          } else {
+            otherDocsResolved = otherDocsFileContent;
+          }
+        }
+        const combined = otherDocsResolved.trim()
+          ? `${extractedFacts}\n\n--- Additional context (CV/portfolio) ---\n${otherDocsResolved.trim()}`
           : extractedFacts;
         setLoadingStage('Discovering identity...');
         const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
@@ -495,7 +563,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, {
           "Fact Extraction (Source of Truth)": extractedFacts,
           "Raw LinkedIn Content": linkedinText,
-          "Other Docs": otherDocsText,
+          "Other Docs": otherDocsResolved,
           "Primary Source Material": limitedMaterial,
           "Identity Target": `${name} - ${title}`,
           "Context Summary": summary || title,
@@ -736,13 +804,38 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             textarea
             placeholder="Select all text on the LinkedIn page and paste here..."
           />
-          <FormItem
-            label="Other docs (CV, portfolio, optional)"
-            value={otherDocsText}
-            onChange={setOtherDocsText}
-            textarea
-            placeholder="Paste additional career history or dossier text..."
-          />
+          <div className="space-y-4">
+            <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Other docs (CV, portfolio, optional)</label>
+            <p className="text-sm text-gray-500">Upload a CV, portfolio, or other document to add to the advisor context.</p>
+            {otherDocsFileName ? (
+              <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                <FileText className="w-5 h-5 text-gray-500 shrink-0" />
+                <span className="text-sm font-medium text-gray-900 truncate flex-1">{otherDocsFileName}</span>
+                <button
+                  type="button"
+                  onClick={clearOtherDocsFile}
+                  className="shrink-0 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-red-600 border border-gray-200 rounded-xl hover:bg-gray-100"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:border-indigo-200 transition-all bg-gray-50/50">
+                <Upload className="w-10 h-10 text-gray-300 mb-2" />
+                <p className="text-sm font-medium text-gray-600 mb-3">PDF, Word, images, or text files</p>
+                <input
+                  type="file"
+                  id="other-docs-file"
+                  className="hidden"
+                  accept={GEMINI_FILE_INPUT_ACCEPT}
+                  onChange={handleOtherDocsFile}
+                />
+                <label htmlFor="other-docs-file" className="cursor-pointer px-6 py-2.5 bg-indigo-50 text-indigo-700 font-bold rounded-xl hover:bg-indigo-100 text-sm">
+                  Select file
+                </label>
+              </div>
+            )}
+          </div>
         </>
       )}
 
