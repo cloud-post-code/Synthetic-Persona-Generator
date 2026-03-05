@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -55,9 +55,8 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
   );
 };
 
-// --- SYNTHETIC USER FORM ---
-/** Three ways to generate synthetic users; only one is used per run. */
-export type SyntheticBuildMode = 'problem_solution' | 'supporting_docs' | 'business_profile';
+/** Five ways to generate synthetic users; only one is used per run. */
+export type SyntheticBuildMode = 'problem_solution' | 'supporting_docs' | 'business_profile' | 'linkedin' | 'upload_pdf';
 
 const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
   const [method, setMethod] = useState<SyntheticBuildMode | null>(null);
@@ -72,7 +71,12 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
   const [formData, setFormData] = useState({
     q1: '', q2: '', q3: '', q4: '', q5: 'B2B' as 'B2B' | 'B2C', q6: '', q7: 1,
     specificUserType: '', // optional, for business_profile: "specific type of user"
+    linkedinPaste: '', // for linkedin: pasted profile text
   });
+  const [uploadPdfFileName, setUploadPdfFileName] = useState('');
+  const [uploadPdfContent, setUploadPdfContent] = useState(''); // text content when file is text
+  const [uploadPdfBase64, setUploadPdfBase64] = useState(''); // for PDF/binary: base64
+  const [uploadPdfMimeType, setUploadPdfMimeType] = useState('');
 
   useEffect(() => {
     if (method === 'business_profile') {
@@ -102,6 +106,43 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
     reader.readAsText(file, 'UTF-8');
   };
 
+  const handleUploadPdfFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const mime = (file.type || '').toLowerCase();
+    const isPdfOrGemini = mime === 'application/pdf' || (mime && (GEMINI_ACCEPTED_MIME_TYPES as readonly string[]).includes(mime));
+    setUploadPdfFileName(file.name);
+    if (isPdfOrGemini) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const result = ev.target?.result as string;
+        const base64 = result?.includes(',') ? result.split(',')[1] : result;
+        setUploadPdfContent('');
+        setUploadPdfBase64(base64 || '');
+        setUploadPdfMimeType(mime || 'application/pdf');
+      };
+      reader.onerror = () => {
+        alert('Error reading file. Please try again.');
+        setUploadPdfFileName('');
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = (ev.target?.result as string)?.replace(/\x00/g, '') || '';
+        setUploadPdfContent(text);
+        setUploadPdfBase64('');
+        setUploadPdfMimeType('');
+      };
+      reader.onerror = () => {
+        alert('Error reading file. Please ensure it is a valid text file or PDF.');
+        setUploadPdfFileName('');
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
+    e.target.value = '';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!method) return;
@@ -113,10 +154,24 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
         userQInputs = `Problem: ${formData.q1}\nSolution: ${formData.q2}\nDiff: ${formData.q3}\nExisting: ${formData.q4}\nContext: ${formData.q5}`;
       } else if (method === 'supporting_docs') {
         userQInputs = `Supporting Docs (${q6FileName || 'document'}): ${formData.q6}`;
-      } else {
+      } else if (method === 'business_profile') {
         const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business background saved. Add it in Settings.';
         const specificPart = formData.specificUserType.trim() ? `\n\nSpecific type of user requested: ${formData.specificUserType.trim()}` : '';
         userQInputs = `Business background:\n${profileText}${specificPart}`;
+      } else if (method === 'linkedin') {
+        userQInputs = `LinkedIn profile:\n${formData.linkedinPaste.trim()}`;
+      } else {
+        // upload_pdf
+        if (uploadPdfContent.trim()) {
+          userQInputs = `Uploaded document (${uploadPdfFileName || 'document'}):\n${uploadPdfContent.trim()}`;
+        } else if (uploadPdfBase64 && uploadPdfMimeType) {
+          setLoadingStage('Extracting text from document...');
+          const extractPrompt = 'Extract the main text content from this document for use in strategic analysis and persona generation. Preserve key information, structure, and context. Output plain text only, no commentary or markdown.';
+          const extracted = await geminiService.runSimulation(extractPrompt, uploadPdfBase64, uploadPdfMimeType);
+          userQInputs = `Uploaded document (${uploadPdfFileName || 'document'}):\n${(extracted || '').trim()}`;
+        } else {
+          throw new Error('Please upload a document.');
+        }
       }
 
       setLoadingStage('Synthesizing Market Canvas...');
@@ -251,7 +306,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
         <div className="space-y-6">
           <h3 className="text-xl font-bold text-gray-900">How do you want to generate synthetic users?</h3>
           <p className="text-gray-500">Pick one method. Each run uses only that input.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
             <button
               type="button"
               onClick={() => setMethod('problem_solution')}
@@ -278,6 +333,24 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
               <Building2 className="w-10 h-10 text-emerald-500 mb-3" />
               <h4 className="font-bold text-gray-900 mb-1">Business background</h4>
               <p className="text-sm text-gray-500">Use your saved company/business background from Settings; optionally specify a user type.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod('linkedin')}
+              className="group bg-white border-2 border-gray-100 hover:border-violet-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <Linkedin className="w-10 h-10 text-violet-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">LinkedIn (paste profile text)</h4>
+              <p className="text-sm text-gray-500">Paste LinkedIn profile or resume text to generate personas from professional context.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod('upload_pdf')}
+              className="group bg-white border-2 border-gray-100 hover:border-indigo-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <FileUp className="w-10 h-10 text-indigo-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">Upload PDF / document</h4>
+              <p className="text-sm text-gray-500">Upload a PDF or document; content is extracted and used for strategic analysis and persona generation.</p>
             </button>
           </div>
         </div>
@@ -359,6 +432,44 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
             </div>
           </>
         )}
+
+        {method === 'linkedin' && (
+          <>
+            <FormItem
+              label="LinkedIn profile / resume text (required)"
+              value={formData.linkedinPaste}
+              onChange={v => setFormData({ ...formData, linkedinPaste: v })}
+              textarea
+              placeholder="Paste LinkedIn profile text, resume, or other professional summary here..."
+            />
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+
+        {method === 'upload_pdf' && (
+          <>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">PDF / document (required)</label>
+              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center hover:border-indigo-300 transition-all bg-gray-50/50 group">
+                <FileUp className="w-12 h-12 text-gray-300 mb-4 group-hover:text-indigo-500" />
+                <p className="text-lg font-bold text-gray-600 mb-4">Upload PDF or document (e.g. strategy doc, market research)</p>
+                <input type="file" id="upload-pdf-file" className="hidden" accept={GEMINI_FILE_INPUT_ACCEPT} onChange={handleUploadPdfFile} />
+                <label htmlFor="upload-pdf-file" className="cursor-pointer px-8 py-3 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg hover:bg-indigo-700 transition-colors">{uploadPdfFileName || 'Select PDF / document'}</label>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
+              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </>
+        )}
       </div>
       )}
 
@@ -369,7 +480,9 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
           loading ||
           (method === 'problem_solution' && (!formData.q1.trim() || !formData.q2.trim() || !formData.q3.trim() || !formData.q4.trim())) ||
           (method === 'supporting_docs' && !formData.q6.trim()) ||
-          (method === 'business_profile' && !savedBusinessProfile)
+          (method === 'business_profile' && !savedBusinessProfile) ||
+          (method === 'linkedin' && !formData.linkedinPaste.trim()) ||
+          (method === 'upload_pdf' && !uploadPdfContent.trim() && !uploadPdfBase64)
         }
         className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
       >
