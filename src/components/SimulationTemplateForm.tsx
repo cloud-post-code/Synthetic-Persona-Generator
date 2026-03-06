@@ -11,13 +11,14 @@ import {
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { IconPicker } from './IconPicker.js';
+import { getSimulationIcon } from '../utils/simulationIcons.js';
 
-const SIMULATION_TYPES: { id: SimulationType; label: string; description: string }[] = [
-  { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.' },
-  { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).' },
-  { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.' },
-  { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.' },
-  { id: 'persona_conversation', label: 'Persona v Persona Conversation', description: 'Moderated multi-persona discussion: multiple personas discuss an opening line in turns. An LLM moderator chooses who speaks next and when to end; after the conversation, the moderator summarizes and answers the opening line. Each persona turn is a separate API call; max 20 persona turns.' },
+const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
+  { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
+  { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).', icon: 'MessageSquare' },
+  { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.', icon: 'Target' },
+  { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.', icon: 'BarChart3' },
+  { id: 'persona_conversation', label: 'Persona v Persona Conversation', description: 'Moderated multi-persona discussion: multiple personas discuss an opening line in turns. An LLM moderator chooses who speaks next and when to end; after the conversation, the moderator summarizes and answers the opening line. Each persona turn is a separate API call; max 20 persona turns.', icon: 'Users' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -44,7 +45,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [simulationType, setSimulationType] = useState<SimulationType | ''>('');
-  const [allowedPersonaTypes, setAllowedPersonaTypes] = useState<string[]>(['synthetic_user', 'advisor']);
+  const [allowedPersonaTypes, setAllowedPersonaTypes] = useState<string[]>([]);
   const [personaCountMin, setPersonaCountMin] = useState(1);
   const [personaCountMax, setPersonaCountMax] = useState(1);
   const [typeSpecificConfig, setTypeSpecificConfig] = useState<Record<string, unknown>>({});
@@ -68,7 +69,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setSystemPrompt(simulation.system_prompt);
       setIsActive(simulation.is_active);
       setSimulationType(simulation.simulation_type || '');
-      setAllowedPersonaTypes(simulation.allowed_persona_types?.length ? simulation.allowed_persona_types : ['synthetic_user', 'advisor']);
+      setAllowedPersonaTypes(simulation.allowed_persona_types?.length ? simulation.allowed_persona_types : []);
       setPersonaCountMin(simulation.persona_count_min ?? 1);
       setPersonaCountMax(simulation.persona_count_max ?? 1);
       setTypeSpecificConfig(simulation.type_specific_config || {});
@@ -94,6 +95,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   };
 
   const handleRemoveField = (index: number) => {
+    if (inputFields.length <= 1) return; // require at least one input field
     setInputFields(inputFields.filter((_, i) => i !== index));
   };
 
@@ -162,6 +164,11 @@ ${description.trim() || '(empty - please create an initial description based on 
       alert('Select at least one persona type');
       return;
     }
+    const hasAtLeastOneInputWithName = inputFields.some((f) => f.name.trim());
+    if (!hasAtLeastOneInputWithName) {
+      alert('At least one runner input field is required and must have a name');
+      return;
+    }
     if (personaCountMin > personaCountMax) {
       alert('Min personas cannot exceed max personas');
       return;
@@ -204,7 +211,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         const data: CreateSimulationRequest | UpdateSimulationRequest = {
           title: title.trim(),
           description: description.trim() || undefined,
-          icon: icon.trim() || undefined,
+          icon: resolvedIcon,
           required_input_fields: inputFields,
           is_active: isActive,
           system_prompt: reviewedSystemPrompt.trim(),
@@ -242,7 +249,7 @@ ${description.trim() || '(empty - please create an initial description based on 
           const payload: CreateSimulationRequest = {
             title: title.trim(),
             description: description.trim() || undefined,
-            icon: icon.trim() || undefined,
+            icon: resolvedIcon,
             required_input_fields: inputFields,
             is_active: isActive,
             simulation_type: simulationType as SimulationType,
@@ -275,7 +282,7 @@ ${description.trim() || '(empty - please create an initial description based on 
       const data: CreateSimulationRequest | UpdateSimulationRequest = {
         title: title.trim(),
         description: description.trim() || undefined,
-        icon: icon.trim() || undefined,
+        icon: resolvedIcon,
         required_input_fields: inputFields,
         is_active: isActive,
         system_prompt: systemPrompt.trim(),
@@ -290,6 +297,11 @@ ${description.trim() || '(empty - please create an initial description based on 
 
   const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
 
+  // When a simulation type is selected, icon is fixed by type; otherwise use picked icon
+  const resolvedIcon = simulationType
+    ? (SIMULATION_TYPES.find((t) => t.id === simulationType)?.icon ?? '').trim() || undefined
+    : (icon.trim() || undefined);
+
   const handleRegeneratePrompt = async () => {
     if (!simulationType) return;
     setIsRegenerating(true);
@@ -297,7 +309,7 @@ ${description.trim() || '(empty - please create an initial description based on 
       const payload: CreateSimulationRequest = {
         title: title.trim(),
         description: description.trim() || undefined,
-        icon: icon.trim() || undefined,
+        icon: resolvedIcon,
         required_input_fields: inputFields,
         is_active: isActive,
         simulation_type: simulationType as SimulationType,
@@ -375,21 +387,29 @@ ${description.trim() || '(empty - please create an initial description based on 
         <h2 className="text-lg font-semibold text-gray-900">Simulation type</h2>
         <p className="text-sm text-gray-600">Choose the type of simulation. This determines how it runs and what outputs users see.</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          {SIMULATION_TYPES.map(({ id, label, description }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setSimulationType(id)}
-              className={`text-left px-4 py-3 rounded-lg border-2 transition-colors ${
-                simulationType === id
-                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
-              }`}
-            >
-              <span className="block text-sm font-medium">{label}</span>
-              <span className="block mt-1 text-xs text-gray-500">{description}</span>
-            </button>
-          ))}
+          {SIMULATION_TYPES.map(({ id, label, description, icon: iconName }) => {
+            const TypeIcon = getSimulationIcon(iconName);
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSimulationType(id)}
+                className={`text-left px-4 py-3 rounded-lg border-2 transition-colors flex gap-3 ${
+                  simulationType === id
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
+                }`}
+              >
+                <div className="shrink-0 w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                  <TypeIcon className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-sm font-medium">{label}</span>
+                  <span className="block mt-1 text-xs text-gray-500">{description}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -442,18 +462,39 @@ ${description.trim() || '(empty - please create an initial description based on 
         />
       </section>
 
-      {/* Icon — directly below description, compact */}
-      <section className="border-t border-gray-200 pt-6">
-        <IconPicker value={icon} onChange={setIcon} label="Icon" compact />
-        <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (side menu).</p>
-      </section>
+      {/* Icon — only when no simulation type (legacy); otherwise icon is fixed by type */}
+      {!simulationType && (
+        <section className="border-t border-gray-200 pt-6">
+          <IconPicker value={icon} onChange={setIcon} label="Icon" compact />
+          <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (side menu).</p>
+        </section>
+      )}
+      {simulationType && (
+        <section className="border-t border-gray-200 pt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Icon</label>
+          <p className="text-xs text-gray-500">Icon is set by simulation type.</p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+              {(() => {
+                const typeConfig = SIMULATION_TYPES.find((t) => t.id === simulationType);
+                const IconComponent = getSimulationIcon(typeConfig?.icon);
+                return <IconComponent className="w-5 h-5" />;
+              })()}
+            </div>
+            <span className="text-sm text-gray-600">
+              {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label}
+            </span>
+          </div>
+        </section>
+      )}
 
       {/* 4. Persona configuration */}
       <section className="space-y-4 border-t border-gray-200 pt-8">
         <h2 className="text-lg font-semibold text-gray-900">Who can run this simulation</h2>
         <p className="text-sm text-gray-600">Select which persona types are allowed to run this simulation, and how many personas the user must select.</p>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Persona types</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Persona types *</label>
+          <p className="text-xs text-gray-500 mb-2">At least one is required.</p>
           <div className="flex flex-wrap gap-4">
             {PERSONA_TYPE_OPTIONS.map(({ value, label }) => (
               <label key={value} className="flex items-center gap-2 cursor-pointer">
@@ -781,14 +822,20 @@ ${description.trim() || '(empty - please create an initial description based on 
 
       {/* 6. Runner input fields */}
       <section className="space-y-4 border-t border-gray-200 pt-8">
-        <h2 className="text-lg font-semibold text-gray-900">Inputs the person running the simulation will provide</h2>
-        <p className="text-sm text-gray-600">These fields are shown to the user when they run this simulation (e.g. background context, opening line, file uploads).</p>
+        <h2 className="text-lg font-semibold text-gray-900">Inputs the person running the simulation will provide *</h2>
+        <p className="text-sm text-gray-600">At least one field is required. These fields are shown to the user when they run this simulation (e.g. background context, opening line, file uploads).</p>
         <div className="space-y-3">
           {inputFields.map((field, index) => (
             <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Field {index + 1}</span>
-                <button type="button" onClick={() => handleRemoveField(index)} className="text-red-600 hover:text-red-800">
+                <button
+                  type="button"
+                  onClick={() => handleRemoveField(index)}
+                  disabled={inputFields.length <= 1}
+                  className="text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={inputFields.length <= 1 ? 'At least one input field is required' : 'Remove field'}
+                >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
