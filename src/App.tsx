@@ -23,11 +23,11 @@ const Sidebar: React.FC = () => {
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'Simulation', path: '/simulate', icon: PlayCircle },
-    { label: 'Business Profile', path: '/business-profile', icon: Briefcase },
+    { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Persona Library', path: '/library', icon: BookOpen },
+    { label: 'Business Profile', path: '/business-profile', icon: Briefcase },
     { label: 'Settings', path: '/settings', icon: Settings },
     ...(isAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield }] : []),
   ];
