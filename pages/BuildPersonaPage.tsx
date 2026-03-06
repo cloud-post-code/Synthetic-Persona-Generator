@@ -126,7 +126,6 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
           createdAt: new Date().toISOString(),
           metadata: { personaGroupId },
           files: [
-            { id: crypto.randomUUID(), name: `Market_Canvas.md`, content: marketCanvas, type: 'markdown' },
             { id: crypto.randomUUID(), name: `Job_Builder.md`, content: jobBuilder, type: 'markdown' },
             { id: crypto.randomUUID(), name: `Metrics.md`, content: metrics, type: 'markdown' },
             { id: crypto.randomUUID(), name: `10Point_Agent_Profile.md`, content: profile, type: 'markdown' },

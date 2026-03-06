@@ -169,7 +169,6 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
 
         // Create persona files
         const files = [
-          { name: `Market_Canvas.md`, content: marketCanvas, type: 'markdown' as const },
           { name: `Job_Builder.md`, content: jobBuilder, type: 'markdown' as const },
           { name: `Metrics.md`, content: metrics, type: 'markdown' as const },
           { name: `10Point_Agent_Profile.md`, content: profile, type: 'markdown' as const },

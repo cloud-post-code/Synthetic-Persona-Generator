@@ -23,12 +23,6 @@ const INITIAL_PERSONAS: Persona[] = [
     metadata: { personaGroupId: 'seed-group' },
     files: [
       {
-        id: 'f-elena-1',
-        name: 'Market_Canvas_Fintech.md',
-        type: 'markdown',
-        content: '# Market Canvas: Financial Inclusion\n\n**Job Executor:** Young professionals in emerging markets.\n**Core Functional Job:** Sending cross-border remittances with low fees.\n**Emotional Job:** Feeling secure that money won\'t be lost in transit.\n**Success Metrics:** Transaction speed < 5 minutes.'
-      },
-      {
         id: 'f-elena-2',
         name: 'Job_Builder.md',
         type: 'markdown',
