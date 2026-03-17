@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { BusinessProfile, CreateOrUpdateBusinessProfileRequest } from '../types/index.js';
+import { indexBusinessProfile } from './embeddingService.js';
 
 const COLUMNS = [
   'business_name',
@@ -104,19 +105,26 @@ export async function upsert(
       values
     );
 
+    let profile: BusinessProfile;
     if (result.rows && result.rows.length > 0) {
-      return mapRow(result.rows[0]);
+      profile = mapRow(result.rows[0]);
+    } else {
+      const refetch = await pool.query(
+        `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
+         FROM business_profiles WHERE user_id = $1`,
+        [userId]
+      );
+      if (refetch.rows.length === 0) {
+        throw new Error('Business profile upsert returned no row');
+      }
+      profile = mapRow(refetch.rows[0]);
     }
 
-    const refetch = await pool.query(
-      `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
-       FROM business_profiles WHERE user_id = $1`,
-      [userId]
+    indexBusinessProfile(userId).catch(err =>
+      console.error(`Background business profile indexing failed for user ${userId}:`, err?.message || err)
     );
-    if (refetch.rows.length === 0) {
-      throw new Error('Business profile upsert returned no row');
-    }
-    return mapRow(refetch.rows[0]);
+
+    return profile;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;

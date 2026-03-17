@@ -156,6 +156,83 @@ export async function indexPersona(personaId: string): Promise<void> {
   console.log(`Indexed ${allChunks.length} chunks for persona ${personaId}`);
 }
 
+export async function indexBusinessProfile(userId: string): Promise<void> {
+  const result = await pool.query(
+    `SELECT business_name, mission_statement, vision_statement, description_main_offerings,
+            key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments,
+            geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams,
+            distribution_channels, key_personnel, major_achievements, revenue,
+            key_performance_indicators, funding_rounds, website
+     FROM business_profiles WHERE user_id = $1`,
+    [userId]
+  );
+  if (result.rows.length === 0) return;
+
+  const profile = result.rows[0];
+  const labels: [string, string][] = [
+    ['Business name', profile.business_name],
+    ['Mission', profile.mission_statement],
+    ['Vision', profile.vision_statement],
+    ['Main offerings', profile.description_main_offerings],
+    ['Key features/benefits', profile.key_features_or_benefits],
+    ['USP', profile.unique_selling_proposition],
+    ['Pricing model', profile.pricing_model],
+    ['Customer segments', profile.customer_segments],
+    ['Geographic focus', profile.geographic_focus],
+    ['Industry served', profile.industry_served],
+    ['What differentiates', profile.what_differentiates],
+    ['Market niche', profile.market_niche],
+    ['Revenue streams', profile.revenue_streams],
+    ['Distribution channels', profile.distribution_channels],
+    ['Key personnel', profile.key_personnel],
+    ['Major achievements', profile.major_achievements],
+    ['Revenue', profile.revenue],
+    ['KPIs', profile.key_performance_indicators],
+    ['Funding', profile.funding_rounds],
+    ['Website', profile.website],
+  ];
+
+  const profileText = labels
+    .filter(([, v]) => v && String(v).trim())
+    .map(([label, value]) => `${label}: ${String(value).trim()}`)
+    .join('\n');
+
+  if (!profileText) return;
+
+  const chunks = chunkText(profileText);
+  if (chunks.length === 0) return;
+
+  const embeddings = await embedTexts(chunks);
+
+  await pool.query(
+    `DELETE FROM knowledge_chunks WHERE user_id = $1 AND source_type = 'business_profile'`,
+    [userId]
+  );
+
+  const insertValues: string[] = [];
+  const insertParams: any[] = [];
+  let paramIdx = 1;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const hash = sha256(chunks[i]);
+    insertValues.push(
+      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6})`
+    );
+    insertParams.push(userId, 'business_profile', 'business_profile', chunks[i], i, embeddings[i], hash);
+    paramIdx += 7;
+  }
+
+  if (insertValues.length > 0) {
+    await pool.query(
+      `INSERT INTO knowledge_chunks (user_id, source_type, source_name, chunk_text, chunk_index, embedding, content_hash)
+       VALUES ${insertValues.join(', ')}`,
+      insertParams
+    );
+  }
+
+  console.log(`Indexed ${chunks.length} business profile chunks for user ${userId}`);
+}
+
 export async function indexSessionContext(sessionId: string, fields: Record<string, string>): Promise<void> {
   interface ChunkEntry {
     text: string;
@@ -215,7 +292,8 @@ export async function retrieve(
   query: string,
   personaIds: string[],
   sessionId?: string,
-  topK = 10
+  topK = 10,
+  userId?: string
 ): Promise<RetrievedChunk[]> {
   const [queryEmbedding] = await embedTexts([query]);
 
@@ -231,6 +309,11 @@ export async function retrieve(
   if (sessionId) {
     conditions.push(`session_id = $${paramIdx}`);
     params.push(sessionId);
+    paramIdx++;
+  }
+  if (userId) {
+    conditions.push(`user_id = $${paramIdx}`);
+    params.push(userId);
     paramIdx++;
   }
 

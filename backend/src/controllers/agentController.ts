@@ -16,6 +16,7 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       personaId,
       personaIds: personaIds || [personaId],
       sessionId: sessionId || undefined,
+      userId: req.userId || undefined,
       history: Array.isArray(history) ? history : [],
       userMessage,
       simulationInstructions: simulationInstructions || undefined,

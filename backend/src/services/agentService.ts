@@ -21,6 +21,7 @@ export interface AgentTurnParams {
   personaId: string;
   personaIds?: string[];
   sessionId?: string;
+  userId?: string;
   history: { role: 'user' | 'model'; text: string }[];
   userMessage: string;
   simulationInstructions?: string;
@@ -92,12 +93,12 @@ Output your thinking in JSON:
 
 function buildRetrievedContextSection(chunks: RetrievedChunk[]): string {
   if (chunks.length === 0) return '';
-  const lines = chunks.map((c, i) => {
-    const label = c.source_type === 'file'
-      ? `[File: ${c.source_name}]`
-      : c.source_type === 'profile'
-        ? '[Profile]'
-        : `[Context: ${c.source_name}]`;
+  const lines = chunks.map((c) => {
+    let label: string;
+    if (c.source_type === 'file') label = `[File: ${c.source_name}]`;
+    else if (c.source_type === 'profile') label = '[Profile]';
+    else if (c.source_type === 'business_profile') label = '[Business Context]';
+    else label = `[Context: ${c.source_name}]`;
     return `${label}\n${c.text}`;
   });
   return '### Retrieved knowledge\n\n' + lines.join('\n\n---\n\n');
@@ -158,7 +159,7 @@ You ARE this persona. Respond in first person as them. Never describe or referen
 }
 
 export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnResult> {
-  const { personaId, personaIds, sessionId, history, userMessage, simulationInstructions, image, mimeType } = params;
+  const { personaId, personaIds, sessionId, userId, history, userMessage, simulationInstructions, image, mimeType } = params;
   const ai = getAI();
   const persona = await getPersonaIdentity(personaId);
 
@@ -173,7 +174,7 @@ export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnRe
   const seenTexts = new Set<string>();
 
   for (const query of queries.slice(0, 3)) {
-    const chunks = await retrieve(query, effectivePersonaIds, sessionId, 10);
+    const chunks = await retrieve(query, effectivePersonaIds, sessionId, 10, userId);
     for (const chunk of chunks) {
       if (!seenTexts.has(chunk.text)) {
         seenTexts.add(chunk.text);

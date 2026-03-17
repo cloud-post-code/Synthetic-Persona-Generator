@@ -200,6 +200,8 @@ async function migrate() {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_persona ON knowledge_chunks(persona_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_session ON knowledge_chunks(session_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_hash ON knowledge_chunks(content_hash)`);
+      await pool.query(`ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_user ON knowledge_chunks(user_id)`);
     } catch (err: any) {
       if (err.code !== '42P07') throw err;
     }
