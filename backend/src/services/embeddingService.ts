@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createHash } from 'crypto';
 import pool from '../config/database.js';
 
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 const CHUNK_MAX_WORDS = 400;
 const CHUNK_OVERLAP_WORDS = 80;
 const EMBED_BATCH_SIZE = 100;
