@@ -502,7 +502,6 @@ const FOCUS_GROUP_ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All personas' },
   { value: 'synthetic_user', label: 'Synthetic User' },
   { value: 'advisor', label: 'Advisor' },
-  { value: 'specialty_goods_retailer', label: 'Specialty Goods Retailer' },
 ];
 
 const EditFocusGroupModal: React.FC<{
@@ -643,7 +642,6 @@ const PersonaCard: React.FC<{
   const typeLabels: Record<string, { label: string; color: string }> = {
     synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
     advisor: { label: 'Advisor', color: 'bg-purple-100 text-purple-700' },
-    specialty_goods_retailer: { label: 'Specialty Goods Retailer', color: 'bg-amber-100 text-amber-700' },
   };
 
   const avatarUrl = persona.avatarUrl || persona.avatar_url;

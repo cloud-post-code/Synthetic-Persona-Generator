@@ -84,11 +84,12 @@ async function migrate() {
       }
     }
 
-    // Persona visibility and persona_stars for library/starring, then restrict persona type to synthetic_user, advisor, specialty_goods_retailer
+    // Persona visibility and persona_stars for library/starring; restrict persona type to core types: synthetic_user, advisor
     try {
       await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
+      await pool.query(`UPDATE personas SET type = 'synthetic_user' WHERE type = 'specialty_goods_retailer'`);
       await pool.query(`ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_type_check`);
-      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_type_check CHECK (type IN ('synthetic_user', 'advisor', 'specialty_goods_retailer'))`);
+      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_type_check CHECK (type IN ('synthetic_user', 'advisor'))`);
     } catch (err: any) {
       if (err.code !== '42701' && err.code !== '42P01') throw err;
     }

@@ -54,12 +54,12 @@ export async function createPersona(req: AuthRequest, res: Response, next: NextF
     if (!body.name || !body.name.trim()) {
       return res.status(400).json({ error: 'Name is required' });
     }
-    if (!body.type || !['synthetic_user', 'advisor', 'specialty_goods_retailer'].includes(body.type)) {
-      return res.status(400).json({ error: 'Type must be synthetic_user, advisor, or specialty_goods_retailer' });
+    if (!body.type || !['synthetic_user', 'advisor'].includes(body.type)) {
+      return res.status(400).json({ error: 'Type must be synthetic_user or advisor' });
     }
     const persona = await personaService.createGlobalPersona(req.userId!, {
       name: body.name.trim(),
-      type: body.type as 'synthetic_user' | 'advisor' | 'specialty_goods_retailer',
+      type: body.type as 'synthetic_user' | 'advisor',
       description: (body.description || '').trim() || 'Global persona',
       avatar_url: body.avatar_url || '',
     });

@@ -1,4 +1,4 @@
-export type PersonaType = 'synthetic_user' | 'advisor' | 'specialty_goods_retailer';
+export type PersonaType = 'synthetic_user' | 'advisor';
 
 export type PersonaVisibility = 'private' | 'public' | 'global';
 
@@ -129,7 +129,7 @@ export interface FocusGroup {
   id: string;
   name: string;
   personaIds: string[];
-  /** When set, "Personas in this group" is restricted to these persona types (e.g. Specialty Goods Retailer). */
+  /** When set, "Personas in this group" is restricted to these persona types (e.g. Synthetic User, Advisor). */
   allowedPersonaTypes?: string[];
   createdAt?: string;
   created_at?: string;

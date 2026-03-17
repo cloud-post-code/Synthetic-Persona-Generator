@@ -24,7 +24,6 @@ const SIMULATION_TYPES: { id: SimulationType; label: string; description: string
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'synthetic_user', label: 'Synthetic User' },
   { value: 'advisor', label: 'Advisor' },
-  { value: 'specialty_goods_retailer', label: 'Specialty Goods Retailer' },
 ];
 
 type SurveyMode = 'generated' | 'custom';
