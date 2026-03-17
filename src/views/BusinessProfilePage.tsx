@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { CheckCircle2, AlertTriangle, Sparkles, Upload, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CheckCircle2, AlertTriangle, Sparkles, Upload, Loader2, X } from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 
@@ -70,6 +70,7 @@ const BusinessProfilePage: React.FC = () => {
   const [generateFileName, setGenerateFileName] = useState('');
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
   const [companyHint, setCompanyHint] = useState('');
+  const generateCancelledRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +193,7 @@ const BusinessProfilePage: React.FC = () => {
       setGenerateError('Upload a document and/or enter a company name or website to generate from.');
       return;
     }
+    generateCancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
     setGenerateStage(null);
@@ -200,24 +202,37 @@ const BusinessProfilePage: React.FC = () => {
     try {
       setGenerateStage('Extracting Company Overview...');
       const company = await geminiService.generateBusinessProfileCompanyOverview(input, opts);
+      if (generateCancelledRef.current) return;
       applyResultToForm(company);
 
       setGenerateStage('Extracting Market & Positioning...');
       const market = await geminiService.generateBusinessProfileMarketPositioning(input, opts);
+      if (generateCancelledRef.current) return;
       applyResultToForm(market);
 
       setGenerateStage('Extracting Performance & Funding...');
       const performance = await geminiService.generateBusinessProfilePerformanceFunding(input, opts);
+      if (generateCancelledRef.current) return;
       applyResultToForm(performance);
 
       setSaveStatus('Business Profile generated. Review and click Save to keep changes.');
       setTimeout(() => setSaveStatus(null), 5000);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to generate Business Profile.');
+      if (!generateCancelledRef.current) {
+        setGenerateError(err instanceof Error ? err.message : 'Failed to generate Business Profile.');
+      }
     } finally {
-      setGenerateLoading(false);
-      setGenerateStage(null);
+      if (!generateCancelledRef.current) {
+        setGenerateLoading(false);
+        setGenerateStage(null);
+      }
     }
+  };
+
+  const handleCancelGenerate = () => {
+    generateCancelledRef.current = true;
+    setGenerateLoading(false);
+    setGenerateStage(null);
   };
 
   return (
@@ -227,12 +242,6 @@ const BusinessProfilePage: React.FC = () => {
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Business Profile</h1>
           <p className="text-gray-500 font-medium">Your company background. Used when building personas or running simulations.</p>
         </div>
-        {saveStatus && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-xl font-bold border border-green-100 animate-in fade-in slide-in-from-top-4">
-            <CheckCircle2 className="w-5 h-5" />
-            {saveStatus}
-          </div>
-        )}
       </div>
 
       <div className="space-y-6">
@@ -278,24 +287,36 @@ const BusinessProfilePage: React.FC = () => {
                     <span>{generateError}</span>
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={handleGenerateBusinessProfile}
-                  disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                  {generateLoading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      {generateStage || 'Generating...'}
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      Generate from document
-                    </>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleGenerateBusinessProfile}
+                    disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {generateLoading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        {generateStage || 'Generating...'}
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5" />
+                        Generate from document
+                      </>
+                    )}
+                  </button>
+                  {generateLoading && (
+                    <button
+                      type="button"
+                      onClick={handleCancelGenerate}
+                      className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all"
+                    >
+                      <X className="w-5 h-5" />
+                      Cancel
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
             </Section>
             <Section title="Company Overview">
@@ -330,7 +351,13 @@ const BusinessProfilePage: React.FC = () => {
                 <TextAreaField label="Revenue Streams" value={revenueStreams} onChange={(e) => setRevenueStreams(e.target.value)} placeholder="How you generate revenue" />
               </div>
             </Section>
-            <div className="flex justify-end">
+            <div className="flex justify-end items-center gap-4">
+              {saveStatus && (
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold border animate-in fade-in slide-in-from-bottom-2 ${saveStatus.includes('saved successfully') || saveStatus.includes('generated') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                  {saveStatus.includes('saved successfully') || saveStatus.includes('generated') ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+                  {saveStatus}
+                </div>
+              )}
               <button onClick={handleSaveBusiness} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
                 Save Business Profile
               </button>

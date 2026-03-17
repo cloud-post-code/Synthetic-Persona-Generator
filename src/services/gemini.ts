@@ -267,7 +267,7 @@ export const geminiService = {
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&size=256&bold=true`;
   },
 
-  generateChain: async (templateContent: string, inputs: Record<string, string>, useExtendedThinking: boolean = false): Promise<string> => {
+  generateChain: async (templateContent: string, inputs: Record<string, string>, useExtendedThinking: boolean = false, temperature?: number): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
@@ -307,6 +307,7 @@ export const geminiService = {
       const response = await ai.models.generateContent({
         model: model,
         contents: prompt,
+        ...(temperature !== undefined && temperature !== null ? { config: { temperature } } : {}),
       });
 
       return response.text || "";

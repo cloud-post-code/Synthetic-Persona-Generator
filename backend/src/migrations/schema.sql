@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS personas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
-  type VARCHAR(50) NOT NULL CHECK (type IN ('synthetic_user', 'advisor')),
+  type VARCHAR(50) NOT NULL CHECK (type IN ('synthetic_user', 'advisor', 'specialty_goods_retailer')),
   description TEXT,
   avatar_url TEXT,
   metadata JSONB DEFAULT '{}',

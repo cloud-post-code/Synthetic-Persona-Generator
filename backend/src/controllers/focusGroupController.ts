@@ -26,11 +26,14 @@ export async function getFocusGroup(req: AuthRequest, res: Response, next: NextF
 
 export async function createFocusGroup(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { name } = req.body;
+    const { name, allowedPersonaTypes } = req.body;
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'Name is required' });
     }
-    const group = await focusGroupService.createFocusGroup(req.userId!, { name });
+    const group = await focusGroupService.createFocusGroup(req.userId!, {
+      name,
+      allowedPersonaTypes: Array.isArray(allowedPersonaTypes) ? allowedPersonaTypes : undefined,
+    });
     res.status(201).json(group);
   } catch (error) {
     next(error);
@@ -40,10 +43,11 @@ export async function createFocusGroup(req: AuthRequest, res: Response, next: Ne
 export async function updateFocusGroup(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const { name, personaIds } = req.body;
-    const updates: { name?: string; personaIds?: string[] } = {};
+    const { name, personaIds, allowedPersonaTypes } = req.body;
+    const updates: { name?: string; personaIds?: string[]; allowedPersonaTypes?: string[] } = {};
     if (name !== undefined) updates.name = name;
     if (personaIds !== undefined) updates.personaIds = personaIds;
+    if (allowedPersonaTypes !== undefined) updates.allowedPersonaTypes = Array.isArray(allowedPersonaTypes) ? allowedPersonaTypes : undefined;
     const group = await focusGroupService.updateFocusGroup(id, req.userId!, updates);
     if (!group) {
       return res.status(404).json({ error: 'Focus group not found' });

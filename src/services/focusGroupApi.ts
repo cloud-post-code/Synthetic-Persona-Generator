@@ -12,14 +12,14 @@ export const focusGroupApi = {
     return normalize(group);
   },
 
-  create: async (data: { name: string }): Promise<FocusGroup> => {
+  create: async (data: { name: string; allowedPersonaTypes?: string[] }): Promise<FocusGroup> => {
     const group = await apiClient.post<FocusGroup>('/focus-groups', data);
     return normalize(group);
   },
 
   update: async (
     id: string,
-    data: { name?: string; personaIds?: string[] }
+    data: { name?: string; personaIds?: string[]; allowedPersonaTypes?: string[] }
   ): Promise<FocusGroup> => {
     const group = await apiClient.put<FocusGroup>(`/focus-groups/${id}`, data);
     return normalize(group);

@@ -434,6 +434,7 @@ const CreateFocusGroupModal: React.FC<{
   onCreated: (group: FocusGroup) => void;
 }> = ({ onClose, onCreated }) => {
   const [name, setName] = useState('');
+  const [allowedRole, setAllowedRole] = useState('');
   const [saving, setSaving] = useState(false);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -441,7 +442,10 @@ const CreateFocusGroupModal: React.FC<{
     if (!trimmed) return;
     setSaving(true);
     try {
-      const group = await focusGroupApi.create({ name: trimmed });
+      const group = await focusGroupApi.create({
+        name: trimmed,
+        allowedPersonaTypes: allowedRole ? [allowedRole] : undefined,
+      });
       onCreated(group);
     } catch (err: any) {
       alert(err?.message || 'Could not create group.');
@@ -454,17 +458,32 @@ const CreateFocusGroupModal: React.FC<{
       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md" onClick={onClose} />
       <div className="relative bg-white w-full max-w-md rounded-2xl shadow-xl p-8">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Create focus group</h3>
-        <form onSubmit={handleSubmit}>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="e.g. Beta testers"
-            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500"
-            autoFocus
-          />
-          <div className="flex gap-3 mt-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Boutique Owners"
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Role (optional)</label>
+            <select
+              value={allowedRole}
+              onChange={e => setAllowedRole(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 bg-white"
+            >
+              {FOCUS_GROUP_ROLE_OPTIONS.map(opt => (
+                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-gray-500">Restrict this group to personas with this role. You can change it when editing the group.</p>
+          </div>
+          <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
               Cancel
             </button>
@@ -479,6 +498,13 @@ const CreateFocusGroupModal: React.FC<{
   );
 };
 
+const FOCUS_GROUP_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'All personas' },
+  { value: 'synthetic_user', label: 'Synthetic User' },
+  { value: 'advisor', label: 'Advisor' },
+  { value: 'specialty_goods_retailer', label: 'Specialty Goods Retailer' },
+];
+
 const EditFocusGroupModal: React.FC<{
   group: FocusGroup;
   availablePersonas: Persona[];
@@ -488,6 +514,12 @@ const EditFocusGroupModal: React.FC<{
   const [name, setName] = useState(group.name);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(group.personaIds));
   const [saving, setSaving] = useState(false);
+  const role = (group.allowedPersonaTypes?.length ? group.allowedPersonaTypes[0] : '') || '';
+  const [allowedRole, setAllowedRole] = useState(role);
+  const filteredPersonas = allowedRole
+    ? availablePersonas.filter(p => p.type === allowedRole)
+    : availablePersonas;
+  const roleLabel = FOCUS_GROUP_ROLE_OPTIONS.find(o => o.value === allowedRole)?.label || allowedRole.replace(/_/g, ' ');
   const togglePersona = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -500,7 +532,11 @@ const EditFocusGroupModal: React.FC<{
     e.preventDefault();
     setSaving(true);
     try {
-      await focusGroupApi.update(group.id, { name: name.trim(), personaIds: Array.from(selectedIds) });
+      await focusGroupApi.update(group.id, {
+        name: name.trim(),
+        personaIds: Array.from(selectedIds),
+        allowedPersonaTypes: allowedRole ? [allowedRole] : undefined,
+      });
       onSaved();
     } catch (err: any) {
       alert(err?.message || 'Could not save.');
@@ -525,12 +561,31 @@ const EditFocusGroupModal: React.FC<{
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Role (personas in this group)</label>
+              <select
+                value={allowedRole}
+                onChange={e => setAllowedRole(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 bg-white"
+              >
+                {FOCUS_GROUP_ROLE_OPTIONS.map(opt => (
+                  <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {allowedRole ? (
+                <p className="mt-1.5 text-xs text-gray-500">Only personas with role “{roleLabel}” are listed below.</p>
+              ) : null}
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Personas in this group</label>
               <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
-                {availablePersonas.length === 0 ? (
-                  <p className="p-4 text-gray-500 text-sm">No personas available. Add personas from My Personas or Saved Personas first.</p>
+                {filteredPersonas.length === 0 ? (
+                  <p className="p-4 text-gray-500 text-sm">
+                    {allowedRole
+                      ? `No personas with role “${roleLabel}” found. Create or add personas with that role, or choose “All personas” above.`
+                      : 'No personas available. Add personas from My Personas or Saved Personas first.'}
+                  </p>
                 ) : (
-                  availablePersonas.map(p => (
+                  filteredPersonas.map(p => (
                     <label key={p.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -588,6 +643,7 @@ const PersonaCard: React.FC<{
   const typeLabels: Record<string, { label: string; color: string }> = {
     synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
     advisor: { label: 'Advisor', color: 'bg-purple-100 text-purple-700' },
+    specialty_goods_retailer: { label: 'Specialty Goods Retailer', color: 'bg-amber-100 text-amber-700' },
   };
 
   const avatarUrl = persona.avatarUrl || persona.avatar_url;
@@ -643,8 +699,8 @@ const PersonaCard: React.FC<{
            )}
         </div>
         <div className="absolute bottom-4 left-4 flex gap-2 flex-wrap">
-          <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${typeLabels[persona.type].color}`}>
-            {typeLabels[persona.type].label}
+          <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${typeLabels[persona.type]?.color || 'bg-gray-100 text-gray-700'}`}>
+            {typeLabels[persona.type]?.label || persona.type}
           </span>
           <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${isPublic ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
             {isPublic ? 'Public' : 'Private'}

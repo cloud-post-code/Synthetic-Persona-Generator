@@ -579,13 +579,8 @@ const SimulationPage: React.FC = () => {
     const isGeneratedSurvey = selectedSimulation.simulation_type === 'survey' && typeConfig.survey_mode === 'generated';
     const surveyQuestions = (typeConfig.survey_questions as SurveyQuestion[]) || [];
 
-    if (isGeneratedSurvey && surveyQuestions.length > 0) {
-      const allAnswered = surveyQuestions.every((q, i) => (surveyGeneratedAnswers[i] ?? '').trim() !== '');
-      if (!allAnswered) {
-        alert('Please answer all survey questions.');
-        return;
-      }
-    } else {
+    // Generated survey: no runner answers required; persona answers the questions.
+    if (!isGeneratedSurvey || surveyQuestions.length === 0) {
       // Validate required input fields (runner input fields)
       for (const field of selectedSimulation.required_input_fields) {
         if (!field.required) continue;
@@ -671,10 +666,7 @@ const SimulationPage: React.FC = () => {
     };
     const userInputsString = buildUserInputsString(fieldMap, selectedSimulation?.required_input_fields);
 
-    if (isGeneratedSurvey && surveyQuestions.length > 0) {
-      const surveyLines = surveyQuestions.map((q, i) => `${i + 1}. ${q.question}\n   Answer: ${(surveyGeneratedAnswers[i] ?? '').trim() || '(none)'}`).join('\n');
-      fieldMap.bgInfo = (fieldMap.bgInfo ? fieldMap.bgInfo + '\n\n' : '') + 'Survey responses (persona context):\n' + surveyLines;
-    }
+    // Generated survey: persona answers the questions; no runner answers to inject.
 
     // If no top-level stimulus file, use first file-upload field (pdf type) as inline attachment
     let effectiveStimulusImage: string | undefined = stimulusImage || undefined;
@@ -1042,7 +1034,7 @@ const SimulationPage: React.FC = () => {
       if (isGeneratedSurvey && surveyQuestions.length > 0) {
         localStorage.setItem(`simulationSurveyData_${newSessionId}`, JSON.stringify({
           questions: surveyQuestions,
-          answers: surveyGeneratedAnswers,
+          answers: {}, // Generated: persona answers in result content; no runner answers.
           respondentName: firstPersona.name,
         }));
       }
@@ -1594,6 +1586,7 @@ const SimulationPage: React.FC = () => {
                       <>
                         <div className="space-y-4">
                           <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">2. Survey questions</label>
+                          <p className="text-sm text-gray-500 mb-3">The selected persona(s) will answer these questions. No input needed from you.</p>
                           <ul className="list-none space-y-3 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
                             {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
                               <li key={idx} className="flex gap-3 text-sm">
@@ -1605,44 +1598,6 @@ const SimulationPage: React.FC = () => {
                               </li>
                             ))}
                           </ul>
-                        </div>
-                        <div className="space-y-6">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">3. Your answers (context for the persona)</label>
-                          {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
-                            <div key={idx} className="space-y-2">
-                              <span className="block text-xs font-semibold text-gray-600">Answer for question {idx + 1}</span>
-                              {q.type === 'text' && (
-                                <input
-                                  type="text"
-                                  value={surveyGeneratedAnswers[idx] ?? ''}
-                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                                  placeholder="Your answer (optional)"
-                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                                />
-                              )}
-                              {q.type === 'numeric' && (
-                                <input
-                                  type="number"
-                                  value={surveyGeneratedAnswers[idx] ?? ''}
-                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                                  placeholder="Your answer (optional)"
-                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                                />
-                              )}
-                              {q.type === 'multiple_choice' && (
-                                <select
-                                  value={surveyGeneratedAnswers[idx] ?? ''}
-                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                                >
-                                  <option value="">Select...</option>
-                                  {(q.options || []).filter(Boolean).map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
-                                </select>
-                              )}
-                            </div>
-                          ))}
                         </div>
                         <button
                           disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}

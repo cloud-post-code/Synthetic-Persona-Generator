@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Sparkles, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, Sparkles, Loader2, X } from 'lucide-react';
 import {
   SimulationTemplate,
   SimulationInputField,
@@ -24,6 +24,7 @@ const SIMULATION_TYPES: { id: SimulationType; label: string; description: string
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'synthetic_user', label: 'Synthetic User' },
   { value: 'advisor', label: 'Advisor' },
+  { value: 'specialty_goods_retailer', label: 'Specialty Goods Retailer' },
 ];
 
 type SurveyMode = 'generated' | 'custom';
@@ -54,6 +55,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const regeneratingCancelledRef = useRef(false);
   const [isImprovingWithAI, setIsImprovingWithAI] = useState(false);
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
@@ -302,8 +304,14 @@ ${description.trim() || '(empty - please create an initial description based on 
     ? (SIMULATION_TYPES.find((t) => t.id === simulationType)?.icon ?? '').trim() || undefined
     : (icon.trim() || undefined);
 
+  const handleCancelRegenerate = () => {
+    regeneratingCancelledRef.current = true;
+    setIsRegenerating(false);
+  };
+
   const handleRegeneratePrompt = async () => {
     if (!simulationType) return;
+    regeneratingCancelledRef.current = false;
     setIsRegenerating(true);
     try {
       const payload: CreateSimulationRequest = {
@@ -325,9 +333,11 @@ ${description.trim() || '(empty - please create an initial description based on 
         const fallback = await simulationTemplateApi.previewPrompt(payload);
         systemPromptText = fallback.system_prompt;
       }
-      setReviewedSystemPrompt(systemPromptText);
+      if (!regeneratingCancelledRef.current) setReviewedSystemPrompt(systemPromptText);
     } catch (error: unknown) {
-      alert(`Failed to regenerate prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!regeneratingCancelledRef.current) {
+        alert(`Failed to regenerate prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } finally {
       setIsRegenerating(false);
     }
@@ -341,16 +351,28 @@ ${description.trim() || '(empty - please create an initial description based on 
             <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
             <p className="text-sm text-gray-600">Edit the generated prompt if needed, then click Save to finalize.</p>
           </div>
-          {simulation && (
-            <button
-              type="button"
-              onClick={handleRegeneratePrompt}
-              disabled={isRegenerating}
-              className="shrink-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {isRegenerating ? 'Regenerating...' : 'Regenerate system prompt'}
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {simulation && (
+              <button
+                type="button"
+                onClick={handleRegeneratePrompt}
+                disabled={isRegenerating}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {isRegenerating ? 'Regenerating...' : 'Regenerate system prompt'}
+              </button>
+            )}
+            {isRegenerating && (
+              <button
+                type="button"
+                onClick={handleCancelRegenerate}
+                className="flex items-center gap-1.5 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium"
+              >
+                <X className="w-4 h-4" />
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
         <textarea
           value={reviewedSystemPrompt}

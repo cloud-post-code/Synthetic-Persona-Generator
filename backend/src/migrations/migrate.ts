@@ -84,11 +84,11 @@ async function migrate() {
       }
     }
 
-    // Persona visibility and persona_stars for library/starring, then restrict persona type to synthetic_user and advisor only
+    // Persona visibility and persona_stars for library/starring, then restrict persona type to synthetic_user, advisor, specialty_goods_retailer
     try {
       await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
       await pool.query(`ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_type_check`);
-      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_type_check CHECK (type IN ('synthetic_user', 'advisor'))`);
+      await pool.query(`ALTER TABLE personas ADD CONSTRAINT personas_type_check CHECK (type IN ('synthetic_user', 'advisor', 'specialty_goods_retailer'))`);
     } catch (err: any) {
       if (err.code !== '42701' && err.code !== '42P01') throw err;
     }
@@ -175,6 +175,7 @@ async function migrate() {
       `);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_focus_group_personas_group_id ON focus_group_personas(focus_group_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_focus_group_personas_persona_id ON focus_group_personas(persona_id)`);
+      await pool.query(`ALTER TABLE focus_groups ADD COLUMN IF NOT EXISTS allowed_persona_types JSONB`);
     } catch (err: any) {
       if (err.code !== '42P07') throw err;
     }

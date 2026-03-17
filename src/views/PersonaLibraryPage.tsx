@@ -158,6 +158,7 @@ const PersonaLibraryPage: React.FC = () => {
 const typeLabels: Record<string, { label: string; color: string }> = {
   synthetic_user: { label: 'Synthetic User', color: 'bg-blue-100 text-blue-700' },
   advisor: { label: 'Advisor', color: 'bg-purple-100 text-purple-700' },
+  specialty_goods_retailer: { label: 'Specialty Goods Retailer', color: 'bg-amber-100 text-amber-700' },
 };
 
 const LibraryPersonaCard: React.FC<{

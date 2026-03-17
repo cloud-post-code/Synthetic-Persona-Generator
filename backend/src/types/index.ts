@@ -1,4 +1,4 @@
-export type PersonaType = 'synthetic_user' | 'advisor';
+export type PersonaType = 'synthetic_user' | 'advisor' | 'specialty_goods_retailer';
 
 export type PersonaVisibility = 'private' | 'public' | 'global';
 

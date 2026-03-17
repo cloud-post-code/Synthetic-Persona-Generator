@@ -14,13 +14,14 @@ export interface FocusGroup {
   id: string;
   name: string;
   personaIds: string[];
+  allowedPersonaTypes?: string[];
   created_at?: Date;
   updated_at?: Date;
 }
 
 export async function getFocusGroups(userId: string): Promise<FocusGroup[]> {
   const groupsResult = await pool.query(
-    `SELECT id, user_id, name, created_at, updated_at FROM focus_groups WHERE user_id = $1 ORDER BY created_at DESC`,
+    `SELECT id, user_id, name, allowed_persona_types, created_at, updated_at FROM focus_groups WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
   const groups: FocusGroup[] = [];
@@ -30,10 +31,14 @@ export async function getFocusGroups(userId: string): Promise<FocusGroup[]> {
       [row.id]
     );
     const personaIds = membersResult.rows.map((r: { persona_id: string }) => r.persona_id);
+    const allowedPersonaTypes = row.allowed_persona_types != null
+      ? (Array.isArray(row.allowed_persona_types) ? row.allowed_persona_types : []) as string[]
+      : undefined;
     groups.push({
       id: row.id,
       name: row.name,
       personaIds,
+      allowedPersonaTypes: allowedPersonaTypes?.length ? allowedPersonaTypes : undefined,
       created_at: row.created_at,
       updated_at: row.updated_at,
     });
@@ -43,7 +48,7 @@ export async function getFocusGroups(userId: string): Promise<FocusGroup[]> {
 
 export async function getFocusGroup(id: string, userId: string): Promise<FocusGroup | null> {
   const result = await pool.query(
-    `SELECT id, user_id, name, created_at, updated_at FROM focus_groups WHERE id = $1 AND user_id = $2`,
+    `SELECT id, user_id, name, allowed_persona_types, created_at, updated_at FROM focus_groups WHERE id = $1 AND user_id = $2`,
     [id, userId]
   );
   if (result.rows.length === 0) return null;
@@ -53,27 +58,33 @@ export async function getFocusGroup(id: string, userId: string): Promise<FocusGr
     [id]
   );
   const personaIds = membersResult.rows.map((r: { persona_id: string }) => r.persona_id);
+  const allowedPersonaTypes = row.allowed_persona_types != null
+    ? (Array.isArray(row.allowed_persona_types) ? row.allowed_persona_types : []) as string[]
+    : undefined;
   return {
     id: row.id,
     name: row.name,
     personaIds,
+    allowedPersonaTypes: allowedPersonaTypes?.length ? allowedPersonaTypes : undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
 
-export async function createFocusGroup(userId: string, data: { name: string }): Promise<FocusGroup> {
+export async function createFocusGroup(userId: string, data: { name: string; allowedPersonaTypes?: string[] }): Promise<FocusGroup> {
   const id = uuidv4();
   const name = (data.name && data.name.trim()) ? data.name.trim() : 'Untitled Group';
+  const allowedPersonaTypes = data.allowedPersonaTypes?.length ? JSON.stringify(data.allowedPersonaTypes) : null;
   const result = await pool.query(
-    `INSERT INTO focus_groups (id, user_id, name) VALUES ($1, $2, $3) RETURNING id, name, created_at, updated_at`,
-    [id, userId, name]
+    `INSERT INTO focus_groups (id, user_id, name, allowed_persona_types) VALUES ($1, $2, $3, $4) RETURNING id, name, created_at, updated_at`,
+    [id, userId, name, allowedPersonaTypes]
   );
   const row = result.rows[0];
   return {
     id: row.id,
     name: row.name,
     personaIds: [],
+    allowedPersonaTypes: data.allowedPersonaTypes?.length ? data.allowedPersonaTypes : undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -82,7 +93,7 @@ export async function createFocusGroup(userId: string, data: { name: string }): 
 export async function updateFocusGroup(
   focusGroupId: string,
   userId: string,
-  updates: { name?: string; personaIds?: string[] }
+  updates: { name?: string; personaIds?: string[]; allowedPersonaTypes?: string[] }
 ): Promise<FocusGroup | null> {
   const existing = await getFocusGroup(focusGroupId, userId);
   if (!existing) return null;
@@ -92,6 +103,14 @@ export async function updateFocusGroup(
     await pool.query(
       `UPDATE focus_groups SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
       [name, focusGroupId, userId]
+    );
+  }
+
+  if (updates.allowedPersonaTypes !== undefined) {
+    const allowedPersonaTypes = updates.allowedPersonaTypes?.length ? JSON.stringify(updates.allowedPersonaTypes) : null;
+    await pool.query(
+      `UPDATE focus_groups SET allowed_persona_types = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
+      [allowedPersonaTypes, focusGroupId, userId]
     );
   }
 

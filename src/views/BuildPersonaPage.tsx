@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -62,6 +62,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
   const [method, setMethod] = useState<SyntheticBuildMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
+  const cancelledRef = useRef(false);
   const [q6FileName, setQ6FileName] = useState('');
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
   const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
@@ -101,9 +102,16 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
     reader.readAsText(file, 'UTF-8');
   };
 
+  const handleCancelGenerate = () => {
+    cancelledRef.current = true;
+    setLoading(false);
+    setLoadingStage('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!method) return;
+    cancelledRef.current = false;
     setLoading(true);
     try {
       const personaGroupId = crypto.randomUUID();
@@ -120,45 +128,54 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
 
       setLoadingStage('Synthesizing Market Canvas...');
       const marketCanvas = await geminiService.generateChain(marketCanvasTemplate, { "Strategic Input": userQInputs });
+      if (cancelledRef.current) return;
 
       setLoadingStage('Designing Job Architecture...');
       const jobBuilder = await geminiService.generateChain(jobBuilderTemplate, { "Strategic Analysis": marketCanvas });
+      if (cancelledRef.current) return;
 
       setLoadingStage('Quantifying Success Metrics...');
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
+      if (cancelledRef.current) return;
 
       const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
       const raw = await geminiService.generateBasic(idPrompt, true);
+      if (cancelledRef.current) return;
       const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
       const personas: { name: string; title: string }[] = [];
       for (let index = 0; index < personasRaw.length; index++) {
+        if (cancelledRef.current) return;
         const p = personasRaw[index] as { name?: string; title?: string };
         const titleStr = (typeof p?.title === 'string' && p.title.trim()) ? p.title.trim() : 'Synthetic Persona';
         const nameStr = (typeof p?.name === 'string' && p.name.trim()) ? p.name.trim() : '';
         const name = (nameStr && nameStr !== titleStr) ? nameStr : await geminiService.generatePersonaName(titleStr);
-        // Ensure every synthetic user has a name: use title/role as fallback if name is missing or generic
         const finalName = (name && name !== 'Persona') ? name : titleStr;
         personas.push({ name: finalName, title: titleStr });
       }
 
       const createdIds: string[] = [];
       for (const pInfo of personas) {
+        if (cancelledRef.current) return;
+        // Vary temperature per persona (0.9–1.1) for more varied profiles and behaviors
+        const temperature = 0.9 + Math.random() * 0.2;
         setLoadingStage(`Profiling Agent: ${pInfo.name}...`);
         const profile = await geminiService.generateChain(agentProfileDetailedTemplate, { 
           "Target Persona Name": pInfo.name, 
           "Reference Analysis": `${marketCanvas}\n${jobBuilder}\n${metrics}` 
-        });
+        }, false, temperature);
+        if (cancelledRef.current) return;
 
         setLoadingStage(`Defining Behaviors: ${pInfo.name}...`);
         const behaviors = await geminiService.generateChain(agentBehaviorsTemplate, { 
           "Target Persona": pInfo.name, 
           "Detailed Profile": profile 
-        });
+        }, false, temperature);
+        if (cancelledRef.current) return;
 
         setLoadingStage(`Capturing Digital Likeness: ${pInfo.name}...`);
         const avatarUrl = await geminiService.generateAvatar(pInfo.name, pInfo.title);
+        if (cancelledRef.current) return;
 
-        // Create persona
         const persona = await personaApi.create({
           name: pInfo.name,
           type: 'synthetic_user',
@@ -167,7 +184,6 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
           metadata: { personaGroupId },
         });
 
-        // Create persona files
         const files = [
           { name: `Job_Builder.md`, content: jobBuilder, type: 'markdown' as const },
           { name: `Metrics.md`, content: metrics, type: 'markdown' as const },
@@ -182,11 +198,14 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       }
       setCreatedPersonaIds(createdIds);
     } catch (err: any) {
-      console.error('Generation error:', err);
-      const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-      alert(`Generation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+      if (!cancelledRef.current) {
+        console.error('Generation error:', err);
+        const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
+        alert(`Generation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+      }
     } finally {
-      setLoading(false);
+      if (!cancelledRef.current) setLoading(false);
+      setLoadingStage('');
     }
   };
 
@@ -362,18 +381,30 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       )}
 
       {method != null && (
-      <button
-        type="submit"
-        disabled={
-          loading ||
-          (method === 'problem_solution' && (!formData.q1.trim() || !formData.q2.trim() || !formData.q3.trim() || !formData.q4.trim())) ||
-          (method === 'supporting_docs' && !formData.q6.trim()) ||
-          (method === 'business_profile' && !savedBusinessProfile)
-        }
-        className="w-full py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
-      >
-        {loading ? <div className="flex items-center justify-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest ml-2">{loadingStage}</span></div> : 'Submit Blueprint'}
-      </button>
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          type="submit"
+          disabled={
+            loading ||
+            (method === 'problem_solution' && (!formData.q1.trim() || !formData.q2.trim() || !formData.q3.trim() || !formData.q4.trim())) ||
+            (method === 'supporting_docs' && !formData.q6.trim()) ||
+            (method === 'business_profile' && !savedBusinessProfile)
+          }
+          className="flex-1 min-w-[200px] py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
+        >
+          {loading ? <div className="flex items-center justify-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest ml-2">{loadingStage}</span></div> : 'Submit Blueprint'}
+        </button>
+        {loading && (
+          <button
+            type="button"
+            onClick={handleCancelGenerate}
+            className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
+          >
+            <X className="w-5 h-5" />
+            Cancel
+          </button>
+        )}
+      </div>
       )}
       </>
       )}
@@ -387,6 +418,7 @@ type AdvisorSourceMode = 'linkedin' | 'pdf';
 const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
+  const cancelledRef = useRef(false);
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
   const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
   const [savingVisibility, setSavingVisibility] = useState(false);
@@ -508,6 +540,12 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
     setOtherDocsFileMimeType('');
   };
 
+  const handleCancelGenerate = () => {
+    cancelledRef.current = true;
+    setLoading(false);
+    setLoadingStage('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (sourceMode === null) return;
@@ -522,6 +560,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         return;
       }
     }
+    cancelledRef.current = false;
     setLoading(true);
     try {
       let extractedText = fileContent;
@@ -529,6 +568,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
       if (sourceMode === 'linkedin') {
         setLoadingStage('Analyzing professional facts...');
         const extractedFacts = await geminiService.extractFacts(linkedinText);
+        if (cancelledRef.current) return;
         let otherDocsResolved = '';
         if (otherDocsFileName) {
           if (otherDocsFileBase64 && otherDocsFileMimeType) {
@@ -543,12 +583,14 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
             otherDocsResolved = otherDocsFileContent;
           }
         }
+        if (cancelledRef.current) return;
         const combined = otherDocsResolved.trim()
           ? `${extractedFacts}\n\n--- Additional context (CV/portfolio) ---\n${otherDocsResolved.trim()}`
           : extractedFacts;
         setLoadingStage('Discovering identity...');
         const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
         const identity = await geminiService.generateBasic(idPrompt, true);
+        if (cancelledRef.current) return;
         const rawName = (identity as { name?: string })?.name;
         const rawTitle = (identity as { title?: string })?.title;
         const rawSummary = (identity as { summary?: string })?.summary;
@@ -568,8 +610,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
           "Context Summary": summary || title,
           "Target Name": name,
         }, true);
+        if (cancelledRef.current) return;
         setLoadingStage(`Generating Digital Likeness for ${name || 'advisor'}...`);
         const avatarUrl = await geminiService.generateAvatar(name, title);
+        if (cancelledRef.current) return;
         const persona = await personaApi.create({
           name: name,
           type: 'advisor',
@@ -594,7 +638,6 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         return;
       }
 
-      // If we have a file as base64 (any Gemini-supported type), extract text via Gemini
       if (fileBase64 && fileMimeType) {
         setLoadingStage('Extracting text from document...');
         const extractPrompt = `Extract the key text content from this document. Focus on:
@@ -625,6 +668,7 @@ Return the extracted text in a structured format. Be concise but comprehensive.`
           fileBase64,
           fileMimeType
         );
+        if (cancelledRef.current) return;
 
         if (extractedText.length > 50000) {
           extractedText = extractedText.substring(0, 50000) + '\n\n[Content truncated to manage context size]';
@@ -636,10 +680,10 @@ Return the extracted text in a structured format. Be concise but comprehensive.`
       }
       
       setLoadingStage('Identifying Author Identity...');
-      // Use first 8000 chars for identity extraction to save tokens
       const idPrompt = `Analyze this text and identify the primary author/expert. Return JSON: { "name": string, "title": string, "summary": string }. 
 Limit your analysis to the key identifying information. Text sample: ${extractedText.substring(0, 8000)}`;
       const identity = await geminiService.generateBasic(idPrompt, true);
+      if (cancelledRef.current) return;
       const rawName = (identity as { name?: string })?.name;
       const rawTitle = (identity as { title?: string })?.title;
       const rawSummary = (identity as { summary?: string })?.summary;
@@ -648,7 +692,6 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       const summary = (typeof rawSummary === 'string' && rawSummary.trim()) ? rawSummary.trim() : undefined;
 
       setLoadingStage(`Building High-Fidelity Blueprint for ${name}...`);
-      // Limit the source material to ~30000 chars to control context size
       const limitedSourceMaterial = extractedText.length > 30000 
         ? extractedText.substring(0, 30000) + '\n\n[Earlier content truncated for context management]'
         : extractedText;
@@ -658,11 +701,12 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         "Identity Target": `${name} - ${title}`,
         "Context Summary": summary
       }, true);
+      if (cancelledRef.current) return;
       
       setLoadingStage(`Generating Digital Likeness for ${name}...`);
       const avatarUrl = await geminiService.generateAvatar(name, title);
+      if (cancelledRef.current) return;
 
-      // Create persona
       const persona = await personaApi.create({
         name: name,
         type: 'advisor',
@@ -671,13 +715,11 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         metadata: { personaGroupId: "N/A" },
       });
 
-      // Create persona files
       await personaApi.createFile(persona.id, {
         name: `1_Expert_Blueprint.md`,
         content: profileOutput,
         type: 'markdown'
       });
-      // Store the extracted text (limited version)
       const storedContent = extractedText.length > 50000 
         ? extractedText.substring(0, 50000) + '\n\n[Content truncated for storage]'
         : extractedText;
@@ -689,11 +731,14 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       });
       setCreatedPersonaIds([persona.id]);
     } catch (err: any) {
-      console.error('Advisor generation error:', err);
-      const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-      alert(`Analysis failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+      if (!cancelledRef.current) {
+        console.error('Advisor generation error:', err);
+        const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
+        alert(`Analysis failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+      }
     } finally {
-      setLoading(false);
+      if (!cancelledRef.current) setLoading(false);
+      setLoadingStage('');
     }
   };
 
@@ -852,13 +897,25 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={loading || sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
-        className="w-full py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
-      >
-        {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
-      </button>
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          type="submit"
+          disabled={loading || sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
+          className="flex-1 min-w-[200px] py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
+        >
+          {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
+        </button>
+        {loading && (
+          <button
+            type="button"
+            onClick={handleCancelGenerate}
+            className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
+          >
+            <X className="w-5 h-5" />
+            Cancel
+          </button>
+        )}
+      </div>
       </div>
       )}
       </>
