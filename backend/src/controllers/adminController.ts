@@ -136,12 +136,15 @@ export async function testEmbed(req: AuthRequest, res: Response, next: NextFunct
 
 export async function reindexAll(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const result = await pool.query('SELECT id, name FROM personas');
+    const result = await pool.query(
+      `SELECT p.id, p.name FROM personas p
+       WHERE NOT EXISTS (SELECT 1 FROM knowledge_chunks kc WHERE kc.persona_id = p.id)`
+    );
     const personas: { id: string; name: string }[] = result.rows;
     const total = personas.length;
 
     if (total === 0) {
-      return res.json({ type: 'complete', success: 0, failed: 0, total: 0 });
+      return res.json({ type: 'complete', success: 0, failed: 0, total: 0, skipped: 'all already embedded' });
     }
 
     res.setHeader('Content-Type', 'application/x-ndjson');

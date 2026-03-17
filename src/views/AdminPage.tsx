@@ -360,7 +360,9 @@ const AdminPage: React.FC = () => {
                         <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
                       )}
                       {embedProgress.done
-                        ? `Embedding complete: ${embedProgress.success} succeeded, ${embedProgress.failed} failed out of ${embedProgress.total}`
+                        ? embedProgress.total === 0
+                          ? 'All personas already embedded. Nothing to do.'
+                          : `Embedding complete: ${embedProgress.success} succeeded, ${embedProgress.failed} failed out of ${embedProgress.total}`
                         : `Embedding ${embedProgress.current} / ${embedProgress.total}...`
                       }
                     </div>

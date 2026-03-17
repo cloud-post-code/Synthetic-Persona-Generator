@@ -53,6 +53,7 @@ export interface ReindexEvent {
   error?: string;
   success?: number;
   failed?: number;
+  skipped?: string;
 }
 
 export const adminApi = {

@@ -136,8 +136,9 @@ You ARE this persona. Respond in first person as them. Never describe or referen
 
   const userParts: any[] = [{ text: truncate(userMessage, 20000) }];
   if (image && mimeType) {
+    const base64Data = image.includes(',') ? image.split(',')[1] : image;
     userParts.push({
-      inlineData: { data: image, mimeType },
+      inlineData: { data: base64Data, mimeType },
     });
   }
 

@@ -175,9 +175,15 @@ export const geminiService = {
   /**
    * Generate a realistic full name for a persona (e.g. for a job title or "advisor").
    * Returns a single string "First Last". Uses AI so no fixed default name list.
+   * @param context - Role/title or description for the persona.
+   * @param existingNames - Optional list of names already in use; the generated name will not be one of these.
    */
-  generatePersonaName: async (context: string): Promise<string> => {
-    const prompt = `Generate a plausible, invented full name (first and last name only) for a person who might have this role. Return only valid JSON: {"name": "First Last"}. The value for "name" must be a real-sounding human name (e.g. "Sarah Chen", "Marcus Webb"), never a job title or role (e.g. not "Project Lead", "Marketing Director", or "Advisor"). Context/role: ${context}`;
+  generatePersonaName: async (context: string, existingNames?: string[]): Promise<string> => {
+    const avoidPart =
+      existingNames && existingNames.length > 0
+        ? ` Do NOT use any of these names (already in use): ${existingNames.join(', ')}. Return a different, unique full name.`
+        : '';
+    const prompt = `Generate a plausible, invented full name (first and last name only) for a person who might have this role. Return only valid JSON: {"name": "First Last"}. The value for "name" must be a real-sounding human name (e.g. "Sarah Chen", "Marcus Webb"), never a job title or role (e.g. not "Project Lead", "Marketing Director", or "Advisor"). Context/role: ${context}.${avoidPart}`;
     try {
       const parsed = await geminiService.generateBasic(prompt, true);
       const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';

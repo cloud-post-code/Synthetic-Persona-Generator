@@ -88,17 +88,23 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void }> = ({ onComplete })
       setLoadingStage('Quantifying Success Metrics...');
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
 
-      const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
+      const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. CRITICAL: Each persona must have a unique full name—no two personas in the list may share the same name. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
       const raw = await geminiService.generateBasic(idPrompt, true);
       const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
+      const usedNames = new Set<string>();
       const personas: { name: string; title: string }[] = [];
       for (let index = 0; index < personasRaw.length; index++) {
         const p = personasRaw[index] as { name?: string; title?: string };
         const titleStr = (typeof p?.title === 'string' && p.title.trim()) ? p.title.trim() : 'Synthetic Persona';
-        const nameStr = (typeof p?.name === 'string' && p.name.trim()) ? p.name.trim() : '';
-        const name = (nameStr && nameStr !== titleStr) ? nameStr : await geminiService.generatePersonaName(titleStr);
-        const finalName = (name && name !== 'Persona') ? name : titleStr;
-        personas.push({ name: finalName, title: titleStr });
+        let nameStr = (typeof p?.name === 'string' && p.name.trim()) ? p.name.trim() : '';
+        let name = (nameStr && nameStr !== titleStr) ? nameStr : await geminiService.generatePersonaName(titleStr, Array.from(usedNames));
+        if (!name || name === 'Persona') name = titleStr;
+        while (usedNames.has(name)) {
+          name = await geminiService.generatePersonaName(`${titleStr} (alternative)`, Array.from(usedNames));
+          if (!name || name === 'Persona') name = `${titleStr} ${usedNames.size + 1}`;
+        }
+        usedNames.add(name);
+        personas.push({ name, title: titleStr });
       }
 
       for (const pInfo of personas) {
