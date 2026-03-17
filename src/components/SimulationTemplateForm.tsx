@@ -16,7 +16,6 @@ import { getSimulationIcon } from '../utils/simulationIcons.js';
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
   { id: 'persuasion_simulation', label: 'Persuasion Simulation', description: 'Back-and-forth chat where the persona’s level of persuasion is tracked. At the end they state a single persuasion percentage (e.g. “Persuasion: 75%”).', icon: 'MessageSquare' },
-  { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.', icon: 'Target' },
   { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.', icon: 'BarChart3' },
   { id: 'persona_conversation', label: 'Persona v Persona Conversation', description: 'Moderated multi-persona discussion: multiple personas discuss an opening line in turns. An LLM moderator chooses who speaks next and when to end; after the conversation, the moderator summarizes and answers the opening line. Each persona turn is a separate API call; max 20 persona turns.', icon: 'Users' },
   { id: 'idea_generation', label: 'Idea Generation', description: "Single response with a fixed number of ideas from the persona's perspective. Output is always a bullet list of ideas. No chat or follow-up.", icon: 'Lightbulb' },
@@ -498,25 +497,6 @@ ${description.trim() || '(empty - please create an initial description based on 
           <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (side menu).</p>
         </section>
       )}
-      {simulationType && (
-        <section className="border-t border-gray-200 pt-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Icon</label>
-          <p className="text-xs text-gray-500">Icon is set by simulation type.</p>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-              {(() => {
-                const typeConfig = SIMULATION_TYPES.find((t) => t.id === simulationType);
-                const IconComponent = getSimulationIcon(typeConfig?.icon);
-                return <IconComponent className="w-5 h-5" />;
-              })()}
-            </div>
-            <span className="text-sm text-gray-600">
-              {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label}
-            </span>
-          </div>
-        </section>
-      )}
-
       {/* 4. Persona configuration */}
       <section className="space-y-4 border-t border-gray-200 pt-8">
         <h2 className="text-lg font-semibold text-gray-900">Who can run this simulation</h2>

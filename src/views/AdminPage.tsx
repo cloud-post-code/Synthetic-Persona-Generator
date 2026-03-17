@@ -327,7 +327,6 @@ const AdminPage: React.FC = () => {
                           <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Icon</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Input Fields</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -338,7 +337,6 @@ const AdminPage: React.FC = () => {
                             <tr key={sim.id}>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{sim.title}</td>
                               <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">{sim.description || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{sim.icon || '-'}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{sim.required_input_fields.length}</td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {sim.is_active ? (
