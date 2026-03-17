@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import * as adminService from '../services/adminService.js';
 import * as personaService from '../services/personaService.js';
+import pool from '../config/database.js';
+import { indexPersona } from '../services/embeddingService.js';
 
 export async function getUsers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -64,6 +66,32 @@ export async function createPersona(req: AuthRequest, res: Response, next: NextF
       avatar_url: body.avatar_url || '',
     });
     res.status(201).json(persona);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function reindexAll(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const result = await pool.query('SELECT id FROM personas');
+    const personaIds: string[] = result.rows.map((r: any) => r.id);
+
+    res.json({ message: `Reindexing ${personaIds.length} personas in the background`, count: personaIds.length });
+
+    (async () => {
+      let success = 0;
+      let failed = 0;
+      for (const id of personaIds) {
+        try {
+          await indexPersona(id);
+          success++;
+        } catch (err: any) {
+          failed++;
+          console.error(`Reindex failed for persona ${id}:`, err?.message || err);
+        }
+      }
+      console.log(`Reindex complete: ${success} succeeded, ${failed} failed out of ${personaIds.length} total`);
+    })();
   } catch (error) {
     next(error);
   }

@@ -23,6 +23,7 @@ import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
+import { agentApi } from '../services/agentApi.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
@@ -770,21 +771,13 @@ const SimulationPage: React.FC = () => {
 
         while (turnCount < maxTurns) {
         const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
-        const systemPrompt =
-            `You are strictly acting as the persona: ${currentSpeaker.name}.\n\n` +
-            `Focus: The discussion is about the **opening topic** (the user's input below)—not your own organization or story. Use your profile to inform your perspective and assist the discussion; stay in character.\n\n` +
-            `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona.\n\n` +
-            `Context: You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\n` +
-            getPersonaProfile(currentSpeaker) +
-            `\nRespond in character. Stay concise; this is one turn in a discussion.`;
-
-          const historyForChat = conversationMessages
+        const historyForChat = conversationMessages
             .filter((m) => m.senderType === 'persona' && m.personaId)
             .map((m) => {
               const name = getPersonaDisplayName(personaMap.get(m.personaId!));
               return { role: 'user' as const, text: `${name}: ${m.content}` };
             });
-          const newMessage =
+          const turnMessage =
             conversationMessages.length === 0
               ? `The opening topic is: "${openingLineText.substring(0, 1000)}". You are starting the conversation. Share your thoughts in character.`
               : `It's your turn. Respond in character to the discussion so far.`;
@@ -793,7 +786,15 @@ const SimulationPage: React.FC = () => {
           const idPersonaTurn = addActivity(`${speakerName} is responding...`, `Turn ${turnCount + 1}`);
           let response: string;
           try {
-            response = await geminiService.chat(systemPrompt, historyForChat, newMessage);
+            const agentResult = await agentApi.turn({
+              personaId: currentSpeaker.id,
+              personaIds: selectedPersonas.map(p => p.id),
+              sessionId: newSessionId,
+              history: historyForChat,
+              userMessage: turnMessage,
+              simulationInstructions: `You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\nFocus on the opening topic—not your own organization or story. Use your profile to inform your perspective. Respond in character. Stay concise; this is one turn in a discussion.`,
+            });
+            response = agentResult.response;
             markActivityDone(idPersonaTurn);
           } catch (err) {
             markActivityError(idPersonaTurn);
@@ -888,67 +889,60 @@ const SimulationPage: React.FC = () => {
 
     for (const selectedPersona of selectedPersonas) {
       if (simulationCancelledRef.current) return;
-      let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
-      const files = selectedPersona.files || [];
-      if (files.length === 0) {
-        try {
-          const personaFiles = await personaApi.getFiles(selectedPersona.id);
-          files.push(...personaFiles.map(f => ({
-            ...f,
-            createdAt: f.created_at || f.createdAt,
-          })));
-        } catch (err) {
-          console.error('Failed to load persona files:', err);
-        }
-      }
-      files.forEach(f => {
-        profileData += `--- FILE: ${f.name} ---\n${f.content.substring(0, 15000)}\n\n`;
-      });
 
-      let prompt = selectedSimulation.system_prompt;
+      let instructions = selectedSimulation.system_prompt;
       const hasRequiredInputs = (selectedSimulation.required_input_fields?.length ?? 0) > 0;
-      if (hasRequiredInputs && !/Focus of this simulation/i.test(prompt)) {
-        prompt =
-          '### Focus of this simulation\nThe **focus** of your response is always the **user\'s inputs**—the content provided by the **person running the simulation** (the user), not by the persona. Variables below (e.g. {{BACKGROUND_INFO}}, {{OPENING_LINE}}, {{BUSINESSPROFILE}}) are replaced with the user\'s context, business background, etc. Your persona ({{SELECTED_PROFILE_FULL}}) is in the **background**: use your profile to inform your perspective and assist in decision-making, but center your analysis and recommendations on the **user\'s situation and inputs**. Do not center the response on your own organization or story.\n\n' +
-          prompt;
+      if (hasRequiredInputs && !/Focus of this simulation/i.test(instructions)) {
+        instructions =
+          '### Focus of this simulation\nThe **focus** of your response is always the **user\'s inputs**—the content provided by the **person running the simulation** (the user), not by the persona. Use your profile to inform your perspective and assist in decision-making, but center your analysis and recommendations on the **user\'s situation and inputs**. Do not center the response on your own organization or story.\n\n' +
+          instructions;
       }
       const hasBusinessProfileField = selectedSimulation.required_input_fields?.some(
         (f) => f.type === 'business_profile' || f.name === 'businessProfile'
       );
-      if (hasBusinessProfileField && !/Business to analyze/i.test(prompt)) {
-        prompt =
-          '### Business to analyze (client company)\nThe {{BUSINESSPROFILE}} variable contains the **client\'s (user\'s) business**—input from the **person running the simulation**, not the persona. The company you are advising or analyzing is the user\'s. Your identity and expertise are in {{SELECTED_PROFILE_FULL}}. Base your analysis (e.g. SWOT, recommendations, report) exclusively on the business in {{BUSINESSPROFILE}}, not on your own organization.\n\n' +
-          prompt;
+      if (hasBusinessProfileField && !/Business to analyze/i.test(instructions)) {
+        instructions =
+          '### Business to analyze (client company)\nThe business profile below describes the **client\'s (user\'s) business**—input from the **person running the simulation**, not the persona. Base your analysis exclusively on this business, not on your own organization.\n\n' +
+          instructions;
       }
       const hasSurveyQuestionsField = selectedSimulation.required_input_fields?.some(
         (f) => f.type === 'survey_questions'
       );
-      if (hasSurveyQuestionsField && !/Survey questions provided by the runner/i.test(prompt)) {
+      if (hasSurveyQuestionsField && !/Survey questions provided by the runner/i.test(instructions)) {
         const sqFieldNames = selectedSimulation.required_input_fields
           .filter((f) => f.type === 'survey_questions')
           .map((f) => `{{${f.name.toUpperCase()}}}`)
           .join(', ');
-        prompt =
-          `### Survey questions provided by the runner\nThe variable(s) ${sqFieldNames} contain survey questions created by the person running the simulation. Each question includes its type (text, numeric, or multiple_choice) and, for multiple choice, the available options. You must answer every question listed, using the question type to determine the format of your answer. Treat these exactly as you would predefined survey questions.\n\n` +
-          prompt;
+        instructions =
+          `### Survey questions provided by the runner\nThe variable(s) ${sqFieldNames} contain survey questions created by the person running the simulation. Each question includes its type (text, numeric, or multiple_choice) and, for multiple choice, the available options. You must answer every question listed, using the question type to determine the format of your answer.\n\n` +
+          instructions;
       }
-      prompt = prompt
+      instructions = instructions
         .replace(/{{SELECTED_PROFILE}}/g, selectedPersona.name)
-        .replace(/{{SELECTED_PROFILE_FULL}}/g, profileData)
+        .replace(/{{SELECTED_PROFILE_FULL}}/g, `[Your profile for ${selectedPersona.name} — retrieved automatically from knowledge base]`)
         .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
         .replace(/{{OPENING_LINE}}/g, userInputsString || '');
       for (const [key, value] of Object.entries(fieldMap)) {
-        prompt = prompt.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+        instructions = instructions.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
       }
 
       if (selectedSimulation.simulation_type === 'persuasion_simulation' && selectedPersona.id === selectedPersonas[0].id) {
-        persuasionSystemPrompt = prompt;
+        persuasionSystemPrompt = instructions;
       }
 
       const idPersonaSim = addActivity(`Generating response for ${selectedPersona.name}...`);
       let result: string;
       try {
-        result = await geminiService.runSimulation(prompt, effectiveStimulusImage || undefined, effectiveMimeType || undefined);
+        const agentResult = await agentApi.turn({
+          personaId: selectedPersona.id,
+          personaIds: selectedPersonas.map(p => p.id),
+          history: [],
+          userMessage: userInputsString || fieldMap.bgInfo || bgInfo || 'Please respond based on the simulation instructions.',
+          simulationInstructions: instructions,
+          image: effectiveStimulusImage || undefined,
+          mimeType: effectiveMimeType || undefined,
+        });
+        result = agentResult.response;
         markActivityDone(idPersonaSim);
       } catch (err) {
         markActivityError(idPersonaSim);
@@ -990,7 +984,20 @@ const SimulationPage: React.FC = () => {
       });
       
       const newSessionId = newSession.id;
-      
+
+      // Index session context for RAG retrieval in follow-up chats
+      const sessionContextFields: Record<string, string> = {};
+      if (fieldMap.bgInfo || bgInfo) sessionContextFields.bgInfo = fieldMap.bgInfo || bgInfo;
+      if (userInputsString) sessionContextFields.openingLine = userInputsString;
+      for (const [key, value] of Object.entries(fieldMap)) {
+        if (value && key !== 'bgInfo') sessionContextFields[key] = value;
+      }
+      if (Object.keys(sessionContextFields).length > 0) {
+        agentApi.indexContext(newSessionId, sessionContextFields).catch(err =>
+          console.warn('Failed to index session context:', err)
+        );
+      }
+
       const initialMessage: Message = {
         id: crypto.randomUUID(),
         sessionId: newSessionId,
@@ -1090,11 +1097,15 @@ const SimulationPage: React.FC = () => {
         text: m.content
       }));
 
-      const systemPrompt = `You are strictly acting as the persona: ${selectedPersona.name}.\n` +
-        `The context below (including any business background) is provided by the **person running the simulation** (the user), not by the persona. You are the persona; focus on the user's situation and inputs. Context: ${bgInfo}\n` +
-        `CRITICAL: You ARE this persona. Respond only as them—never describe, reference, or embed the persona in your reply. Speak in first person as the persona. Staying in character is mandatory.`;
-      
-      const response = await geminiService.chat(systemPrompt, history, currentInput);
+      const agentResult = await agentApi.turn({
+        personaId: selectedPersona.id,
+        personaIds: [selectedPersona.id],
+        sessionId: currentSessionId,
+        history,
+        userMessage: currentInput,
+        simulationInstructions: bgInfo ? `Context provided by the person running the simulation: ${bgInfo}` : undefined,
+      });
+      const response = agentResult.response;
       
       const aiMsg: Message = {
         id: crypto.randomUUID(),
@@ -1910,8 +1921,7 @@ const SimulationPage: React.FC = () => {
                       <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         {fieldNumber}. {field.name} {field.required && '*'}
                       </span>
-                      <input
-                        type="text"
+                      <textarea
                         value={value}
                         onChange={(e) => {
                           const newValue = e.target.value;
@@ -1919,7 +1929,8 @@ const SimulationPage: React.FC = () => {
                           if (field.name === 'bgInfo') setBgInfo(newValue);
                         }}
                         required={field.required}
-                        className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                        rows={4}
+                        className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-y min-h-[120px]"
                       />
                     </div>
                   );

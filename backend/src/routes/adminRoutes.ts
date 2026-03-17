@@ -17,6 +17,7 @@ router.get('/chats', adminController.getChatSessions);
 router.get('/messages', adminController.getMessages);
 router.get('/stats', adminController.getStats);
 router.post('/personas', adminController.createPersona);
+router.post('/reindex-all', adminController.reindexAll);
 
 // Simulation template management (admin only)
 router.get('/simulations', simulationTemplateController.getAllSimulations);

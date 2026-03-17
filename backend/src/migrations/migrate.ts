@@ -181,6 +181,29 @@ async function migrate() {
       if (err.code !== '42P07') throw err;
     }
     
+    // Knowledge chunks table for RAG embeddings
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS knowledge_chunks (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          persona_id UUID REFERENCES personas(id) ON DELETE CASCADE,
+          session_id UUID,
+          source_type VARCHAR(50) NOT NULL,
+          source_name VARCHAR(255),
+          chunk_text TEXT NOT NULL,
+          chunk_index INTEGER NOT NULL DEFAULT 0,
+          embedding FLOAT8[],
+          content_hash VARCHAR(64),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_persona ON knowledge_chunks(persona_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_session ON knowledge_chunks(session_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_kc_hash ON knowledge_chunks(content_hash)`);
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
+    }
+
     console.log('Seeding default simulations...');
     
     // Check if simulations already exist

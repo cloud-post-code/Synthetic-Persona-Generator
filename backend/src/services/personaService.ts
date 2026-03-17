@@ -1,6 +1,13 @@
 import pool from '../config/database.js';
 import { Persona, PersonaFile, PersonaVisibility } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import { indexPersona as indexPersonaEmbeddings } from './embeddingService.js';
+
+function triggerIndex(personaId: string) {
+  indexPersonaEmbeddings(personaId).catch(err =>
+    console.error(`Background indexing failed for persona ${personaId}:`, err?.message || err)
+  );
+}
 
 /** Check if user can access persona (owner, or public/global, or starred). */
 export async function canAccessPersona(personaId: string, userId: string): Promise<boolean> {
@@ -77,6 +84,7 @@ export async function createPersona(userId: string, personaData: Omit<Persona, '
   );
 
   const persona = result.rows[0];
+  triggerIndex(persona.id);
   return {
     ...persona,
     visibility: persona.visibility || 'private',
@@ -105,6 +113,7 @@ export async function createGlobalPersona(adminUserId: string, personaData: Pick
     ]
   );
   const persona = result.rows[0];
+  triggerIndex(persona.id);
   return {
     ...persona,
     visibility: persona.visibility || 'global',
@@ -161,6 +170,9 @@ export async function updatePersona(personaId: string, userId: string, updates: 
   }
 
   const persona = result.rows[0];
+  if (updates.description !== undefined) {
+    triggerIndex(persona.id);
+  }
   return {
     ...persona,
     visibility: persona.visibility || 'private',
@@ -207,6 +219,7 @@ export async function createPersonaFile(personaId: string, userId: string, fileD
     [id, personaId, fileData.name, fileData.content, fileData.type]
   );
 
+  triggerIndex(personaId);
   return result.rows[0];
 }
 

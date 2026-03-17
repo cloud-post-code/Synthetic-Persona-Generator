@@ -9,6 +9,7 @@ import simulationRoutes from './routes/simulationRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import businessProfileRoutes from './routes/businessProfileRoutes.js';
 import focusGroupRoutes from './routes/focusGroupRoutes.js';
+import agentRoutes from './routes/agentRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -40,6 +41,8 @@ app.use('/api/profile/business', businessProfileRoutes);
 app.use('/api/focus-groups', focusGroupRoutes);
 // Admin routes
 app.use('/api/admin', adminRoutes);
+// Agent routes (RAG + multi-step reasoning)
+app.use('/api/agent', agentRoutes);
 
 // Error handling
 app.use(errorHandler);

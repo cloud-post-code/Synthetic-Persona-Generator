@@ -10,8 +10,7 @@ import {
 } from '../services/simulationTemplateApi.js';
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
-import { IconPicker } from './IconPicker.js';
-import { getSimulationIcon } from '../utils/simulationIcons.js';
+import { getSimulationIcon, SIMULATION_ICON_DEFAULT } from '../utils/simulationIcons.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -42,7 +41,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [icon, setIcon] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [simulationType, setSimulationType] = useState<SimulationType | ''>('');
@@ -67,7 +65,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     if (simulation) {
       setTitle(simulation.title);
       setDescription(simulation.description || '');
-      setIcon(simulation.icon || '');
       setSystemPrompt(simulation.system_prompt);
       setIsActive(simulation.is_active);
       setSimulationType(simulation.simulation_type || '');
@@ -306,10 +303,10 @@ ${description.trim() || '(empty - please create an initial description based on 
 
   const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
 
-  // When a simulation type is selected, icon is fixed by type; otherwise use picked icon
+  // Icon is always the default for the selected simulation type (or default for legacy)
   const resolvedIcon = simulationType
     ? (SIMULATION_TYPES.find((t) => t.id === simulationType)?.icon ?? '').trim() || undefined
-    : (icon.trim() || undefined);
+    : SIMULATION_ICON_DEFAULT;
 
   const handleCancelRegenerate = () => {
     regeneratingCancelledRef.current = true;
@@ -491,13 +488,6 @@ ${description.trim() || '(empty - please create an initial description based on 
         />
       </section>
 
-      {/* Icon — only when no simulation type (legacy); otherwise icon is fixed by type */}
-      {!simulationType && (
-        <section className="border-t border-gray-200 pt-6">
-          <IconPicker value={icon} onChange={setIcon} label="Icon" compact />
-          <p className="mt-1 text-xs text-gray-500">Click to choose. Default is PlayCircle (side menu).</p>
-        </section>
-      )}
       {/* 4. Persona configuration */}
       <section className="space-y-4 border-t border-gray-200 pt-8">
         <h2 className="text-lg font-semibold text-gray-900">Who can run this simulation</h2>

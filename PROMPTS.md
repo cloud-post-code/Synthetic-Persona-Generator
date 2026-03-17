@@ -352,14 +352,102 @@ These are filled by the “High-Fidelity Persona Architect” prompt in generate
 
 ---
 
+## 10. RAG + Multi-step Agent Architecture
+
+As of the RAG migration, agent responses (chat and simulation) no longer build monolithic system prompts on the frontend. Instead, a backend agent pipeline handles all LLM calls.
+
+### 10.1 Architecture overview
+
+```
+Frontend (view layer) → POST /api/agent/turn → Backend agentService.runAgentTurn
+```
+
+The frontend sends `personaId`, conversation `history`, `userMessage`, and optional `simulationInstructions` / `image`. The backend orchestrates a multi-step pipeline and returns the final response.
+
+### 10.2 Agent turn pipeline (Think → Retrieve → Respond)
+
+**Step 1 — Think** (first LLM call):
+```
+System: "You are {persona.name}, {persona.description}.
+You are about to respond to a message. Before responding, think carefully:
+- What is the user really asking or trying to achieve?
+- What aspects of your expertise, background, or knowledge are most relevant?
+- What specific information should you look up from your knowledge base?
+
+Output your thinking in JSON:
+{
+  "thinking": "your step-by-step reasoning here",
+  "search_queries": ["query 1", "optional query 2"]
+}"
+
+User: {userMessage}
+```
+
+Uses `gemini-2.5-flash` with `responseMimeType: 'application/json'`.
+
+**Step 2 — Retrieve** (vector search):
+
+Each search query from Step 1 is embedded via `text-embedding-004` and matched against the `knowledge_chunks` table using cosine similarity. Chunks come from persona profile data, uploaded files, and session context. Top 10-15 unique chunks are selected.
+
+**Step 3 — Respond** (second LLM call):
+```
+System: "You are {persona.name}, {persona.description}.
+You ARE this persona. Respond in first person as them. Never describe or reference the persona.
+{simulationInstructions (if any)}
+
+### Your earlier analysis
+{thinking from Step 1}
+
+### Retrieved knowledge
+{chunk texts, labeled by source}"
+
+Contents: history + userMessage (+ optional image)
+```
+
+Returns `{ response, thinking }` to the frontend.
+
+### 10.3 Knowledge base indexing
+
+Persona knowledge is indexed into the `knowledge_chunks` table automatically:
+- **On persona creation** — profile description is chunked, embedded, and stored
+- **On persona update** — re-indexed when description changes
+- **On file upload** — all persona content is re-indexed
+- **Session context** — user inputs (bgInfo, business profile, etc.) can be indexed per-session via `POST /api/agent/index-context`
+
+Chunking uses ~400 words per chunk with 80-word overlap, splitting on paragraph boundaries.
+
+### 10.4 Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/agent/turn` | Run a full agent turn (Think → Retrieve → Respond) |
+| `POST /api/agent/index-context` | Index session-scoped context (user inputs) for RAG retrieval |
+| `POST /api/agent/retrieve` | Debug endpoint to preview retrieved chunks for a query |
+| `POST /api/admin/reindex-all` | Admin-only: re-index all existing personas (run once after migration) |
+
+### 10.5 Frontend integration
+
+- `src/services/agentApi.ts` — API client wrapping the agent endpoints
+- `ChatPage.tsx` — uses `agentApi.turn()` instead of building system prompts + calling `geminiService.chat()`
+- `SimulationPage.tsx` — uses `agentApi.turn()` for all simulation types (standard, persona conversation, persuasion follow-up)
+
+### 10.6 Remaining frontend Gemini methods
+
+The following methods in `src/services/gemini.ts` are **not** part of the agent response pipeline and continue to call Gemini directly from the frontend: `extractFacts`, `generateAvatar`, `generateChain`, `generateBasic`, `generateSystemPromptFromConfig`, `computePersuasionScore`, moderator methods (`moderatorWhoSpeaksFirst`, `moderatorPickNextSpeaker`, `moderatorSummarize`). These can be migrated to backend proxy endpoints in a follow-up.
+
+---
+
 ## Summary
 
 | Location | Purpose |
 |----------|---------|
 | gemini.ts | extractFacts, generateAvatar, generateChain, generateSystemPromptFromConfig, SIMULATION_TYPE_OUTPUT_SPECS |
-| pages/SimulationPage.tsx | MODES promptTemplate (4), chat system prompt |
+| pages/SimulationPage.tsx | MODES promptTemplate (4), simulation instructions |
 | backend simulationTemplateService | buildSystemPromptFromConfig, SIMULATION_TYPE_OUTPUT_SPECS |
 | backend migrate.ts | Seed system_prompt for 4 default simulations |
 | BuildPersonaPage | idPrompt (personas, author, professional), extractPrompt (document) |
-| ChatPage / src/views/ChatPage | systemPrompt for chat (persona + blueprint + instructions) |
-| src/views/SimulationPage | systemPrompt for simulation chat mode |
+| **backend agentService** | **Think → Retrieve → Respond pipeline (all agent LLM calls)** |
+| **backend embeddingService** | **Chunking, embedding, vector search for RAG** |
+| **src/services/agentApi.ts** | **Frontend client for agent turn API** |
+| ChatPage / src/views/ChatPage | calls agentApi.turn (no local prompt building) |
+| src/views/SimulationPage | calls agentApi.turn for all agent responses |

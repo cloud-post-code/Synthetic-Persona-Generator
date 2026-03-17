@@ -8,6 +8,7 @@ import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import { geminiService } from '../services/gemini.js';
+import { agentApi } from '../services/agentApi.js';
 import { Persona, ChatSession, Message, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
@@ -422,38 +423,8 @@ const ChatPage: React.FC = () => {
     try {
       for (const persona of selectedPersonas) {
         setActiveResponders(prev => [...prev, persona.id]);
-        
-        let systemPrompt = `You are strictly acting as the persona: ${getPersonaDisplayName(persona)}.\n`;
-        systemPrompt += `Identity/Title: ${persona.description}\n\n`;
-        systemPrompt += `CORE BLUEPRINT DATA:\n`;
-        
-        // Load persona files if not already loaded
-        let files = persona.files || [];
-        if (files.length === 0) {
-          try {
-            const personaFiles = await personaApi.getFiles(persona.id);
-            files = personaFiles.map(f => ({
-              ...f,
-              createdAt: f.created_at || f.createdAt,
-            }));
-          } catch (err) {
-            console.error('Failed to load persona files:', err);
-          }
-        }
-        
-        for (const file of files) {
-          const contentLimit = 50000;
-          const truncatedContent = file.content.length > contentLimit 
-            ? file.content.substring(0, contentLimit) + "... [Truncated for Context]"
-            : file.content;
-            
-          systemPrompt += `--- FILE: ${file.name} ---\n${truncatedContent}\n\n`;
-        }
-        systemPrompt += `INSTRUCTIONS: You ARE this persona. Respond naturally to the user's message only as this persona—never describe or reference the persona in your reply; speak in first person as them. Stay in character. Use bolding (**text**) for emphasis and bullet points for lists to ensure your message is easy to read and highly professional.`;
 
-        // Fetch messages from API to get full history, but ensure we include the user's latest message
         const allCurrentMessages = await chatApi.getMessages(session.id);
-        // Normalize messages
         const normalizedMessages = allCurrentMessages.map(m => ({
           ...m,
           sessionId: m.session_id || m.sessionId,
@@ -461,37 +432,39 @@ const ChatPage: React.FC = () => {
           personaId: m.persona_id || m.personaId,
           createdAt: m.created_at || m.createdAt,
         }));
-        
-        // Ensure the user's latest message is included (in case it wasn't saved yet)
-        const hasLatestMessage = normalizedMessages.some(m => 
-          m.id === userMessage.id || 
-          (m.senderType === 'user' && m.content === currentInput && 
+
+        const hasLatestMessage = normalizedMessages.some(m =>
+          m.id === userMessage.id ||
+          (m.senderType === 'user' && m.content === currentInput &&
            Math.abs(new Date(m.createdAt).getTime() - new Date(userMessage.createdAt).getTime()) < 5000)
         );
-        
+
         let messagesForHistory = normalizedMessages;
         if (!hasLatestMessage) {
-          // Add the user message if it's not in the fetched messages (normalize it to match structure)
-          const normalizedUserMessage = {
+          messagesForHistory = [...normalizedMessages, {
             ...userMessage,
-            sessionId: userMessage.sessionId,
+            sessionId: userMessage.sessionId || session.id,
             senderType: userMessage.senderType,
-            personaId: userMessage.personaId,
+            personaId: userMessage.personaId || '',
             createdAt: userMessage.createdAt,
-            content: userMessage.content,
-          };
-          messagesForHistory = [...normalizedMessages, normalizedUserMessage];
+          }];
         }
-        
+
         const historyLimit = 20;
         const recentMessages = messagesForHistory.slice(-historyLimit);
-        
         const history = recentMessages.map(m => ({
           role: m.senderType === 'user' ? 'user' as const : 'model' as const,
-          text: m.content
+          text: m.content,
         }));
 
-        const responseText = await geminiService.chat(systemPrompt, history, currentInput);
+        const agentResult = await agentApi.turn({
+          personaId: persona.id,
+          personaIds: selectedPersonas.map(p => p.id),
+          sessionId: session.id,
+          history,
+          userMessage: currentInput,
+        });
+        const responseText = agentResult.response;
 
         const aiMessage: Message = {
           id: crypto.randomUUID(),
