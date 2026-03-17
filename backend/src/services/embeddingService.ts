@@ -61,15 +61,22 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
   for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
     const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
+    console.log(`[EMBED] Calling text-embedding-004 for ${batch.length} texts (batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1})`);
     const response = await ai.models.embedContent({
       model: EMBEDDING_MODEL,
       contents: batch,
     });
     const embeddings = response.embeddings;
-    if (!embeddings) throw new Error('Embedding API returned no embeddings');
-    for (const emb of embeddings) {
-      allEmbeddings.push(emb.values as number[]);
+    if (!embeddings || embeddings.length === 0) {
+      throw new Error(`Embedding API returned no embeddings for batch of ${batch.length} texts`);
     }
+    for (const emb of embeddings) {
+      if (!emb.values || emb.values.length === 0) {
+        throw new Error('Embedding API returned empty values for a text');
+      }
+      allEmbeddings.push(emb.values);
+    }
+    console.log(`[EMBED] Got ${embeddings.length} embeddings (${embeddings[0]?.values?.length || 0}-dim)`);
   }
 
   return allEmbeddings;
@@ -140,10 +147,11 @@ export async function indexPersona(personaId: string): Promise<void> {
     const chunk = allChunks[i];
     const embedding = embeddings[i];
     const hash = sha256(chunk.text);
+    const embeddingPgArray = `{${embedding.join(',')}}`;
     insertValues.push(
-      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6})`
+      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}::float8[], $${paramIdx + 6})`
     );
-    insertParams.push(personaId, chunk.sourceType, chunk.sourceName, chunk.text, chunk.index, embedding, hash);
+    insertParams.push(personaId, chunk.sourceType, chunk.sourceName, chunk.text, chunk.index, embeddingPgArray, hash);
     paramIdx += 7;
   }
 
@@ -153,6 +161,7 @@ export async function indexPersona(personaId: string): Promise<void> {
        VALUES ${insertValues.join(', ')}`,
       insertParams
     );
+    console.log(`[EMBED] Inserted ${insertValues.length} chunks for persona ${personaId}`);
   }
 
   await pool.query(
@@ -222,10 +231,11 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
 
   for (let i = 0; i < chunks.length; i++) {
     const hash = sha256(chunks[i]);
+    const embeddingPgArray = `{${embeddings[i].join(',')}}`;
     insertValues.push(
-      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6})`
+      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}::float8[], $${paramIdx + 6})`
     );
-    insertParams.push(userId, 'business_profile', 'business_profile', chunks[i], i, embeddings[i], hash);
+    insertParams.push(userId, 'business_profile', 'business_profile', chunks[i], i, embeddingPgArray, hash);
     paramIdx += 7;
   }
 
@@ -237,7 +247,7 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
     );
   }
 
-  console.log(`Indexed ${chunks.length} business profile chunks for user ${userId}`);
+  console.log(`[EMBED] Indexed ${chunks.length} business profile chunks for user ${userId}`);
 }
 
 export async function indexSessionContext(sessionId: string, fields: Record<string, string>): Promise<void> {
@@ -270,10 +280,11 @@ export async function indexSessionContext(sessionId: string, fields: Record<stri
     const chunk = allChunks[i];
     const embedding = embeddings[i];
     const hash = sha256(chunk.text);
+    const embeddingPgArray = `{${embedding.join(',')}}`;
     insertValues.push(
-      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6})`
+      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}::float8[], $${paramIdx + 6})`
     );
-    insertParams.push(sessionId, 'session_context', chunk.sourceName, chunk.text, chunk.index, embedding, hash);
+    insertParams.push(sessionId, 'session_context', chunk.sourceName, chunk.text, chunk.index, embeddingPgArray, hash);
     paramIdx += 7;
   }
 
@@ -285,7 +296,7 @@ export async function indexSessionContext(sessionId: string, fields: Record<stri
     );
   }
 
-  console.log(`Indexed ${allChunks.length} session context chunks for session ${sessionId}`);
+  console.log(`[EMBED] Indexed ${allChunks.length} session context chunks for session ${sessionId}`);
 }
 
 export interface RetrievedChunk {
@@ -333,18 +344,25 @@ export async function retrieve(
   );
 
   const scored = result.rows
-    .filter((row: any) => row.embedding && row.embedding.length > 0)
+    .filter((row: any) => row.embedding && (Array.isArray(row.embedding) ? row.embedding.length > 0 : typeof row.embedding === 'string' && row.embedding.length > 2))
     .map((row: any) => {
-      const embedding: number[] = typeof row.embedding === 'string'
-        ? JSON.parse(row.embedding)
-        : row.embedding;
+      let embedding: number[];
+      if (Array.isArray(row.embedding)) {
+        embedding = row.embedding.map(Number);
+      } else if (typeof row.embedding === 'string') {
+        const cleaned = row.embedding.replace(/^\{/, '[').replace(/\}$/, ']');
+        embedding = JSON.parse(cleaned);
+      } else {
+        return null;
+      }
       return {
         text: row.chunk_text,
         source_type: row.source_type,
         source_name: row.source_name,
         score: cosineSimilarity(queryEmbedding, embedding),
       };
-    });
+    })
+    .filter(Boolean) as { text: string; source_type: string; source_name: string; score: number }[];
 
   scored.sort((a: RetrievedChunk, b: RetrievedChunk) => b.score - a.score);
   return scored.slice(0, topK);

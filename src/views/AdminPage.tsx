@@ -30,6 +30,11 @@ interface EmbedProgress {
   done: boolean;
 }
 
+interface DiagResult {
+  ok: boolean;
+  checks: Record<string, { ok: boolean; detail: string }>;
+}
+
 const AdminPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,22 @@ const AdminPage: React.FC = () => {
   const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
   const [indexingPersonas, setIndexingPersonas] = useState(false);
   const [embedProgress, setEmbedProgress] = useState<EmbedProgress | null>(null);
+  const [diagResult, setDiagResult] = useState<DiagResult | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
   const navigate = useNavigate();
+
+  const handleTestEmbed = async () => {
+    setDiagLoading(true);
+    setDiagResult(null);
+    try {
+      const result = await adminApi.testEmbed();
+      setDiagResult(result);
+    } catch (err: any) {
+      setDiagResult({ ok: false, checks: { connection: { ok: false, detail: err.message || 'Failed to reach server' } } });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const handleReindexPersonas = async () => {
     setIndexingPersonas(true);
@@ -366,9 +386,32 @@ const AdminPage: React.FC = () => {
                     )}
                   </div>
                 )}
+                {diagResult && (
+                  <div className={`mb-4 px-4 py-3 rounded-lg text-sm border ${diagResult.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="font-semibold mb-2">{diagResult.ok ? 'All checks passed' : 'Some checks failed'}</div>
+                    <div className="space-y-1">
+                      {Object.entries(diagResult.checks).map(([name, check]) => (
+                        <div key={name} className="flex items-start gap-2">
+                          {check.ok ? <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />}
+                          <span><strong>{name.replace(/_/g, ' ')}:</strong> {check.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
                   <h2 className="text-xl font-bold text-gray-900">All Personas</h2>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTestEmbed}
+                      disabled={diagLoading}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-50 text-sm"
+                      title="Run diagnostics to check if embedding API is working"
+                    >
+                      {diagLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                      Test Embed
+                    </button>
                     <button
                       type="button"
                       onClick={handleReindexPersonas}
