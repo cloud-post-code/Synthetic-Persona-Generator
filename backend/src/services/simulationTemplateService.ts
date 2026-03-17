@@ -9,6 +9,7 @@ const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   response_simulation: `Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.`,
   survey: `Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.`,
   persona_conversation: `Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line. No user chat—conversation is persona-to-persona only.`,
+  idea_generation: `Strict output: Exactly one response. Output MUST be a bullet list of ideas only (use "- " or "* " at the start of each line). No introductory paragraph, no chat, no follow-up. The number of ideas is specified in the configuration; output exactly that many bullet points.`,
 };
 
 function parseJsonField(val: unknown): any[] | Record<string, unknown> | undefined {
@@ -225,6 +226,12 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     }
   }
 
+  if (type === 'idea_generation') {
+    const numIdeas = typeof config.num_ideas === 'number' && config.num_ideas >= 1 ? config.num_ideas : 5;
+    lines.push('### Number of ideas');
+    lines.push(`You MUST output exactly ${numIdeas} ideas. Each idea must be a single bullet point (start each line with "- " or "* "). No other text—only the bullet list of ideas.\n`);
+  }
+
   // Optional: add any type_specific_config keys not already rendered above (so we avoid duplicating)
   const alreadyRenderedKeys = new Set<string>();
   if (type === 'persuasion_simulation') {
@@ -244,6 +251,9 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
     alreadyRenderedKeys.add('decision_type');
     alreadyRenderedKeys.add('unit');
     alreadyRenderedKeys.add('action_options');
+  }
+  if (type === 'idea_generation') {
+    alreadyRenderedKeys.add('num_ideas');
   }
   const extraConfig: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(config)) {

@@ -162,7 +162,8 @@ export type SimulationType =
   | 'persuasion_simulation'
   | 'response_simulation'
   | 'survey'
-  | 'persona_conversation';
+  | 'persona_conversation'
+  | 'idea_generation';
 
 /** Survey question shape for generated survey mode (type_specific_config.survey_questions). */
 export interface SurveyQuestion {
@@ -177,6 +178,7 @@ export interface SurveyQuestion {
  * - survey: survey_mode ('generated'|'custom'), survey_purpose, survey_questions (SurveyQuestion[] when generated)
  * - report: report_structure, etc.
  * - response_simulation: decision_type, question, possible_outputs, etc.
+ * - idea_generation: num_ideas (number of ideas to output as a bullet list)
  */
 export interface SimulationTemplate {
   id: string;

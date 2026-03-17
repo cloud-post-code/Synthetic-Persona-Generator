@@ -19,6 +19,7 @@ const SIMULATION_TYPES: { id: SimulationType; label: string; description: string
   { id: 'response_simulation', label: 'Response Simulation', description: 'One response only: confidence level, a single output (numeric, action, or text), and up to one paragraph of reasoning. No chat.', icon: 'Target' },
   { id: 'survey', label: 'Survey', description: 'The persona answers survey questions in context. Output is survey responses (e.g. for CSV export) and optionally a short summary. No chat.', icon: 'BarChart3' },
   { id: 'persona_conversation', label: 'Persona v Persona Conversation', description: 'Moderated multi-persona discussion: multiple personas discuss an opening line in turns. An LLM moderator chooses who speaks next and when to end; after the conversation, the moderator summarizes and answers the opening line. Each persona turn is a separate API call; max 20 persona turns.', icon: 'Users' },
+  { id: 'idea_generation', label: 'Idea Generation', description: "Single response with a fixed number of ideas from the persona's perspective. Output is always a bullet list of ideas. No chat or follow-up.", icon: 'Lightbulb' },
 ];
 
 const PERSONA_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -85,6 +86,13 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     if (simulationType === 'persona_conversation' && personaCountMin === 1 && personaCountMax === 1) {
       setPersonaCountMin(2);
       setPersonaCountMax(10);
+    }
+  }, [simulationType]);
+
+  // When switching to idea_generation, set default num_ideas if not present
+  useEffect(() => {
+    if (simulationType === 'idea_generation' && (typeSpecificConfig.num_ideas == null || typeof typeSpecificConfig.num_ideas !== 'number')) {
+      setConfig('num_ideas', 5);
     }
   }, [simulationType]);
 
@@ -833,6 +841,22 @@ ${description.trim() || '(empty - please create an initial description based on 
               >
                 {[5, 8, 10, 12, 15, 20, 25, 30, 40, 50].map((n) => (
                   <option key={n} value={n}>{n} turns</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {simulationType === 'idea_generation' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Number of ideas *</label>
+              <p className="text-xs text-gray-500 mb-2">The persona will always output exactly this many ideas as a bullet list.</p>
+              <select
+                value={(typeSpecificConfig.num_ideas as number) ?? 5}
+                onChange={(e) => setConfig('num_ideas', Number(e.target.value))}
+                className="w-full max-w-[200px] px-4 py-2 border border-gray-300 rounded-lg"
+              >
+                {[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20].map((n) => (
+                  <option key={n} value={n}>{n} ideas</option>
                 ))}
               </select>
             </div>

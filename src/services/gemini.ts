@@ -31,6 +31,7 @@ export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   response_simulation: 'Strict output: Exactly one response. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey: 'Strict output: Survey results only. Persona answers the survey in the given context; prebuilt or generated surveys are allowed. Output is survey responses (suitable for CSV export) and optionally a short summary/bullets. No chat. No follow-up conversation.',
   persona_conversation: 'Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line.',
+  idea_generation: 'Strict output: Exactly one response. Output MUST be a bullet list of ideas only (use "- " or "* " at the start of each line). No introductory paragraph, no chat, no follow-up. The number of ideas is specified in the configuration; output exactly that many bullet points.',
 };
 
 const truncate = (text: string, max: number) => {

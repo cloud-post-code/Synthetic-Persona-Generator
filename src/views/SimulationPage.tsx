@@ -1946,6 +1946,7 @@ const SimulationPage: React.FC = () => {
           const isReport = simulationOutputType === 'report';
           const isSurvey = simulationOutputType === 'survey';
           const isResponseSim = simulationOutputType === 'response_simulation';
+          const isIdeaGeneration = simulationOutputType === 'idea_generation';
           const isChatLike = simulationOutputType === 'persuasion_simulation' || simulationOutputType === 'persona_conversation';
           const isPersonaConversation = simulationOutputType === 'persona_conversation';
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
@@ -2006,7 +2007,7 @@ const SimulationPage: React.FC = () => {
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <h2 className="text-2xl font-black text-gray-900">
-                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : simulationOutputType === 'persona_conversation' ? 'Persona v Persona' : 'Simulation Workspace'}
+                  {isReport ? 'Report' : isSurvey ? 'Survey Results' : isResponseSim ? 'Response' : isIdeaGeneration ? 'Ideas' : simulationOutputType === 'persuasion_simulation' ? 'Persuasion Workspace' : simulationOutputType === 'persona_conversation' ? 'Persona v Persona' : 'Simulation Workspace'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
@@ -2137,7 +2138,15 @@ const SimulationPage: React.FC = () => {
                 </div>
                 );
               })()}
-              {!isReport && !isSurvey && !isResponseSim && (
+              {isIdeaGeneration && (
+                <>
+                  <p className="text-base text-gray-600 mb-4 font-medium">Ideas (bullet list)</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed list-disc">
+                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  </div>
+                </>
+              )}
+              {!isReport && !isSurvey && !isResponseSim && !isIdeaGeneration && (
                 <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800">
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>

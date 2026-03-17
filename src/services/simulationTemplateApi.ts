@@ -5,7 +5,8 @@ export type SimulationType =
   | 'persuasion_simulation'
   | 'response_simulation'
   | 'survey'
-  | 'persona_conversation';
+  | 'persona_conversation'
+  | 'idea_generation';
 
 export interface SimulationInputField {
   name: string;
