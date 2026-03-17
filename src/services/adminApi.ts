@@ -41,6 +41,18 @@ export interface AdminStats {
   total_messages: number;
   total_simulation_sessions: number;
   admin_users: number;
+  unindexed_personas: number;
+}
+
+export interface ReindexEvent {
+  type: 'progress' | 'complete' | 'error';
+  current?: number;
+  total?: number;
+  personaName?: string;
+  status?: 'success' | 'error';
+  error?: string;
+  success?: number;
+  failed?: number;
 }
 
 export const adminApi = {
@@ -62,6 +74,54 @@ export const adminApi = {
 
   createPersona: async (data: { name: string; type: 'synthetic_user' | 'advisor'; description?: string; avatar_url?: string }): Promise<PersonaWithOwner> => {
     return apiClient.post<PersonaWithOwner>('/admin/personas', data);
+  },
+
+  reindexAllPersonas: async (): Promise<{ message: string; count: number }> => {
+    return apiClient.post<{ message: string; count: number }>('/admin/reindex-all', {});
+  },
+
+  reindexAllPersonasStream: async (onEvent: (event: ReindexEvent) => void): Promise<void> => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+    const token = localStorage.getItem('auth_token');
+    const response = await fetch(`${baseUrl}/admin/reindex-all`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: '{}',
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.message || err.error || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Streaming not supported');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            onEvent(JSON.parse(line));
+          } catch { /* skip malformed lines */ }
+        }
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        onEvent(JSON.parse(buffer));
+      } catch { /* skip */ }
+    }
   },
 };
 

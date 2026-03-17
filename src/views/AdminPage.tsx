@@ -10,13 +10,25 @@ import {
   Edit, 
   Trash2,
   Loader2,
-  Shield
+  Shield,
+  Database,
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
-import { adminApi, AdminStats, UserWithStats, PersonaWithOwner } from '../services/adminApi.js';
+import { adminApi, AdminStats, UserWithStats, PersonaWithOwner, ReindexEvent } from '../services/adminApi.js';
 import { simulationTemplateApi, SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../services/simulationTemplateApi.js';
 import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
 
 type TabType = 'dashboard' | 'users' | 'personas' | 'simulations';
+
+interface EmbedProgress {
+  current: number;
+  total: number;
+  success: number;
+  failed: number;
+  errors: string[];
+  done: boolean;
+}
 
 const AdminPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -27,7 +39,55 @@ const AdminPage: React.FC = () => {
   const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
   const [showSimulationForm, setShowSimulationForm] = useState(false);
   const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
+  const [indexingPersonas, setIndexingPersonas] = useState(false);
+  const [embedProgress, setEmbedProgress] = useState<EmbedProgress | null>(null);
   const navigate = useNavigate();
+
+  const handleReindexPersonas = async () => {
+    setIndexingPersonas(true);
+    setEmbedProgress({ current: 0, total: 0, success: 0, failed: 0, errors: [], done: false });
+    try {
+      await adminApi.reindexAllPersonasStream((event: ReindexEvent) => {
+        if (event.type === 'progress') {
+          setEmbedProgress(prev => {
+            const next = { ...(prev || { current: 0, total: 0, success: 0, failed: 0, errors: [], done: false }) };
+            next.current = event.current || next.current;
+            next.total = event.total || next.total;
+            if (event.status === 'success') next.success++;
+            if (event.status === 'error') {
+              next.failed++;
+              if (event.error) next.errors.push(`${event.personaName}: ${event.error}`);
+            }
+            return next;
+          });
+        } else if (event.type === 'complete') {
+          setEmbedProgress(prev => ({
+            ...(prev || { current: 0, total: 0, errors: [] }),
+            success: event.success || 0,
+            failed: event.failed || 0,
+            total: event.total || prev?.total || 0,
+            current: event.total || prev?.total || 0,
+            done: true,
+          }));
+        } else if (event.type === 'error') {
+          setEmbedProgress(prev => ({
+            ...(prev || { current: 0, total: 0, success: 0, failed: 0, errors: [] }),
+            done: true,
+            errors: [...(prev?.errors || []), event.error || 'Unknown error'],
+          } as EmbedProgress));
+        }
+      });
+    } catch (error: any) {
+      setEmbedProgress(prev => ({
+        ...(prev || { current: 0, total: 0, success: 0, failed: 0 }),
+        done: true,
+        errors: [error.message || 'Failed to connect to server.'],
+      } as EmbedProgress));
+    } finally {
+      setIndexingPersonas(false);
+      setTimeout(() => setEmbedProgress(null), 15000);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -207,6 +267,20 @@ const AdminPage: React.FC = () => {
                     <Shield className="w-12 h-12 text-indigo-600 opacity-20" />
                   </div>
                 </div>
+                <div className={`bg-white rounded-lg shadow p-6 ${stats.unindexed_personas > 0 ? 'ring-2 ring-amber-300' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Needing Embedding</p>
+                      <p className={`text-3xl font-black mt-2 ${stats.unindexed_personas > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                        {stats.unindexed_personas}
+                      </p>
+                    </div>
+                    <Database className={`w-12 h-12 opacity-20 ${stats.unindexed_personas > 0 ? 'text-amber-600' : 'text-green-600'}`} />
+                  </div>
+                  {stats.unindexed_personas > 0 && (
+                    <p className="text-xs text-amber-600 mt-2">Go to Personas tab to embed</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -251,15 +325,68 @@ const AdminPage: React.FC = () => {
             {/* Personas Tab */}
             {activeTab === 'personas' && (
               <div>
-                <div className="mb-4 flex justify-between items-center">
+                {embedProgress && (
+                  <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium border ${
+                    embedProgress.done
+                      ? embedProgress.failed > 0
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-blue-50 text-blue-700 border-blue-200'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {embedProgress.done ? (
+                        embedProgress.failed > 0 ? <AlertTriangle className="w-4 h-4 flex-shrink-0" /> : <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+                      )}
+                      {embedProgress.done
+                        ? `Embedding complete: ${embedProgress.success} succeeded, ${embedProgress.failed} failed out of ${embedProgress.total}`
+                        : `Embedding ${embedProgress.current} / ${embedProgress.total}...`
+                      }
+                    </div>
+                    {embedProgress.total > 0 && (
+                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${embedProgress.failed > 0 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                          style={{ width: `${Math.round((embedProgress.current / embedProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                    {embedProgress.errors.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-semibold">
+                          {embedProgress.errors.length} error{embedProgress.errors.length !== 1 ? 's' : ''} (click to expand)
+                        </summary>
+                        <ul className="mt-1 text-xs space-y-1 max-h-40 overflow-y-auto">
+                          {embedProgress.errors.map((err, i) => (
+                            <li key={i} className="break-all">{err}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+                <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
                   <h2 className="text-xl font-bold text-gray-900">All Personas</h2>
-                  <button
-                    onClick={() => navigate('/build?visibility=public')}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Persona
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReindexPersonas}
+                      disabled={indexingPersonas}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Embed all personas for AI knowledge retrieval"
+                    >
+                      {indexingPersonas ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                      {indexingPersonas ? 'Embedding...' : 'Embed Personas'}
+                    </button>
+                    <button
+                      onClick={() => navigate('/build?visibility=public')}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Persona
+                    </button>
+                  </div>
                 </div>
                 <div className="bg-white rounded-lg shadow overflow-hidden">
                   <table className="min-w-full divide-y divide-gray-200">

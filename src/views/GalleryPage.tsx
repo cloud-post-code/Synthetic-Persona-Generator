@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus, BookOpen, Database } from 'lucide-react';
+import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus, BookOpen } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
-import { agentApi } from '../services/agentApi.js';
 import { Persona, PersonaFile, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
@@ -42,9 +41,6 @@ const GalleryPage: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   const [savingNameId, setSavingNameId] = useState<string | null>(null);
-
-  const [indexingPersonas, setIndexingPersonas] = useState(false);
-  const [indexResult, setIndexResult] = useState<{ message: string; indexed: number } | null>(null);
 
   const [focusGroups, setFocusGroups] = useState<FocusGroup[]>([]);
   const [focusGroupsLoading, setFocusGroupsLoading] = useState(false);
@@ -92,24 +88,6 @@ const GalleryPage: React.FC = () => {
       console.error('Failed to load persona files:', err);
     } finally {
       setLoadingFiles(prev => ({ ...prev, [personaId]: false }));
-    }
-  };
-
-  const handleIndexUnindexed = async () => {
-    setIndexingPersonas(true);
-    setIndexResult(null);
-    try {
-      const result = await agentApi.indexUnindexed();
-      setIndexResult(result);
-      if (result.indexed === 0) {
-        setTimeout(() => setIndexResult(null), 4000);
-      } else {
-        setTimeout(() => setIndexResult(null), 6000);
-      }
-    } catch (err: any) {
-      alert(err.message || 'Failed to index personas.');
-    } finally {
-      setIndexingPersonas(false);
     }
   };
 
@@ -222,28 +200,12 @@ const GalleryPage: React.FC = () => {
           </p>
         </div>
         {activeTab === 'my' ? (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleIndexUnindexed}
-              disabled={indexingPersonas}
-              className="inline-flex items-center px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-xl font-semibold hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Embed any personas that haven't been indexed for AI knowledge retrieval"
-            >
-              {indexingPersonas ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Database className="w-4 h-4 mr-2" />
-              )}
-              {indexingPersonas ? 'Embedding...' : 'Embed Personas'}
-            </button>
-            <Link
-              to="/build"
-              className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-            >
-              <User className="w-4 h-4 mr-2" /> New Persona
-            </Link>
-          </div>
+          <Link
+            to="/build"
+            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            <User className="w-4 h-4 mr-2" /> New Persona
+          </Link>
         ) : activeTab === 'focusGroups' ? (
           <button
             type="button"
@@ -254,17 +216,6 @@ const GalleryPage: React.FC = () => {
           </button>
         ) : null}
       </div>
-
-      {indexResult && (
-        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2 ${indexResult.indexed === 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
-          {indexResult.indexed === 0 ? (
-            <Check className="w-4 h-4 flex-shrink-0" />
-          ) : (
-            <Database className="w-4 h-4 flex-shrink-0" />
-          )}
-          {indexResult.message}
-        </div>
-      )}
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
         {(['my', 'saved', 'focusGroups'] as const).map((tab) => (

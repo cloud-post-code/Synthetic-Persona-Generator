@@ -9,7 +9,9 @@ const EMBED_BATCH_SIZE = 100;
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+  if (!apiKey || apiKey.includes('${') || apiKey === 'your-gemini-api-key-here') {
+    throw new Error('GEMINI_API_KEY is not configured. Set a valid key in backend/.env');
+  }
   return new GoogleGenAI({ apiKey });
 }
 
@@ -152,6 +154,11 @@ export async function indexPersona(personaId: string): Promise<void> {
       insertParams
     );
   }
+
+  await pool.query(
+    'UPDATE personas SET last_embedded_at = CURRENT_TIMESTAMP WHERE id = $1',
+    [personaId]
+  );
 
   console.log(`Indexed ${allChunks.length} chunks for persona ${personaId}`);
 }

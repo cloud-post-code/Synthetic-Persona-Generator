@@ -14,6 +14,20 @@ import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
 
+function validateGeminiApiKey() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key.includes('${') || key === 'your-gemini-api-key-here') {
+    console.error(
+      '\n⚠️  GEMINI_API_KEY is not configured!\n' +
+      '   Embedding and AI features will not work.\n' +
+      '   Set a valid key in backend/.env (get one at https://aistudio.google.com/apikey)\n'
+    );
+  } else {
+    console.log('✅ GEMINI_API_KEY is configured');
+  }
+}
+validateGeminiApiKey();
+
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173').split(',');
@@ -91,8 +105,15 @@ async function ensureBusinessProfilesTable() {
   }
 }
 
+async function ensureEmbeddingColumns() {
+  try {
+    await pool.query('ALTER TABLE personas ADD COLUMN IF NOT EXISTS last_embedded_at TIMESTAMP');
+  } catch (_) { /* column may already exist */ }
+}
+
 // Start server - bind to 0.0.0.0 to accept external connections (required for Railway)
 ensureBusinessProfilesTable()
+  .then(() => ensureEmbeddingColumns())
   .then(() => {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);

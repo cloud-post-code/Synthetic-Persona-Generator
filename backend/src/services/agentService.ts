@@ -8,7 +8,9 @@ const MAX_SYSTEM_CHARS = 200000;
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+  if (!apiKey || apiKey.includes('${') || apiKey === 'your-gemini-api-key-here') {
+    throw new Error('GEMINI_API_KEY is not configured. Set a valid key in backend/.env');
+  }
   return new GoogleGenAI({ apiKey });
 }
 
@@ -168,24 +170,29 @@ export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnRe
   // Step 1: Think
   const { thinking, searchQueries } = await thinkStep(ai, persona, history, userMessage);
 
-  // Step 2: Retrieve
-  const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
-  const allChunks: RetrievedChunk[] = [];
-  const seenTexts = new Set<string>();
+  // Step 2: Retrieve (non-fatal -- if retrieval fails, respond without RAG context)
+  let retrievedContext = '';
+  try {
+    const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
+    const allChunks: RetrievedChunk[] = [];
+    const seenTexts = new Set<string>();
 
-  for (const query of queries.slice(0, 3)) {
-    const chunks = await retrieve(query, effectivePersonaIds, sessionId, 10, userId);
-    for (const chunk of chunks) {
-      if (!seenTexts.has(chunk.text)) {
-        seenTexts.add(chunk.text);
-        allChunks.push(chunk);
+    for (const query of queries.slice(0, 3)) {
+      const chunks = await retrieve(query, effectivePersonaIds, sessionId, 10, userId);
+      for (const chunk of chunks) {
+        if (!seenTexts.has(chunk.text)) {
+          seenTexts.add(chunk.text);
+          allChunks.push(chunk);
+        }
       }
     }
-  }
 
-  allChunks.sort((a, b) => b.score - a.score);
-  const topChunks = allChunks.slice(0, 15);
-  const retrievedContext = buildRetrievedContextSection(topChunks);
+    allChunks.sort((a, b) => b.score - a.score);
+    const topChunks = allChunks.slice(0, 15);
+    retrievedContext = buildRetrievedContextSection(topChunks);
+  } catch (retrievalErr: any) {
+    console.error(`[RAG] Retrieval failed, responding without embedded context:`, retrievalErr?.message || retrievalErr);
+  }
 
   // Step 3: Respond
   const response = await respondStep(

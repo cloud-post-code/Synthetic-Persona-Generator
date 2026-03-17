@@ -73,27 +73,43 @@ export async function createPersona(req: AuthRequest, res: Response, next: NextF
 
 export async function reindexAll(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const result = await pool.query('SELECT id FROM personas');
-    const personaIds: string[] = result.rows.map((r: any) => r.id);
+    const result = await pool.query('SELECT id, name FROM personas');
+    const personas: { id: string; name: string }[] = result.rows;
 
-    res.json({ message: `Reindexing ${personaIds.length} personas in the background`, count: personaIds.length });
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
-    (async () => {
-      let success = 0;
-      let failed = 0;
-      for (const id of personaIds) {
-        try {
-          await indexPersona(id);
-          success++;
-        } catch (err: any) {
-          failed++;
-          console.error(`Reindex failed for persona ${id}:`, err?.message || err);
-        }
+    const total = personas.length;
+    let success = 0;
+    let failed = 0;
+
+    for (let i = 0; i < personas.length; i++) {
+      const { id, name } = personas[i];
+      try {
+        await indexPersona(id);
+        success++;
+        res.write(JSON.stringify({ type: 'progress', current: i + 1, total, personaName: name, status: 'success' }) + '\n');
+      } catch (err: any) {
+        failed++;
+        const errorMsg = err?.message || String(err);
+        console.error(`Reindex failed for persona ${id} (${name}):`, errorMsg);
+        res.write(JSON.stringify({ type: 'progress', current: i + 1, total, personaName: name, status: 'error', error: errorMsg }) + '\n');
       }
-      console.log(`Reindex complete: ${success} succeeded, ${failed} failed out of ${personaIds.length} total`);
-    })();
+    }
+
+    res.write(JSON.stringify({ type: 'complete', success, failed, total }) + '\n');
+    res.end();
+    console.log(`Reindex complete: ${success} succeeded, ${failed} failed out of ${total} total`);
   } catch (error) {
-    next(error);
+    if (!res.headersSent) {
+      next(error);
+    } else {
+      const msg = error instanceof Error ? error.message : String(error);
+      res.write(JSON.stringify({ type: 'error', error: msg }) + '\n');
+      res.end();
+    }
   }
 }
 

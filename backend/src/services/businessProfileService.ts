@@ -120,9 +120,20 @@ export async function upsert(
       profile = mapRow(refetch.rows[0]);
     }
 
-    indexBusinessProfile(userId).catch(err =>
-      console.error(`Background business profile indexing failed for user ${userId}:`, err?.message || err)
-    );
+    (async () => {
+      try {
+        await indexBusinessProfile(userId);
+      } catch (err: any) {
+        console.error(`[EMBEDDING] Business profile indexing failed for user ${userId}:`, err?.message || err);
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          await indexBusinessProfile(userId);
+          console.log(`[EMBEDDING] Business profile retry succeeded for user ${userId}`);
+        } catch (retryErr: any) {
+          console.error(`[EMBEDDING] Business profile retry also failed for user ${userId}:`, retryErr?.message || retryErr);
+        }
+      }
+    })();
 
     return profile;
   } catch (err: unknown) {

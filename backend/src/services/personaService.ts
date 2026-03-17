@@ -4,9 +4,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { indexPersona as indexPersonaEmbeddings } from './embeddingService.js';
 
 function triggerIndex(personaId: string) {
-  indexPersonaEmbeddings(personaId).catch(err =>
-    console.error(`Background indexing failed for persona ${personaId}:`, err?.message || err)
-  );
+  (async () => {
+    try {
+      await indexPersonaEmbeddings(personaId);
+    } catch (err: any) {
+      console.error(`[EMBEDDING] First attempt failed for persona ${personaId}:`, err?.message || err);
+      // Retry once after a short delay
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        await indexPersonaEmbeddings(personaId);
+        console.log(`[EMBEDDING] Retry succeeded for persona ${personaId}`);
+      } catch (retryErr: any) {
+        console.error(`[EMBEDDING] Retry also failed for persona ${personaId}:`, retryErr?.message || retryErr);
+      }
+    }
+  })();
 }
 
 /** Check if user can access persona (owner, or public/global, or starred). */

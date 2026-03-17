@@ -41,6 +41,7 @@ export interface AdminStats {
   total_messages: number;
   total_simulation_sessions: number;
   admin_users: number;
+  unindexed_personas: number;
 }
 
 export async function getAllUsers(): Promise<UserWithStats[]> {
@@ -142,7 +143,10 @@ export async function getUserStats(): Promise<AdminStats> {
       (SELECT COUNT(*) FROM chat_sessions) as total_chat_sessions,
       (SELECT COUNT(*) FROM messages) as total_messages,
       (SELECT COUNT(*) FROM simulation_sessions) as total_simulation_sessions,
-      (SELECT COUNT(*) FROM users WHERE is_admin = TRUE) as admin_users`
+      (SELECT COUNT(*) FROM users WHERE is_admin = TRUE) as admin_users,
+      (SELECT COUNT(*) FROM personas p WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_chunks kc WHERE kc.persona_id = p.id
+      )) as unindexed_personas`
   );
 
   const row = stats.rows[0];
@@ -153,6 +157,7 @@ export async function getUserStats(): Promise<AdminStats> {
     total_messages: parseInt(row.total_messages) || 0,
     total_simulation_sessions: parseInt(row.total_simulation_sessions) || 0,
     admin_users: parseInt(row.admin_users) || 0,
+    unindexed_personas: parseInt(row.unindexed_personas) || 0,
   };
 }
 

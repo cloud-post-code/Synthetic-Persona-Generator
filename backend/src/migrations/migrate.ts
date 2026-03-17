@@ -206,6 +206,13 @@ async function migrate() {
       if (err.code !== '42P07') throw err;
     }
 
+    // Track when each persona was last successfully embedded
+    try {
+      await pool.query(`ALTER TABLE personas ADD COLUMN IF NOT EXISTS last_embedded_at TIMESTAMP`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+
     console.log('Seeding default simulations...');
     
     // Check if simulations already exist
