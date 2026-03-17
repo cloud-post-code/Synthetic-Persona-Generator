@@ -258,6 +258,9 @@ const SimulationPage: React.FC = () => {
   } | null>(null);
   const [persuasionContextLoading, setPersuasionContextLoading] = useState(false);
 
+  /** When true, the running simulation should stop at next opportunity */
+  const simulationCancelledRef = useRef(false);
+
   /** Activity log: each API call step as it unfolds (for user to watch simulation progress) */
   const [simulationActivityLog, setSimulationActivityLog] = useState<Array<{
     id: string;
@@ -610,6 +613,7 @@ const SimulationPage: React.FC = () => {
       }
     }
     
+    simulationCancelledRef.current = false;
     setIsLoading(true);
     setSimulationActivityLog([]);
 
@@ -727,6 +731,7 @@ const SimulationPage: React.FC = () => {
         const personaList = selectedPersonas.map((p) => ({ id: p.id, name: p.name }));
         const personaWithFiles: Persona[] = [];
         for (const p of selectedPersonas) {
+          if (simulationCancelledRef.current) return;
           const idLoad = addActivity(`Loading blueprint for ${p.name}...`);
           try {
             const files = p.files?.length ? p.files : await personaApi.getFiles(p.id).then((fs) => fs.map((f) => ({ ...f, content: f.content, name: f.name })));
@@ -735,6 +740,7 @@ const SimulationPage: React.FC = () => {
             markActivityDone(idLoad);
           }
         }
+        if (simulationCancelledRef.current) return;
         const personaMap = new Map<string, Persona>(personaWithFiles.map((p) => [p.id, p]));
 
         const getPersonaProfile = (persona: Persona): string => {
@@ -756,6 +762,7 @@ const SimulationPage: React.FC = () => {
           const msg = err instanceof Error ? err.message : String(err);
           throw new Error(`Moderator could not choose first speaker: ${msg}`);
         }
+        if (simulationCancelledRef.current) return;
         const firstSpeaker = personaMap.get(firstSpeakerId) || personaWithFiles[0];
         if (!firstSpeaker) {
           firstSpeakerId = selectedPersonas[0].id;
@@ -800,6 +807,7 @@ const SimulationPage: React.FC = () => {
             markActivityError(idPersonaTurn);
             throw err;
           }
+          if (simulationCancelledRef.current) return;
           const personaMsg: Message = {
             id: crypto.randomUUID(),
             sessionId: newSessionId,
@@ -835,6 +843,7 @@ const SimulationPage: React.FC = () => {
             markActivityError(idModeratorNext);
             throw err;
           }
+          if (simulationCancelledRef.current) return;
           if (nextOrEnd.action === 'END') break;
           nextSpeakerId = nextOrEnd.persona_id!;
         }
@@ -854,6 +863,7 @@ const SimulationPage: React.FC = () => {
           markActivityError(idSummarize);
           throw err;
         }
+        if (simulationCancelledRef.current) return;
         const moderatorMsg: Message = {
           id: crypto.randomUUID(),
           sessionId: newSessionId,
@@ -885,6 +895,7 @@ const SimulationPage: React.FC = () => {
     let persuasionSystemPrompt: string | null = null;
 
     for (const selectedPersona of selectedPersonas) {
+      if (simulationCancelledRef.current) return;
       let profileData = `NAME: ${selectedPersona.name}\nDESCRIPTION: ${selectedPersona.description}\n\nCORE BLUEPRINT FILES:\n`;
       const files = selectedPersona.files || [];
       if (files.length === 0) {
@@ -951,6 +962,7 @@ const SimulationPage: React.FC = () => {
         markActivityError(idPersonaSim);
         throw err;
       }
+      if (simulationCancelledRef.current) return;
       results.push({
         personaId: selectedPersona.id,
         name: selectedPersona.name,
@@ -960,6 +972,7 @@ const SimulationPage: React.FC = () => {
       });
     }
 
+    if (simulationCancelledRef.current) return;
     setPersonaResults(results);
 
     const firstPersona = selectedPersonas[0];
@@ -1343,7 +1356,7 @@ const SimulationPage: React.FC = () => {
               <p className="text-xl text-gray-500 font-medium max-w-2xl mx-auto">Select a specialized testing mode to see how your synthetic personas react to your work.</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {isLoadingSimulations ? (
                 <div className="col-span-full text-center py-12">
                   <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
@@ -1421,10 +1434,20 @@ const SimulationPage: React.FC = () => {
             {/* Activity log: watch each API call unfold */}
             {isLoading && simulationActivityLog.length > 0 && (
               <div className="mb-8 p-6 bg-indigo-50 border-2 border-indigo-100 rounded-2xl shadow-sm">
-                <h3 className="text-sm font-black text-indigo-700 uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Simulation in progress — API calls
-                </h3>
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <h3 className="text-sm font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Simulation in progress — API calls
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); }}
+                    className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all"
+                  >
+                    <CloseIcon className="w-4 h-4" />
+                    Cancel
+                  </button>
+                </div>
                 <ul className="space-y-2 max-h-48 overflow-y-auto">
                   {simulationActivityLog.map((a) => (
                     <li
@@ -1558,57 +1581,86 @@ const SimulationPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Generated survey: render survey_questions; else render runner input fields */}
+                {/* Generated survey: show questions list (after personas selected) then answer inputs; else render runner input fields */}
                 {selectedSimulation?.simulation_type === 'survey' &&
                  (selectedSimulation.type_specific_config?.survey_mode === 'generated') &&
                  ((selectedSimulation.type_specific_config?.survey_questions as SurveyQuestion[])?.length ?? 0) > 0 ? (
-                  <div className="space-y-6">
-                    {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
-                      <div key={idx} className="space-y-4">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          {idx + 2}. {q.question} *
-                        </label>
-                        {q.type === 'text' && (
-                          <input
-                            type="text"
-                            value={surveyGeneratedAnswers[idx] ?? ''}
-                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                          />
-                        )}
-                        {q.type === 'numeric' && (
-                          <input
-                            type="number"
-                            value={surveyGeneratedAnswers[idx] ?? ''}
-                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                          />
-                        )}
-                        {q.type === 'multiple_choice' && (
-                          <select
-                            value={surveyGeneratedAnswers[idx] ?? ''}
-                            onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-                            className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                          >
-                            <option value="">Select...</option>
-                            {(q.options || []).filter(Boolean).map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
+                  <div className="space-y-8">
+                    {selectedPersonas.length === 0 ? (
+                      <p className="text-sm text-gray-500 font-medium py-4">
+                        Select at least one persona above to see the survey questions and provide answers.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="space-y-4">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">2. Survey questions</label>
+                          <ul className="list-none space-y-3 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                            {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
+                              <li key={idx} className="flex gap-3 text-sm">
+                                <span className="font-bold text-indigo-600 shrink-0">{idx + 1}.</span>
+                                <span className="text-gray-800">{q.question}</span>
+                                {q.type === 'multiple_choice' && (q.options?.length ?? 0) > 0 && (
+                                  <span className="text-gray-500 text-xs shrink-0">({(q.options || []).filter(Boolean).join(', ')})</span>
+                                )}
+                              </li>
                             ))}
-                          </select>
-                        )}
-                      </div>
-                    ))}
-                    <button
-                      disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
-                      onClick={startSimulation}
-                      className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
-                    >
-                      {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
-                    </button>
+                          </ul>
+                        </div>
+                        <div className="space-y-6">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">3. Your answers (context for the persona)</label>
+                          {(selectedSimulation.type_specific_config.survey_questions as SurveyQuestion[]).map((q, idx) => (
+                            <div key={idx} className="space-y-2">
+                              <span className="block text-xs font-semibold text-gray-600">Answer for question {idx + 1}</span>
+                              {q.type === 'text' && (
+                                <input
+                                  type="text"
+                                  value={surveyGeneratedAnswers[idx] ?? ''}
+                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                                  placeholder="Your answer (optional)"
+                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                                />
+                              )}
+                              {q.type === 'numeric' && (
+                                <input
+                                  type="number"
+                                  value={surveyGeneratedAnswers[idx] ?? ''}
+                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                                  placeholder="Your answer (optional)"
+                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                                />
+                              )}
+                              {q.type === 'multiple_choice' && (
+                                <select
+                                  value={surveyGeneratedAnswers[idx] ?? ''}
+                                  onChange={(e) => setSurveyGeneratedAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
+                                  className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                                >
+                                  <option value="">Select...</option>
+                                  {(q.options || []).filter(Boolean).map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
+                          onClick={startSimulation}
+                          className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
+                        >
+                          {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
                 <>
-                {selectedSimulation?.required_input_fields.map((field, index) => {
+                {(selectedSimulation?.simulation_type === 'survey' &&
+                  selectedSimulation.type_specific_config?.survey_mode === 'generated'
+                  ? (selectedSimulation.required_input_fields ?? []).filter((f) => f.type !== 'survey_questions')
+                  : selectedSimulation?.required_input_fields ?? []
+                ).map((field, index) => {
                   const fieldNumber = index + 2;
                   const isBusinessProfileField = field.type === 'business_profile' || field.name === 'businessProfile';
                   if (isBusinessProfileField) {
