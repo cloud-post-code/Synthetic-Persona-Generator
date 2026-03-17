@@ -641,6 +641,11 @@ const SimulationPage: React.FC = () => {
     simulationCancelledRef.current = false;
     setIsLoading(true);
     setSimulationActivityLog([]);
+    setPersonaResults([]);
+    setMessages([]);
+    setPipelineEvents([]);
+    setPipelineActive(false);
+    setStage('result');
 
     const addActivity = (label: string, detail?: string) => {
       const id = crypto.randomUUID();
@@ -1510,61 +1515,6 @@ const SimulationPage: React.FC = () => {
               <ArrowLeft className="w-4 h-4 mr-2" /> Back to Modes
             </button>
 
-            {/* Activity log: watch each API call unfold */}
-            {isLoading && simulationActivityLog.length > 0 && (
-              <div className="mb-8 p-6 bg-indigo-50 border-2 border-indigo-100 rounded-2xl shadow-sm">
-                <div className="flex items-center justify-between gap-4 mb-4">
-                  <h3 className="text-sm font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Simulation in progress — API calls
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); }}
-                    className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all"
-                  >
-                    <CloseIcon className="w-4 h-4" />
-                    Cancel
-                  </button>
-                </div>
-                <ul className="space-y-2 max-h-48 overflow-y-auto">
-                  {simulationActivityLog.map((a) => (
-                    <li
-                      key={a.id}
-                      className={`flex items-center gap-3 text-sm font-medium ${
-                        a.status === 'done'
-                          ? 'text-green-700'
-                          : a.status === 'error'
-                            ? 'text-red-600'
-                            : a.status === 'active'
-                              ? 'text-indigo-700'
-                              : 'text-gray-500'
-                      }`}
-                    >
-                      {a.status === 'done' && (
-                        <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
-                      )}
-                      {a.status === 'error' && (
-                        <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
-                      )}
-                      {a.status === 'active' && (
-                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
-                      )}
-                      <span>{a.label}</span>
-                      {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Real-time agent pipeline viewer */}
-            {isLoading && pipelineEvents.length > 0 && (
-              <div className="mb-8">
-                <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
-              </div>
-            )}
-
             <div className="bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-gray-100 p-8 sm:p-14 space-y-12">
               <div className="flex items-center gap-6 pb-8 border-b border-gray-50">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg bg-indigo-600 text-white`}>
@@ -1698,7 +1648,7 @@ const SimulationPage: React.FC = () => {
                           onClick={startSimulation}
                           className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                         >
-                          {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
+                          <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>
                         </button>
                       </>
                     )}
@@ -2026,7 +1976,7 @@ const SimulationPage: React.FC = () => {
                   onClick={startSimulation}
                   className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
                 >
-                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>}
+                  <>Start Simulation <ChevronRight className="w-6 h-6 group-hover:translate-x-1" /></>
                 </button>
               </>
                 )}
@@ -2120,8 +2070,63 @@ const SimulationPage: React.FC = () => {
               </div>
             </header>
 
-            {/* Activity log summary (when persona_conversation just completed) */}
-            {isPersonaConversation && simulationActivityLog.length > 0 && (
+            {/* Pipeline + activity log while simulation is running */}
+            {isLoading && (
+              <div className="mx-10 mt-6 space-y-4 animate-in fade-in duration-500">
+                {simulationActivityLog.length > 0 && (
+                  <div className="p-5 bg-indigo-50/80 border border-indigo-100 rounded-2xl shadow-sm">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <h3 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Simulation in progress
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); }}
+                        className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all text-sm"
+                      >
+                        <CloseIcon className="w-4 h-4" />
+                        Cancel
+                      </button>
+                    </div>
+                    <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {simulationActivityLog.map((a) => (
+                        <li
+                          key={a.id}
+                          className={`flex items-center gap-3 text-sm font-medium ${
+                            a.status === 'done'
+                              ? 'text-green-700'
+                              : a.status === 'error'
+                                ? 'text-red-600'
+                                : a.status === 'active'
+                                  ? 'text-indigo-700'
+                                  : 'text-gray-500'
+                          }`}
+                        >
+                          {a.status === 'done' && (
+                            <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
+                          )}
+                          {a.status === 'error' && (
+                            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                          )}
+                          {a.status === 'active' && (
+                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                          )}
+                          <span>{a.label}</span>
+                          {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {pipelineEvents.length > 0 && (
+                  <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
+                )}
+              </div>
+            )}
+
+            {/* Activity log summary (when persona_conversation completed) */}
+            {!isLoading && isPersonaConversation && simulationActivityLog.length > 0 && (
               <div className="mx-10 mb-4 p-4 bg-green-50 border border-green-100 rounded-xl">
                 <p className="text-xs font-black text-green-700 uppercase tracking-widest">
                   Completed in {simulationActivityLog.filter((a) => a.status === 'done').length} API calls
@@ -2189,7 +2194,13 @@ const SimulationPage: React.FC = () => {
             </div>
             ) : (
             <div className="flex-grow overflow-y-auto p-10 bg-gray-50/20">
-              {personaResults.length > 1 ? (
+              {isLoading && personaResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 animate-in fade-in duration-500">
+                  <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+                  <p className="text-lg font-bold text-gray-700">Generating results...</p>
+                  <p className="text-sm text-gray-400 font-medium">The pipeline above shows real-time progress. Results will appear here shortly.</p>
+                </div>
+              ) : personaResults.length > 1 ? (
                 <div className="space-y-8">
                   <p className="text-base text-gray-600 font-medium">Each persona’s response</p>
                   {personaResults.map((pr, idx) => (
