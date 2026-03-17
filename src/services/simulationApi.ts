@@ -86,14 +86,14 @@ export const simulationApi = {
 
   createMessage: async (
     sessionId: string,
-    message: { sender_type: string; persona_id?: string; content: string }
+    message: { sender_type: string; persona_id?: string; content: string; thinking?: string }
   ): Promise<unknown> => {
     return apiClient.post(`/simulations/${sessionId}/messages`, message);
   },
 
   createMessagesBulk: async (
     sessionId: string,
-    messages: Array<{ sender_type: string; persona_id?: string; content: string }>
+    messages: Array<{ sender_type: string; persona_id?: string; content: string; thinking?: string }>
   ): Promise<unknown[]> => {
     return apiClient.post<unknown[]>(`/simulations/${sessionId}/messages/bulk`, { messages });
   },

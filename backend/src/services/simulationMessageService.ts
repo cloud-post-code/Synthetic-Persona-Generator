@@ -7,6 +7,7 @@ export interface SimulationMessageRow {
   sender_type: string;
   persona_id: string | null;
   content: string;
+  thinking: string | null;
   created_at: Date;
 }
 
@@ -15,7 +16,7 @@ export async function getMessagesBySessionId(
   userId: string
 ): Promise<SimulationMessageRow[]> {
   const result = await pool.query(
-    `SELECT sm.id, sm.simulation_session_id, sm.sender_type, sm.persona_id, sm.content, sm.created_at
+    `SELECT sm.id, sm.simulation_session_id, sm.sender_type, sm.persona_id, sm.content, sm.thinking, sm.created_at
      FROM simulation_messages sm
      INNER JOIN simulation_sessions ss ON ss.id = sm.simulation_session_id AND ss.user_id = $2
      WHERE sm.simulation_session_id = $1
@@ -28,7 +29,7 @@ export async function getMessagesBySessionId(
 export async function createMessage(
   sessionId: string,
   userId: string,
-  data: { sender_type: string; persona_id?: string | null; content: string }
+  data: { sender_type: string; persona_id?: string | null; content: string; thinking?: string | null }
 ): Promise<SimulationMessageRow> {
   const sessionResult = await pool.query(
     'SELECT id FROM simulation_sessions WHERE id = $1 AND user_id = $2',
@@ -39,10 +40,10 @@ export async function createMessage(
   }
   const id = uuidv4();
   const result = await pool.query(
-    `INSERT INTO simulation_messages (id, simulation_session_id, sender_type, persona_id, content)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, simulation_session_id, sender_type, persona_id, content, created_at`,
-    [id, sessionId, data.sender_type, data.persona_id ?? null, data.content]
+    `INSERT INTO simulation_messages (id, simulation_session_id, sender_type, persona_id, content, thinking)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, simulation_session_id, sender_type, persona_id, content, thinking, created_at`,
+    [id, sessionId, data.sender_type, data.persona_id ?? null, data.content, data.thinking ?? null]
   );
   return result.rows[0];
 }
@@ -50,7 +51,7 @@ export async function createMessage(
 export async function createMessagesBulk(
   sessionId: string,
   userId: string,
-  messages: Array<{ sender_type: string; persona_id?: string | null; content: string }>
+  messages: Array<{ sender_type: string; persona_id?: string | null; content: string; thinking?: string | null }>
 ): Promise<SimulationMessageRow[]> {
   const sessionResult = await pool.query(
     'SELECT id FROM simulation_sessions WHERE id = $1 AND user_id = $2',

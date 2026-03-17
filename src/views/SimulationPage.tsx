@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ChevronRight, 
+  ChevronDown,
   Upload, 
   User, 
   ArrowLeft, 
@@ -16,6 +17,7 @@ import {
   XCircle,
   LucideIcon,
   Download,
+  Brain,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession, FocusGroup } from '../models/types.js';
 import type { BusinessProfile } from '../models/types.js';
@@ -224,6 +226,28 @@ const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean 
   );
 };
 
+const ThinkingPanel: React.FC<{ thinking?: string; compact?: boolean }> = ({ thinking, compact = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!thinking) return null;
+  return (
+    <div className={compact ? 'mt-2' : 'mt-3'}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-indigo-500 hover:text-indigo-700 transition-colors"
+      >
+        <Brain className="w-3.5 h-3.5" />
+        <span>Agent Reasoning</span>
+        {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      </button>
+      {isOpen && (
+        <div className={`${compact ? 'mt-1.5 p-3' : 'mt-2 p-4'} bg-indigo-50/60 border border-indigo-100 rounded-xl text-sm text-indigo-900/80 leading-relaxed whitespace-pre-wrap`}>
+          {thinking}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SimulationPage: React.FC = () => {
   const [stage, setStage] = useState<'selection' | 'inputs' | 'result'>('selection');
   const [selectedSimulation, setSelectedSimulation] = useState<SimulationTemplate | null>(null);
@@ -231,7 +255,7 @@ const SimulationPage: React.FC = () => {
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
-  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string }>>([]);
+  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string }>>([]);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
@@ -694,6 +718,18 @@ const SimulationPage: React.FC = () => {
     // --- Persona v Persona conversation flow ---
     if (selectedSimulation.simulation_type === 'persona_conversation') {
       const openingLineText = userInputsString || fieldMap.bgInfo || 'No opening line provided.';
+      const conversationBaseInstructions = (() => {
+        if (selectedSimulation.system_prompt) {
+          let instr = selectedSimulation.system_prompt
+            .replace(/{{BACKGROUND_INFO}}/g, fieldMap.bgInfo || bgInfo || '')
+            .replace(/{{OPENING_LINE}}/g, openingLineText);
+          for (const [key, value] of Object.entries(fieldMap)) {
+            instr = instr.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
+          }
+          return instr;
+        }
+        return `You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\nFocus on the opening topic—not your own organization or story. Use your profile to inform your perspective. Respond in character. Stay concise; this is one turn in a discussion.`;
+      })();
       try {
         let sessionMode: SimulationMode = 'web_page';
         const modeTitle = selectedSimulation.title.toLowerCase();
@@ -768,6 +804,7 @@ const SimulationPage: React.FC = () => {
             ? Math.min(50, Math.max(1, selectedSimulation.type_specific_config.max_persona_turns))
             : MAX_PERSONA_TURNS;
         const conversationMessages: Message[] = [];
+        const lastThinkingByPersona = new Map<string, string>();
 
         while (turnCount < maxTurns) {
         const currentSpeaker = personaMap.get(nextSpeakerId) || personaWithFiles[0];
@@ -785,6 +822,7 @@ const SimulationPage: React.FC = () => {
           const speakerName = getPersonaDisplayName(currentSpeaker);
           const idPersonaTurn = addActivity(`${speakerName} is responding...`, `Turn ${turnCount + 1}`);
           let response: string;
+          let turnThinking: string | undefined;
           try {
             const agentResult = await agentApi.turn({
               personaId: currentSpeaker.id,
@@ -792,9 +830,14 @@ const SimulationPage: React.FC = () => {
               sessionId: newSessionId,
               history: historyForChat,
               userMessage: turnMessage,
-              simulationInstructions: `You are in a moderated conversation. The opening topic is:\n"${openingLineText.substring(0, 1500)}"\n\nFocus on the opening topic—not your own organization or story. Use your profile to inform your perspective. Respond in character. Stay concise; this is one turn in a discussion.`,
+              simulationInstructions: conversationBaseInstructions
+                .replace(/{{SELECTED_PROFILE}}/g, currentSpeaker.name)
+                .replace(/{{SELECTED_PROFILE_FULL}}/g, `[Your profile for ${currentSpeaker.name} — retrieved automatically from knowledge base]`),
+              previousThinking: lastThinkingByPersona.get(currentSpeaker.id),
             });
             response = agentResult.response;
+            turnThinking = agentResult.thinking || undefined;
+            if (turnThinking) lastThinkingByPersona.set(currentSpeaker.id, turnThinking);
             markActivityDone(idPersonaTurn);
           } catch (err) {
             markActivityError(idPersonaTurn);
@@ -807,6 +850,7 @@ const SimulationPage: React.FC = () => {
             senderType: 'persona',
             personaId: currentSpeaker.id,
             content: response,
+            thinking: turnThinking,
             createdAt: new Date().toISOString(),
           };
           conversationMessages.push(personaMsg);
@@ -883,7 +927,7 @@ const SimulationPage: React.FC = () => {
       return;
     }
 
-    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string }> = [];
+    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string }> = [];
 
     let persuasionSystemPrompt: string | null = null;
 
@@ -932,6 +976,7 @@ const SimulationPage: React.FC = () => {
 
       const idPersonaSim = addActivity(`Generating response for ${selectedPersona.name}...`);
       let result: string;
+      let resultThinking: string | undefined;
       try {
         const agentResult = await agentApi.turn({
           personaId: selectedPersona.id,
@@ -943,6 +988,7 @@ const SimulationPage: React.FC = () => {
           mimeType: effectiveMimeType || undefined,
         });
         result = agentResult.response;
+        resultThinking = agentResult.thinking || undefined;
         markActivityDone(idPersonaSim);
       } catch (err) {
         markActivityError(idPersonaSim);
@@ -955,6 +1001,7 @@ const SimulationPage: React.FC = () => {
         description: selectedPersona.description,
         avatarUrl: selectedPersona.avatarUrl,
         content: result,
+        thinking: resultThinking,
       });
     }
 
@@ -1004,6 +1051,7 @@ const SimulationPage: React.FC = () => {
         senderType: 'persona',
         personaId: firstPersona.id,
         content: results[0].content,
+        thinking: results[0].thinking,
         createdAt: new Date().toISOString()
       };
       
@@ -1020,6 +1068,7 @@ const SimulationPage: React.FC = () => {
             sender_type: 'persona',
             persona_id: firstPersona.id,
             content: results[0].content,
+            thinking: results[0].thinking,
           });
         } catch (err) {
           console.warn('Failed to sync persuasion message to backend:', err);
@@ -1097,6 +1146,7 @@ const SimulationPage: React.FC = () => {
         text: m.content
       }));
 
+      const lastPersonaThinking = [...messages].reverse().find(m => m.senderType === 'persona' && m.thinking)?.thinking;
       const agentResult = await agentApi.turn({
         personaId: selectedPersona.id,
         personaIds: [selectedPersona.id],
@@ -1104,8 +1154,10 @@ const SimulationPage: React.FC = () => {
         history,
         userMessage: currentInput,
         simulationInstructions: bgInfo ? `Context provided by the person running the simulation: ${bgInfo}` : undefined,
+        previousThinking: lastPersonaThinking,
       });
       const response = agentResult.response;
+      const followUpThinking = agentResult.thinking || undefined;
       
       const aiMsg: Message = {
         id: crypto.randomUUID(),
@@ -1113,6 +1165,7 @@ const SimulationPage: React.FC = () => {
         senderType: 'persona',
         personaId: selectedPersona.id,
         content: response,
+        thinking: followUpThinking,
         createdAt: new Date().toISOString()
       };
 
@@ -1122,7 +1175,7 @@ const SimulationPage: React.FC = () => {
         try {
           await simulationApi.createMessagesBulk(currentSessionId, [
             { sender_type: 'user', content: userMsg.content },
-            { sender_type: 'persona', persona_id: selectedPersona.id, content: aiMsg.content },
+            { sender_type: 'persona', persona_id: selectedPersona.id, content: aiMsg.content, thinking: followUpThinking },
           ]);
         } catch (err) {
           console.warn('Failed to sync persuasion messages to backend:', err);
@@ -1961,7 +2014,9 @@ const SimulationPage: React.FC = () => {
           const isChatLike = simulationOutputType === 'persuasion_simulation' || simulationOutputType === 'persona_conversation';
           const isPersonaConversation = simulationOutputType === 'persona_conversation';
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
-          const firstPersonaContent = messages.find(m => m.senderType === 'persona')?.content || '';
+          const firstPersonaMessage = messages.find(m => m.senderType === 'persona');
+          const firstPersonaContent = firstPersonaMessage?.content || '';
+          const firstPersonaThinking = firstPersonaMessage?.thinking || personaResults[0]?.thinking;
           const handleDownloadReport = () => {
             const text = messages.map(m => `${m.senderType === 'user' ? runnerDisplayName : (selectedPersona?.name || stablePersonaFallback)}: ${m.content}`).join('\n\n');
             const blob = new Blob([text], { type: 'text/plain' });
@@ -2076,6 +2131,9 @@ const SimulationPage: React.FC = () => {
                             <XCircle className="w-4 h-4" />
                           </button>
                           )}
+                          {!isUser && !isModerator && m.thinking && (
+                            <ThinkingPanel thinking={m.thinking} compact />
+                          )}
                         </div>
                         {messagePersona && !isUser && !isModerator && (messagePersona.description?.trim()) && (
                           <p className="text-xs text-gray-500 ml-1 mt-1 line-clamp-2">{messagePersona.description}</p>
@@ -2105,6 +2163,7 @@ const SimulationPage: React.FC = () => {
                       <div className="text-gray-800 text-lg leading-relaxed">
                         <FormattedSimulationResponse content={pr.content} isUser={false} />
                       </div>
+                      <ThinkingPanel thinking={pr.thinking} />
                     </div>
                   ))}
                 </div>
@@ -2162,6 +2221,7 @@ const SimulationPage: React.FC = () => {
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>
               )}
+              <ThinkingPanel thinking={firstPersonaThinking} />
               {isTyping && <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>}
               <div ref={scrollRef} />
             </>

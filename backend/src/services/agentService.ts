@@ -27,6 +27,7 @@ export interface AgentTurnParams {
   history: { role: 'user' | 'model'; text: string }[];
   userMessage: string;
   simulationInstructions?: string;
+  previousThinking?: string;
   image?: string;
   mimeType?: string;
 }
@@ -49,14 +50,36 @@ async function thinkStep(
   ai: GoogleGenAI,
   persona: { name: string; description: string },
   history: { role: 'user' | 'model'; text: string }[],
-  userMessage: string
+  userMessage: string,
+  simulationInstructions?: string,
+  previousThinking?: string
 ): Promise<{ thinking: string; searchQueries: string[] }> {
-  const systemPrompt = `You are ${persona.name}, ${persona.description}.
+  let systemPrompt = `You are ${persona.name}, ${persona.description}.
 
 You are about to respond to a message. Before responding, think carefully:
 - What is the user really asking or trying to achieve?
 - What aspects of your expertise, background, or knowledge are most relevant?
-- What specific information should you look up from your knowledge base?
+- What specific information should you look up from your knowledge base?`;
+
+  if (simulationInstructions) {
+    systemPrompt += `
+
+### Simulation context
+You are participating in a simulation. Consider the following instructions when reasoning about what knowledge to retrieve and how to approach your response:
+${truncate(simulationInstructions, 8000)}
+
+Factor the simulation goals and constraints into your reasoning. Generate search queries that target knowledge relevant to this simulation scenario, not just the literal message text.`;
+  }
+
+  if (previousThinking) {
+    systemPrompt += `
+
+### Your reasoning from the previous turn
+Build on your prior analysis rather than starting from scratch:
+${truncate(previousThinking, 4000)}`;
+  }
+
+  systemPrompt += `
 
 Output your thinking in JSON:
 {
@@ -162,14 +185,14 @@ You ARE this persona. Respond in first person as them. Never describe or referen
 }
 
 export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnResult> {
-  const { personaId, personaIds, sessionId, userId, history, userMessage, simulationInstructions, image, mimeType } = params;
+  const { personaId, personaIds, sessionId, userId, history, userMessage, simulationInstructions, previousThinking, image, mimeType } = params;
   const ai = getAI();
   const persona = await getPersonaIdentity(personaId);
 
   const effectivePersonaIds = personaIds && personaIds.length > 0 ? personaIds : [personaId];
 
-  // Step 1: Think
-  const { thinking, searchQueries } = await thinkStep(ai, persona, history, userMessage);
+  // Step 1: Think (now simulation-aware)
+  const { thinking, searchQueries } = await thinkStep(ai, persona, history, userMessage, simulationInstructions, previousThinking);
 
   // Step 2: Retrieve (non-fatal -- if retrieval fails, respond without RAG context)
   let retrievedContext = '';

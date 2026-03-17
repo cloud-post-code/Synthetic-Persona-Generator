@@ -104,7 +104,7 @@ export async function getPersuasionContext(req: AuthRequest, res: Response, next
 export async function createSimulationMessage(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const body = req.body as { sender_type: string; persona_id?: string; content: string };
+    const body = req.body as { sender_type: string; persona_id?: string; content: string; thinking?: string };
     if (!body.sender_type || body.content === undefined) {
       return res.status(400).json({ error: 'sender_type and content are required' });
     }
@@ -113,6 +113,7 @@ export async function createSimulationMessage(req: AuthRequest, res: Response, n
       sender_type: body.sender_type,
       persona_id: body.persona_id ?? null,
       content: String(body.content),
+      thinking: body.thinking ?? null,
     });
     res.status(201).json(message);
   } catch (error) {
@@ -123,7 +124,7 @@ export async function createSimulationMessage(req: AuthRequest, res: Response, n
 export async function createSimulationMessagesBulk(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const body = req.body as { messages: Array<{ sender_type: string; persona_id?: string; content: string }> };
+    const body = req.body as { messages: Array<{ sender_type: string; persona_id?: string; content: string; thinking?: string }> };
     if (!Array.isArray(body.messages)) {
       return res.status(400).json({ error: 'messages array is required' });
     }
@@ -135,6 +136,7 @@ export async function createSimulationMessagesBulk(req: AuthRequest, res: Respon
         sender_type: m.sender_type,
         persona_id: m.persona_id ?? null,
         content: String(m.content),
+        thinking: m.thinking ?? null,
       }))
     );
     res.status(201).json(messages);

@@ -7,6 +7,7 @@ export interface AgentTurnRequest {
   history: { role: 'user' | 'model'; text: string }[];
   userMessage: string;
   simulationInstructions?: string;
+  previousThinking?: string;
   image?: string;
   mimeType?: string;
 }

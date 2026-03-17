@@ -41,6 +41,7 @@ export interface Message {
   personaId?: string;
   persona_id?: string;
   content: string;
+  thinking?: string;
   createdAt?: string;
   created_at?: string;
 }
