@@ -9,6 +9,8 @@ import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import { geminiService } from '../services/gemini.js';
 import { agentApi } from '../services/agentApi.js';
+import type { AgentPipelineEvent } from '../services/agentApi.js';
+import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { Persona, ChatSession, Message, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
@@ -145,6 +147,8 @@ const ChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeResponders, setActiveResponders] = useState<string[]>([]);
+  const [chatPipelineEvents, setChatPipelineEvents] = useState<AgentPipelineEvent[]>([]);
+  const [chatPipelineActive, setChatPipelineActive] = useState(false);
   const { personas: allPersonas } = useAvailablePersonas();
   const { sessions: pastSessions, fetchSessions } = useChatSessions();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -457,13 +461,16 @@ const ChatPage: React.FC = () => {
           text: m.content,
         }));
 
-        const agentResult = await agentApi.turn({
+        setChatPipelineEvents([]);
+        setChatPipelineActive(true);
+        const agentResult = await agentApi.turnStream({
           personaId: persona.id,
           personaIds: selectedPersonas.map(p => p.id),
           sessionId: session.id,
           history,
           userMessage: currentInput,
-        });
+        }, (ev) => setChatPipelineEvents(prev => [...prev, ev]));
+        setChatPipelineActive(false);
         const responseText = agentResult.response;
 
         const aiMessage: Message = {
@@ -489,6 +496,7 @@ const ChatPage: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
+      setChatPipelineActive(false);
       alert('Responders failed due to size limits or API error.');
     } finally {
       setIsLoading(false);
@@ -679,10 +687,15 @@ const ChatPage: React.FC = () => {
                           className="w-10 h-10 rounded-xl object-cover grayscale opacity-50"
                         />
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                           {getPersonaDisplayName(persona)} is processing...
                         </p>
+                        {chatPipelineEvents.length > 0 && (
+                          <div className="min-w-[280px]">
+                            <AgentPipelineViewer events={chatPipelineEvents} isActive={chatPipelineActive} compact />
+                          </div>
+                        )}
                         <div className="bg-white border border-gray-100 p-5 rounded-3xl rounded-tl-none flex items-center gap-4 shadow-sm">
                            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
                            <div className="flex gap-1">

@@ -137,6 +137,18 @@ async function migrate() {
       if (err.code !== '42701') throw err;
     }
 
+    // Add retrieval_summary and validation columns for pipeline trace persistence
+    try {
+      await pool.query(`ALTER TABLE simulation_messages ADD COLUMN IF NOT EXISTS retrieval_summary JSONB DEFAULT NULL`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+    try {
+      await pool.query(`ALTER TABLE simulation_messages ADD COLUMN IF NOT EXISTS validation JSONB DEFAULT NULL`);
+    } catch (err: any) {
+      if (err.code !== '42701') throw err;
+    }
+
     // Persona visibility and persona_stars for library/starring
     try {
       await pool.query(`ALTER TABLE personas ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) NOT NULL DEFAULT 'private'`);

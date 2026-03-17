@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
-import { runAgentTurn } from '../services/agentService.js';
+import { runAgentTurn, runAgentTurnStreaming } from '../services/agentService.js';
 import { indexSessionContext, retrieve as retrieveChunks, indexPersona } from '../services/embeddingService.js';
 import pool from '../config/database.js';
 
@@ -12,7 +12,7 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       return res.status(400).json({ error: 'personaId and userMessage are required' });
     }
 
-    const result = await runAgentTurn({
+    const params = {
       personaId,
       personaIds: personaIds || [personaId],
       sessionId: sessionId || undefined,
@@ -23,9 +23,24 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       previousThinking: previousThinking || undefined,
       image: image || undefined,
       mimeType: mimeType || undefined,
-    });
+    };
 
-    res.json(result);
+    const wantStream = req.query.stream === '1' || (req.headers.accept || '').includes('application/x-ndjson');
+
+    if (wantStream) {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      await runAgentTurnStreaming(params, (event) => {
+        res.write(JSON.stringify(event) + '\n');
+      });
+      res.end();
+    } else {
+      const result = await runAgentTurn(params);
+      res.json(result);
+    }
   } catch (error) {
     next(error);
   }

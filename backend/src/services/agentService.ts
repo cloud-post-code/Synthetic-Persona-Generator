@@ -32,9 +32,23 @@ export interface AgentTurnParams {
   mimeType?: string;
 }
 
+export interface RetrievalInfo {
+  queries: string[];
+  chunks: { source_type: string; source_name: string; score: number; preview: string }[];
+  ragEmpty: boolean;
+}
+
+export interface ValidationInfo {
+  alignment_score: number;
+  flags: string[];
+  suggestions: string[];
+}
+
 export interface AgentTurnResult {
   response: string;
   thinking: string;
+  retrieval: RetrievalInfo;
+  validation: ValidationInfo | null;
 }
 
 async function getPersonaIdentity(personaId: string): Promise<{ name: string; description: string }> {
@@ -184,52 +198,172 @@ You ARE this persona. Respond in first person as them. Never describe or referen
   return response.text || '';
 }
 
+async function retrieveWithRetry(
+  query: string,
+  personaIds: string[],
+  sessionId: string | undefined,
+  topK: number,
+  userId: string | undefined
+): Promise<RetrievedChunk[]> {
+  try {
+    return await retrieve(query, personaIds, sessionId, topK, userId);
+  } catch (firstErr: any) {
+    console.warn(`[RAG] First retrieve attempt failed, retrying once:`, firstErr?.message || firstErr);
+    try {
+      return await retrieve(query, personaIds, sessionId, topK, userId);
+    } catch (retryErr: any) {
+      console.error(`[RAG] Retry also failed:`, retryErr?.message || retryErr);
+      return [];
+    }
+  }
+}
+
+async function validateStep(
+  ai: GoogleGenAI,
+  persona: { name: string; description: string },
+  response: string,
+  retrievedContext: string,
+  ragEmpty: boolean,
+  simulationInstructions?: string
+): Promise<ValidationInfo> {
+  const systemPrompt = `You are a quality-assurance reviewer evaluating whether a response is authentically written from the perspective of the persona described below.
+
+### Persona
+Name: ${persona.name}
+Description: ${truncate(persona.description, 4000)}
+
+${ragEmpty ? '### WARNING\nNo knowledge chunks were retrieved for this persona. The response was generated from the persona description only, with no supporting documents.\n' : ''}
+${simulationInstructions ? `### Simulation context\n${truncate(simulationInstructions, 2000)}\n` : ''}
+${retrievedContext ? `### Knowledge that was available\n${truncate(retrievedContext, 4000)}\n` : ''}
+
+### Task
+Evaluate the following response for persona alignment. Consider:
+- Does the tone match the persona's likely communication style?
+- Does the content reflect the persona's expertise and background?
+- Are there any claims that contradict the persona's profile or knowledge?
+- Is the response staying in character?
+${ragEmpty ? '- Factor in that no persona knowledge documents were available — the response may be generic.\n' : ''}
+
+Output JSON only:
+{
+  "alignment_score": <1-100>,
+  "flags": ["<specific mismatch or concern>"],
+  "suggestions": ["<actionable improvement>"]
+}`;
+
+  const result = await ai.models.generateContent({
+    model: CHAT_MODEL,
+    contents: [{ role: 'user', parts: [{ text: truncate(response, 8000) }] }],
+    config: {
+      systemInstruction: systemPrompt,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = result.text || '{}';
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      alignment_score: typeof parsed.alignment_score === 'number' ? Math.min(100, Math.max(1, Math.round(parsed.alignment_score))) : 50,
+      flags: Array.isArray(parsed.flags) ? parsed.flags.filter((f: unknown) => typeof f === 'string') : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((s: unknown) => typeof s === 'string') : [],
+    };
+  } catch {
+    return { alignment_score: 50, flags: ['Could not parse validation response'], suggestions: [] };
+  }
+}
+
+export type AgentPipelineEvent =
+  | { step: 'thinking'; status: 'active' }
+  | { step: 'thinking'; status: 'done'; thinking: string; searchQueries: string[] }
+  | { step: 'retrieval'; status: 'active'; queries: string[] }
+  | { step: 'retrieval'; status: 'done'; chunks: { source_type: string; source_name: string; score: number; preview: string }[]; ragEmpty: boolean }
+  | { step: 'responding'; status: 'active' }
+  | { step: 'responding'; status: 'done'; response: string }
+  | { step: 'validation'; status: 'active' }
+  | { step: 'validation'; status: 'done'; validation: ValidationInfo }
+  | { step: 'complete'; result: AgentTurnResult };
+
 export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnResult> {
+  return runAgentTurnStreaming(params);
+}
+
+export async function runAgentTurnStreaming(
+  params: AgentTurnParams,
+  emit?: (event: AgentPipelineEvent) => void
+): Promise<AgentTurnResult> {
   const { personaId, personaIds, sessionId, userId, history, userMessage, simulationInstructions, previousThinking, image, mimeType } = params;
+  const write = emit || (() => {});
   const ai = getAI();
   const persona = await getPersonaIdentity(personaId);
-
   const effectivePersonaIds = personaIds && personaIds.length > 0 ? personaIds : [personaId];
 
-  // Step 1: Think (now simulation-aware)
+  // Step 1: Think
+  write({ step: 'thinking', status: 'active' });
   const { thinking, searchQueries } = await thinkStep(ai, persona, history, userMessage, simulationInstructions, previousThinking);
+  write({ step: 'thinking', status: 'done', thinking, searchQueries });
 
-  // Step 2: Retrieve (non-fatal -- if retrieval fails, respond without RAG context)
-  let retrievedContext = '';
-  try {
-    const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
-    const allChunks: RetrievedChunk[] = [];
-    const seenTexts = new Set<string>();
+  // Step 2: Retrieve with fallback + retry
+  const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
+  write({ step: 'retrieval', status: 'active', queries });
 
-    for (const query of queries.slice(0, 3)) {
-      const chunks = await retrieve(query, effectivePersonaIds, sessionId, 10, userId);
-      for (const chunk of chunks) {
-        if (!seenTexts.has(chunk.text)) {
-          seenTexts.add(chunk.text);
-          allChunks.push(chunk);
-        }
+  const allChunks: RetrievedChunk[] = [];
+  const seenTexts = new Set<string>();
+
+  for (const query of queries.slice(0, 3)) {
+    const chunks = await retrieveWithRetry(query, effectivePersonaIds, sessionId, 10, userId);
+    for (const chunk of chunks) {
+      if (!seenTexts.has(chunk.text)) {
+        seenTexts.add(chunk.text);
+        allChunks.push(chunk);
       }
     }
-
-    allChunks.sort((a, b) => b.score - a.score);
-    const topChunks = allChunks.slice(0, 15);
-    retrievedContext = buildRetrievedContextSection(topChunks);
-  } catch (retrievalErr: any) {
-    console.error(`[RAG] Retrieval failed, responding without embedded context:`, retrievalErr?.message || retrievalErr);
   }
 
-  // Step 3: Respond
-  const response = await respondStep(
-    ai,
-    persona,
-    history,
-    userMessage,
-    thinking,
-    retrievedContext,
-    simulationInstructions,
-    image,
-    mimeType
-  );
+  // Fallback: if no chunks found, try persona identity as query
+  if (allChunks.length === 0 && persona.description) {
+    const fallbackQuery = `${persona.name} ${truncate(persona.description, 200)}`;
+    const fallbackChunks = await retrieveWithRetry(fallbackQuery, effectivePersonaIds, sessionId, 10, userId);
+    for (const chunk of fallbackChunks) {
+      if (!seenTexts.has(chunk.text)) {
+        seenTexts.add(chunk.text);
+        allChunks.push(chunk);
+      }
+    }
+  }
 
-  return { response, thinking };
+  allChunks.sort((a, b) => b.score - a.score);
+  const topChunks = allChunks.slice(0, 15);
+  const ragEmpty = topChunks.length === 0;
+  const retrievedContext = buildRetrievedContextSection(topChunks);
+  const retrievalInfo: RetrievalInfo = {
+    queries,
+    chunks: topChunks.map(c => ({
+      source_type: c.source_type,
+      source_name: c.source_name,
+      score: c.score,
+      preview: truncate(c.text, 150),
+    })),
+    ragEmpty,
+  };
+  write({ step: 'retrieval', status: 'done', chunks: retrievalInfo.chunks, ragEmpty });
+
+  // Step 3: Respond
+  write({ step: 'responding', status: 'active' });
+  const response = await respondStep(ai, persona, history, userMessage, thinking, retrievedContext, simulationInstructions, image, mimeType);
+  write({ step: 'responding', status: 'done', response });
+
+  // Step 4: Validate (non-fatal)
+  write({ step: 'validation', status: 'active' });
+  let validation: ValidationInfo | null = null;
+  try {
+    validation = await validateStep(ai, persona, response, retrievedContext, ragEmpty, simulationInstructions);
+  } catch (err: any) {
+    console.error(`[Validation] Failed:`, err?.message || err);
+  }
+  write({ step: 'validation', status: 'done', validation: validation || { alignment_score: 50, flags: ['Validation unavailable'], suggestions: [] } });
+
+  const result: AgentTurnResult = { response, thinking, retrieval: retrievalInfo, validation };
+  write({ step: 'complete', result });
+  return result;
 }

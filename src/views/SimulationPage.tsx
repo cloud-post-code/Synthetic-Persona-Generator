@@ -26,6 +26,8 @@ import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
 import { agentApi } from '../services/agentApi.js';
+import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../services/agentApi.js';
+import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
@@ -255,7 +257,7 @@ const SimulationPage: React.FC = () => {
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
-  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string }>>([]);
+  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string; retrieval?: RetrievalInfo; validation?: ValidationInfo | null }>>([]);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
@@ -293,6 +295,9 @@ const SimulationPage: React.FC = () => {
     label: string;
     detail?: string;
   }>>([]);
+
+  const [pipelineEvents, setPipelineEvents] = useState<AgentPipelineEvent[]>([]);
+  const [pipelineActive, setPipelineActive] = useState(false);
 
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
     try {
@@ -824,7 +829,9 @@ const SimulationPage: React.FC = () => {
           let response: string;
           let turnThinking: string | undefined;
           try {
-            const agentResult = await agentApi.turn({
+            setPipelineEvents([]);
+            setPipelineActive(true);
+            const agentResult = await agentApi.turnStream({
               personaId: currentSpeaker.id,
               personaIds: selectedPersonas.map(p => p.id),
               sessionId: newSessionId,
@@ -834,12 +841,14 @@ const SimulationPage: React.FC = () => {
                 .replace(/{{SELECTED_PROFILE}}/g, currentSpeaker.name)
                 .replace(/{{SELECTED_PROFILE_FULL}}/g, `[Your profile for ${currentSpeaker.name} — retrieved automatically from knowledge base]`),
               previousThinking: lastThinkingByPersona.get(currentSpeaker.id),
-            });
+            }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+            setPipelineActive(false);
             response = agentResult.response;
             turnThinking = agentResult.thinking || undefined;
             if (turnThinking) lastThinkingByPersona.set(currentSpeaker.id, turnThinking);
             markActivityDone(idPersonaTurn);
           } catch (err) {
+            setPipelineActive(false);
             markActivityError(idPersonaTurn);
             throw err;
           }
@@ -927,7 +936,7 @@ const SimulationPage: React.FC = () => {
       return;
     }
 
-    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string }> = [];
+    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string; retrieval?: RetrievalInfo; validation?: ValidationInfo | null }> = [];
 
     let persuasionSystemPrompt: string | null = null;
 
@@ -977,8 +986,12 @@ const SimulationPage: React.FC = () => {
       const idPersonaSim = addActivity(`Generating response for ${selectedPersona.name}...`);
       let result: string;
       let resultThinking: string | undefined;
+      let resultRetrieval: RetrievalInfo | undefined;
+      let resultValidation: ValidationInfo | null | undefined;
       try {
-        const agentResult = await agentApi.turn({
+        setPipelineEvents([]);
+        setPipelineActive(true);
+        const agentResult = await agentApi.turnStream({
           personaId: selectedPersona.id,
           personaIds: selectedPersonas.map(p => p.id),
           history: [],
@@ -986,11 +999,15 @@ const SimulationPage: React.FC = () => {
           simulationInstructions: instructions,
           image: effectiveStimulusImage || undefined,
           mimeType: effectiveMimeType || undefined,
-        });
+        }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+        setPipelineActive(false);
         result = agentResult.response;
         resultThinking = agentResult.thinking || undefined;
+        resultRetrieval = agentResult.retrieval;
+        resultValidation = agentResult.validation;
         markActivityDone(idPersonaSim);
       } catch (err) {
+        setPipelineActive(false);
         markActivityError(idPersonaSim);
         throw err;
       }
@@ -1002,6 +1019,8 @@ const SimulationPage: React.FC = () => {
         avatarUrl: selectedPersona.avatarUrl,
         content: result,
         thinking: resultThinking,
+        retrieval: resultRetrieval,
+        validation: resultValidation,
       });
     }
 
@@ -1147,7 +1166,9 @@ const SimulationPage: React.FC = () => {
       }));
 
       const lastPersonaThinking = [...messages].reverse().find(m => m.senderType === 'persona' && m.thinking)?.thinking;
-      const agentResult = await agentApi.turn({
+      setPipelineEvents([]);
+      setPipelineActive(true);
+      const agentResult = await agentApi.turnStream({
         personaId: selectedPersona.id,
         personaIds: [selectedPersona.id],
         sessionId: currentSessionId,
@@ -1155,7 +1176,8 @@ const SimulationPage: React.FC = () => {
         userMessage: currentInput,
         simulationInstructions: bgInfo ? `Context provided by the person running the simulation: ${bgInfo}` : undefined,
         previousThinking: lastPersonaThinking,
-      });
+      }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+      setPipelineActive(false);
       const response = agentResult.response;
       const followUpThinking = agentResult.thinking || undefined;
       
@@ -1199,6 +1221,7 @@ const SimulationPage: React.FC = () => {
       // Messages are saved to localStorage via useEffect
     } catch (err: any) {
       console.error('Chat error:', err);
+      setPipelineActive(false);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
       alert(`Failed to send message: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set\n2. You have sufficient API quota\n3. Check browser console for details`);
     } finally {
@@ -1532,6 +1555,13 @@ const SimulationPage: React.FC = () => {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {/* Real-time agent pipeline viewer */}
+            {isLoading && pipelineEvents.length > 0 && (
+              <div className="mb-8">
+                <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
               </div>
             )}
 
@@ -2143,7 +2173,16 @@ const SimulationPage: React.FC = () => {
                   </div>
                 );
               })}
-              {isTyping && <div className="flex justify-start"><div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div></div>}
+              {isTyping && (
+                <>
+                  {pipelineEvents.length > 0 && (
+                    <div className="mb-3 ml-4">
+                      <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
+                    </div>
+                  )}
+                  <div className="flex justify-start"><div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div></div>
+                </>
+              )}
               <div ref={scrollRef} />
             </div>
             ) : (
@@ -2222,7 +2261,16 @@ const SimulationPage: React.FC = () => {
                 </div>
               )}
               <ThinkingPanel thinking={firstPersonaThinking} />
-              {isTyping && <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>}
+              {isTyping && (
+                <>
+                  {pipelineEvents.length > 0 && (
+                    <div className="mt-4">
+                      <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
+                    </div>
+                  )}
+                  <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>
+                </>
+              )}
               <div ref={scrollRef} />
             </>
               )}

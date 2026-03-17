@@ -42,6 +42,16 @@ export interface Message {
   persona_id?: string;
   content: string;
   thinking?: string;
+  retrieval_summary?: {
+    queries: string[];
+    chunks: { source_type: string; source_name: string; score: number; preview: string }[];
+    ragEmpty: boolean;
+  } | null;
+  validation?: {
+    alignment_score: number;
+    flags: string[];
+    suggestions: string[];
+  } | null;
   createdAt?: string;
   created_at?: string;
 }
