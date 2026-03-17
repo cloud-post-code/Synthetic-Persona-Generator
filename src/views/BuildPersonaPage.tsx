@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Brain, Search, Check, ShieldCheck } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -52,6 +52,63 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
         Configure Blueprint <ChevronRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
       </div>
     </button>
+  );
+};
+
+// --- PIPELINE INDICATOR ---
+
+const PIPELINE_STEPS = [
+  { label: 'Thinking', icon: Brain },
+  { label: 'Knowledge Retrieval', icon: Search },
+  { label: 'Generating Response', icon: Sparkles },
+  { label: 'Persona Validation', icon: ShieldCheck },
+] as const;
+
+function getPipelineStepIndex(loadingStage: string): number {
+  if (!loadingStage) return 0;
+  const s = loadingStage.toLowerCase();
+  if (s.includes('digital likeness') || s.includes('capturing')) return 3;
+  if (s.includes('profiling agent') || s.includes('defining behaviors') ||
+      s.includes('high-fidelity blueprint') || s.includes('building high')) return 2;
+  if (s.includes('job architecture') || s.includes('success metrics') ||
+      s.includes('discovering identity') || s.includes('identifying author') ||
+      s.includes('extracting text from other') || s.includes('extracting text from document')) return 1;
+  return 0;
+}
+
+const BuildPipelineIndicator: React.FC<{ loadingStage: string; isAdvisor?: boolean }> = ({ loadingStage, isAdvisor }) => {
+  const currentIndex = getPipelineStepIndex(loadingStage);
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className={`flex items-center gap-2 px-5 py-3 border-b border-gray-100 ${isAdvisor ? 'bg-violet-50/40' : 'bg-indigo-50/40'}`}>
+        <Brain className={`w-4 h-4 ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'}`} />
+        <span className={`text-xs font-bold uppercase tracking-widest ${isAdvisor ? 'text-violet-600' : 'text-indigo-600'}`}>Agent Pipeline</span>
+        <Loader2 className={`w-3.5 h-3.5 ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'} animate-spin ml-auto`} />
+      </div>
+      <div className="px-5 py-3 space-y-0.5">
+        {PIPELINE_STEPS.map((step, i) => {
+          const Icon = step.icon;
+          const done = i < currentIndex;
+          const active = i === currentIndex;
+          return (
+            <div key={step.label} className={`flex items-center gap-3 py-2.5 ${i < PIPELINE_STEPS.length - 1 ? 'border-b border-gray-50' : ''}`}>
+              <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center">
+                {done && <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center"><Check className="w-4 h-4 text-green-600" /></div>}
+                {active && <div className={`w-7 h-7 rounded-full ${isAdvisor ? 'bg-violet-100' : 'bg-indigo-100'} flex items-center justify-center`}><Loader2 className={`w-4 h-4 ${isAdvisor ? 'text-violet-600' : 'text-indigo-600'} animate-spin`} /></div>}
+                {!done && !active && <div className="w-7 h-7 rounded-full border-2 border-gray-200 flex items-center justify-center"><div className="w-2 h-2 rounded-full bg-gray-200" /></div>}
+              </div>
+              <Icon className={`w-4 h-4 ${active ? (isAdvisor ? 'text-violet-500' : 'text-indigo-500') : done ? 'text-green-500' : 'text-gray-300'}`} />
+              <span className={`text-sm font-semibold ${active ? (isAdvisor ? 'text-violet-700' : 'text-indigo-700') : done ? 'text-gray-700' : 'text-gray-400'}`}>
+                {step.label}
+              </span>
+              {done && <span className="ml-auto text-xs font-medium text-green-600">Complete</span>}
+              {active && <span className={`ml-auto text-xs font-medium ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'} animate-pulse`}>In progress...</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
@@ -268,9 +325,33 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
             {savingVisibility ? <Loader2 className="animate-spin mx-auto" /> : 'Save and go to My Personas'}
           </button>
         </div>
+      ) : loading ? (
+        <div className="space-y-8 animate-in fade-in duration-500">
+          <div className="text-center space-y-2">
+            <h3 className="text-2xl font-bold text-gray-900">Building Your Personas</h3>
+            <p className="text-gray-500 font-medium">Our AI agents are working together to craft your synthetic personas.</p>
+          </div>
+
+          <BuildPipelineIndicator loadingStage={loadingStage} />
+
+          <div className="flex items-center justify-center gap-3 bg-indigo-50/60 border border-indigo-100 rounded-2xl px-5 py-4">
+            <Loader2 className="w-5 h-5 text-indigo-500 animate-spin flex-shrink-0" />
+            <span className="text-sm font-semibold text-indigo-700">{loadingStage}</span>
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleCancelGenerate}
+              className="flex items-center justify-center gap-2 px-8 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
+            >
+              <X className="w-5 h-5" />
+              Cancel Generation
+            </button>
+          </div>
+        </div>
       ) : (
       <>
-      {/* Step 1: Choose how to generate synthetic users */}
       {method == null ? (
         <div className="space-y-6">
           <h3 className="text-xl font-bold text-gray-900">How do you want to generate synthetic users?</h3>
@@ -399,18 +480,8 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
           }
           className="flex-1 min-w-[200px] py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
         >
-          {loading ? <div className="flex items-center justify-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest ml-2">{loadingStage}</span></div> : 'Submit Blueprint'}
+          Submit Blueprint
         </button>
-        {loading && (
-          <button
-            type="button"
-            onClick={handleCancelGenerate}
-            className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
-          >
-            <X className="w-5 h-5" />
-            Cancel
-          </button>
-        )}
       </div>
       )}
       </>
@@ -801,9 +872,33 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             {savingVisibility ? <Loader2 className="animate-spin mx-auto" /> : 'Save and go to My Personas'}
           </button>
         </div>
+      ) : loading ? (
+        <div className="space-y-8 animate-in fade-in duration-500">
+          <div className="text-center space-y-2">
+            <h3 className="text-2xl font-bold text-gray-900">Building Your Advisor</h3>
+            <p className="text-gray-500 font-medium">Our AI agents are analyzing source material and crafting your advisor profile.</p>
+          </div>
+
+          <BuildPipelineIndicator loadingStage={loadingStage} isAdvisor />
+
+          <div className="flex items-center justify-center gap-3 bg-violet-50/60 border border-violet-100 rounded-2xl px-5 py-4">
+            <Loader2 className="w-5 h-5 text-violet-500 animate-spin flex-shrink-0" />
+            <span className="text-sm font-semibold text-violet-700">{loadingStage}</span>
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleCancelGenerate}
+              className="flex items-center justify-center gap-2 px-8 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
+            >
+              <X className="w-5 h-5" />
+              Cancel Generation
+            </button>
+          </div>
+        </div>
       ) : (
       <>
-      {/* Step 1: Choose how to create your advisor (same card style as synthetic user methods) */}
       {sourceMode == null ? (
         <div className="space-y-6">
           <h3 className="text-xl font-bold text-gray-900">How do you want to create your advisor?</h3>
@@ -907,21 +1002,11 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       <div className="flex flex-wrap items-center gap-4">
         <button
           type="submit"
-          disabled={loading || sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
+          disabled={sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
           className="flex-1 min-w-[200px] py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
         >
-          {loading ? <div className="flex flex-col items-center"><Loader2 className="animate-spin mb-1" /> <span className="text-xs uppercase tracking-widest">{loadingStage}</span></div> : 'Submit for Advisor Profiling'}
+          Submit for Advisor Profiling
         </button>
-        {loading && (
-          <button
-            type="button"
-            onClick={handleCancelGenerate}
-            className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition-all"
-          >
-            <X className="w-5 h-5" />
-            Cancel
-          </button>
-        )}
       </div>
       </div>
       )}

@@ -1965,13 +1965,15 @@ const SimulationPage: React.FC = () => {
                               )}
                             </div>
                           ))}
-                          <button
-                            type="button"
-                            onClick={addQ}
-                            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-gray-500 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center gap-2 text-sm transition-colors"
-                          >
-                            <Plus className="w-4 h-4" /> Add question
-                          </button>
+                          {qs.length < 1 && (
+                            <button
+                              type="button"
+                              onClick={addQ}
+                              className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-gray-500 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center gap-2 text-sm transition-colors"
+                            >
+                              <Plus className="w-4 h-4" /> Add question
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
