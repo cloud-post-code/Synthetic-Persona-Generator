@@ -33,4 +33,8 @@ export const agentApi = {
   ): Promise<{ chunks: { text: string; source_type: string; source_name: string; score: number }[] }> => {
     return apiClient.post('/agent/retrieve', { query, personaIds, sessionId, topK });
   },
+
+  indexUnindexed: async (): Promise<{ message: string; indexed: number }> => {
+    return apiClient.post('/agent/index-unindexed', {});
+  },
 };
