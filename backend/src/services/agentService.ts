@@ -5,6 +5,9 @@ import { retrieve, RetrievedChunk } from './embeddingService.js';
 const CHAT_MODEL = 'gemini-2.5-flash';
 const MAX_HISTORY_CHARS = 40000;
 const MAX_SYSTEM_CHARS = 200000;
+/** Max think→retrieve→respond→validate cycles per user turn when validation is below threshold. */
+const MAX_QUALITY_ROUNDS = 3;
+const ALIGNMENT_PASS_THRESHOLD = 70;
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -66,7 +69,8 @@ async function thinkStep(
   history: { role: 'user' | 'model'; text: string }[],
   userMessage: string,
   simulationInstructions?: string,
-  previousThinking?: string
+  previousThinking?: string,
+  retryContext?: { previousResponse: string; validation: ValidationInfo }
 ): Promise<{ thinking: string; searchQueries: string[] }> {
   let systemPrompt = `You are ${persona.name}, ${persona.description}.
 
@@ -74,6 +78,19 @@ You are about to respond to a message. Before responding, think carefully:
 - What is the user really asking or trying to achieve?
 - What aspects of your expertise, background, or knowledge are most relevant?
 - What specific information should you look up from your knowledge base?`;
+
+  if (retryContext) {
+    const { previousResponse, validation } = retryContext;
+    systemPrompt += `
+
+### Quality revision
+Your previous in-character reply scored ${validation.alignment_score}/100 on persona alignment. Refine your reasoning and retrieval plan to fix this.
+${validation.flags.length ? `Concerns: ${validation.flags.map(f => `- ${f}`).join('\n')}` : ''}
+${validation.suggestions.length ? `Suggestions:\n${validation.suggestions.map(s => `- ${s}`).join('\n')}` : ''}
+
+Previous reply (reference only—plan an improved approach):
+${truncate(previousResponse, 4000)}`;
+  }
 
   if (simulationInstructions) {
     systemPrompt += `
@@ -152,10 +169,24 @@ async function respondStep(
   retrievedContext: string,
   simulationInstructions?: string,
   image?: string,
-  mimeType?: string
+  mimeType?: string,
+  revisionOf?: { draft: string; validation: ValidationInfo }
 ): Promise<string> {
   let systemPrompt = `You are ${persona.name}, ${persona.description}.
 You ARE this persona. Respond in first person as them. Never describe or reference the persona—speak only as them. Stay in character.`;
+
+  if (revisionOf) {
+    const { draft, validation } = revisionOf;
+    systemPrompt += `
+
+### Revision pass
+Your earlier draft scored ${validation.alignment_score}/100 on persona alignment. Produce one improved in-character reply that addresses the feedback. Do not meta-comment about the review—just speak as the persona.
+${validation.flags.length ? `Issues: ${validation.flags.join('; ')}` : ''}
+${validation.suggestions.length ? `Guidance: ${validation.suggestions.join('; ')}` : ''}
+
+Earlier draft to replace (do not quote verbatim):
+${truncate(draft, 4000)}`;
+  }
 
   if (simulationInstructions) {
     systemPrompt += `\n\n### Simulation instructions\n${simulationInstructions}`;
@@ -214,6 +245,25 @@ async function retrieveWithRetry(
     } catch (retryErr: any) {
       console.error(`[RAG] Retry also failed:`, retryErr?.message || retryErr);
       return [];
+    }
+  }
+}
+
+async function appendRetrievalForQueries(
+  queries: string[],
+  effectivePersonaIds: string[],
+  sessionId: string | undefined,
+  userId: string | undefined,
+  allChunks: RetrievedChunk[],
+  seenTexts: Set<string>
+): Promise<void> {
+  for (const query of queries.slice(0, 3)) {
+    const chunks = await retrieveWithRetry(query, effectivePersonaIds, sessionId, 10, userId);
+    for (const chunk of chunks) {
+      if (!seenTexts.has(chunk.text)) {
+        seenTexts.add(chunk.text);
+        allChunks.push(chunk);
+      }
     }
   }
 }
@@ -298,70 +348,112 @@ export async function runAgentTurnStreaming(
   const persona = await getPersonaIdentity(personaId);
   const effectivePersonaIds = personaIds && personaIds.length > 0 ? personaIds : [personaId];
 
-  // Step 1: Think
-  write({ step: 'thinking', status: 'active' });
-  const { thinking, searchQueries } = await thinkStep(ai, persona, history, userMessage, simulationInstructions, previousThinking);
-  write({ step: 'thinking', status: 'done', thinking, searchQueries });
-
-  // Step 2: Retrieve with fallback + retry
-  const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
-  write({ step: 'retrieval', status: 'active', queries });
-
   const allChunks: RetrievedChunk[] = [];
   const seenTexts = new Set<string>();
-
-  for (const query of queries.slice(0, 3)) {
-    const chunks = await retrieveWithRetry(query, effectivePersonaIds, sessionId, 10, userId);
-    for (const chunk of chunks) {
-      if (!seenTexts.has(chunk.text)) {
-        seenTexts.add(chunk.text);
-        allChunks.push(chunk);
-      }
-    }
-  }
-
-  // Fallback: if no chunks found, try persona identity as query
-  if (allChunks.length === 0 && persona.description) {
-    const fallbackQuery = `${persona.name} ${truncate(persona.description, 200)}`;
-    const fallbackChunks = await retrieveWithRetry(fallbackQuery, effectivePersonaIds, sessionId, 10, userId);
-    for (const chunk of fallbackChunks) {
-      if (!seenTexts.has(chunk.text)) {
-        seenTexts.add(chunk.text);
-        allChunks.push(chunk);
-      }
-    }
-  }
-
-  allChunks.sort((a, b) => b.score - a.score);
-  const topChunks = allChunks.slice(0, 15);
-  const ragEmpty = topChunks.length === 0;
-  const retrievedContext = buildRetrievedContextSection(topChunks);
-  const retrievalInfo: RetrievalInfo = {
-    queries,
-    chunks: topChunks.map(c => ({
-      source_type: c.source_type,
-      source_name: c.source_name,
-      score: c.score,
-      preview: truncate(c.text, 150),
-    })),
-    ragEmpty,
-  };
-  write({ step: 'retrieval', status: 'done', chunks: retrievalInfo.chunks, ragEmpty });
-
-  // Step 3: Respond
-  write({ step: 'responding', status: 'active' });
-  const response = await respondStep(ai, persona, history, userMessage, thinking, retrievedContext, simulationInstructions, image, mimeType);
-  write({ step: 'responding', status: 'done', response });
-
-  // Step 4: Validate (non-fatal)
-  write({ step: 'validation', status: 'active' });
+  const queriesAccum: string[] = [];
+  let thinking = '';
+  let response = '';
   let validation: ValidationInfo | null = null;
-  try {
-    validation = await validateStep(ai, persona, response, retrievedContext, ragEmpty, simulationInstructions);
-  } catch (err: any) {
-    console.error(`[Validation] Failed:`, err?.message || err);
+  let retrievalInfo: RetrievalInfo = {
+    queries: [],
+    chunks: [],
+    ragEmpty: true,
+  };
+
+  for (let round = 1; round <= MAX_QUALITY_ROUNDS; round++) {
+    const chainThinking = round === 1 ? previousThinking : thinking;
+    const retryContext =
+      round > 1 && validation
+        ? { previousResponse: response, validation }
+        : undefined;
+
+    write({ step: 'thinking', status: 'active' });
+    const thinkOut = await thinkStep(
+      ai,
+      persona,
+      history,
+      userMessage,
+      simulationInstructions,
+      chainThinking,
+      retryContext
+    );
+    thinking = thinkOut.thinking;
+    const searchQueries = thinkOut.searchQueries;
+    write({ step: 'thinking', status: 'done', thinking, searchQueries });
+
+    const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
+    for (const q of queries) {
+      if (!queriesAccum.includes(q)) queriesAccum.push(q);
+    }
+
+    write({ step: 'retrieval', status: 'active', queries });
+    await appendRetrievalForQueries(queries, effectivePersonaIds, sessionId, userId, allChunks, seenTexts);
+
+    if (allChunks.length === 0 && persona.description) {
+      const fallbackQuery = `${persona.name} ${truncate(persona.description, 200)}`;
+      if (!queriesAccum.includes(fallbackQuery)) queriesAccum.push(fallbackQuery);
+      const fallbackChunks = await retrieveWithRetry(fallbackQuery, effectivePersonaIds, sessionId, 10, userId);
+      for (const chunk of fallbackChunks) {
+        if (!seenTexts.has(chunk.text)) {
+          seenTexts.add(chunk.text);
+          allChunks.push(chunk);
+        }
+      }
+    }
+
+    allChunks.sort((a, b) => b.score - a.score);
+    const topChunks = allChunks.slice(0, 15);
+    const ragEmpty = topChunks.length === 0;
+    const retrievedContext = buildRetrievedContextSection(topChunks);
+    retrievalInfo = {
+      queries: [...queriesAccum],
+      chunks: topChunks.map(c => ({
+        source_type: c.source_type,
+        source_name: c.source_name,
+        score: c.score,
+        preview: truncate(c.text, 150),
+      })),
+      ragEmpty,
+    };
+    write({ step: 'retrieval', status: 'done', chunks: retrievalInfo.chunks, ragEmpty });
+
+    const revisionOf =
+      round > 1 && validation ? { draft: response, validation } : undefined;
+
+    write({ step: 'responding', status: 'active' });
+    response = await respondStep(
+      ai,
+      persona,
+      history,
+      userMessage,
+      thinking,
+      retrievedContext,
+      simulationInstructions,
+      image,
+      mimeType,
+      revisionOf
+    );
+    write({ step: 'responding', status: 'done', response });
+
+    write({ step: 'validation', status: 'active' });
+    try {
+      validation = await validateStep(ai, persona, response, retrievedContext, ragEmpty, simulationInstructions);
+    } catch (err: any) {
+      console.error(`[Validation] Failed:`, err?.message || err);
+      validation = null;
+    }
+    const validationDone = validation || {
+      alignment_score: 50,
+      flags: ['Validation unavailable'],
+      suggestions: [],
+    };
+    write({ step: 'validation', status: 'done', validation: validationDone });
+    validation = validationDone;
+
+    if (validation.alignment_score >= ALIGNMENT_PASS_THRESHOLD) {
+      break;
+    }
   }
-  write({ step: 'validation', status: 'done', validation: validation || { alignment_score: 50, flags: ['Validation unavailable'], suggestions: [] } });
 
   const result: AgentTurnResult = { response, thinking, retrieval: retrievalInfo, validation };
   write({ step: 'complete', result });

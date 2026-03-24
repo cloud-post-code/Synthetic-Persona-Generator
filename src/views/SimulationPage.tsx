@@ -644,7 +644,7 @@ const SimulationPage: React.FC = () => {
     setPersonaResults([]);
     setMessages([]);
     setPipelineEvents([]);
-    setPipelineActive(false);
+    setPipelineActive(true);
     setStage('result');
 
     const addActivity = (label: string, detail?: string) => {
@@ -937,6 +937,7 @@ const SimulationPage: React.FC = () => {
         );
       } finally {
         setIsLoading(false);
+        setPipelineActive(false);
       }
       return;
     }
@@ -1995,6 +1996,9 @@ const SimulationPage: React.FC = () => {
           const isIdeaGeneration = simulationOutputType === 'idea_generation';
           const isChatLike = simulationOutputType === 'persuasion_simulation' || simulationOutputType === 'persona_conversation';
           const isPersonaConversation = simulationOutputType === 'persona_conversation';
+          /** Keep agent pipeline fixed above; do not duplicate it inside the scrolling message area. */
+          const showTopAgentStrip =
+            isLoading || (isChatLike && !isPersonaConversation && isTyping);
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
           const firstPersonaMessage = messages.find(m => m.senderType === 'persona');
           const firstPersonaContent = firstPersonaMessage?.content || '';
@@ -2070,57 +2074,64 @@ const SimulationPage: React.FC = () => {
               </div>
             </header>
 
-            {/* Pipeline + activity log while simulation is running */}
-            {isLoading && (
-              <div className="mx-10 mt-6 space-y-4 animate-in fade-in duration-500">
-                {simulationActivityLog.length > 0 && (
+            {/* Agent pipeline (4 steps) fixed above; API / generation status below — same order for whole run */}
+            {showTopAgentStrip && (
+              <div className="mx-10 mt-6 shrink-0 space-y-4 pb-6 border-b border-gray-100">
+                <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
+                {isLoading ? (
                   <div className="p-5 bg-indigo-50/80 border border-indigo-100 rounded-2xl shadow-sm">
                     <div className="flex items-center justify-between gap-4 mb-3">
                       <h3 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Simulation in progress
+                        Simulation in progress — API calls
                       </h3>
                       <button
                         type="button"
-                        onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); }}
+                        onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); setPipelineActive(false); }}
                         className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all text-sm"
                       >
                         <CloseIcon className="w-4 h-4" />
                         Cancel
                       </button>
                     </div>
-                    <ul className="space-y-1.5 max-h-36 overflow-y-auto">
-                      {simulationActivityLog.map((a) => (
-                        <li
-                          key={a.id}
-                          className={`flex items-center gap-3 text-sm font-medium ${
-                            a.status === 'done'
-                              ? 'text-green-700'
-                              : a.status === 'error'
-                                ? 'text-red-600'
-                                : a.status === 'active'
-                                  ? 'text-indigo-700'
-                                  : 'text-gray-500'
-                          }`}
-                        >
-                          {a.status === 'done' && (
-                            <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
-                          )}
-                          {a.status === 'error' && (
-                            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
-                          )}
-                          {a.status === 'active' && (
-                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
-                          )}
-                          <span>{a.label}</span>
-                          {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
-                        </li>
-                      ))}
-                    </ul>
+                    {simulationActivityLog.length > 0 ? (
+                      <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {simulationActivityLog.map((a) => (
+                          <li
+                            key={a.id}
+                            className={`flex items-center gap-3 text-sm font-medium ${
+                              a.status === 'done'
+                                ? 'text-green-700'
+                                : a.status === 'error'
+                                  ? 'text-red-600'
+                                  : a.status === 'active'
+                                    ? 'text-indigo-700'
+                                    : 'text-gray-500'
+                            }`}
+                          >
+                            {a.status === 'done' && (
+                              <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
+                            )}
+                            {a.status === 'error' && (
+                              <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                            )}
+                            {a.status === 'active' && (
+                              <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                            )}
+                            <span>{a.label}</span>
+                            {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-indigo-600/80 font-medium">Starting simulation…</p>
+                    )}
                   </div>
-                )}
-                {pipelineEvents.length > 0 && (
-                  <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
+                ) : (
+                  <div className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/50 px-5 py-3 text-sm font-semibold text-indigo-800">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                    Generating response…
+                  </div>
                 )}
               </div>
             )}
@@ -2136,7 +2147,7 @@ const SimulationPage: React.FC = () => {
 
             {/* Main content: chat UI for chat/persuasion, single-output for others */}
             {isChatLike ? (
-            <div className="flex-grow overflow-y-auto p-10 space-y-10 bg-gray-50/20">
+            <div className="flex-grow min-h-0 overflow-y-auto p-10 space-y-10 bg-gray-50/20">
               {messages.map((m) => {
                 const isUser = m.senderType === 'user';
                 const isModerator = m.senderType === 'moderator';
@@ -2181,19 +2192,17 @@ const SimulationPage: React.FC = () => {
                 );
               })}
               {isTyping && (
-                <>
-                  {pipelineEvents.length > 0 && (
-                    <div className="mb-3 ml-4">
-                      <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
-                    </div>
-                  )}
-                  <div className="flex justify-start"><div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div></div>
-                </>
+                <div className="flex justify-start">
+                  <div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm">
+                    <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                    <span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span>
+                  </div>
+                </div>
               )}
               <div ref={scrollRef} />
             </div>
             ) : (
-            <div className="flex-grow overflow-y-auto p-10 bg-gray-50/20">
+            <div className="flex-grow min-h-0 overflow-y-auto p-10 bg-gray-50/20">
               {isLoading && personaResults.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 animate-in fade-in duration-500">
                   <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
@@ -2275,14 +2284,10 @@ const SimulationPage: React.FC = () => {
               )}
               <ThinkingPanel thinking={firstPersonaThinking} />
               {isTyping && (
-                <>
-                  {pipelineEvents.length > 0 && (
-                    <div className="mt-4">
-                      <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
-                    </div>
-                  )}
-                  <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm"><Loader2 className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span></div>
-                </>
+                <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm">
+                  <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span>
+                </div>
               )}
               <div ref={scrollRef} />
             </>
