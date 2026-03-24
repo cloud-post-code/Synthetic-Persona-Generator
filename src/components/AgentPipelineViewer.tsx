@@ -24,7 +24,7 @@ const STEP_META: { key: StepName; label: string; icon: React.ElementType }[] = [
   { key: 'thinking', label: 'Thinking', icon: Brain },
   { key: 'retrieval', label: 'Knowledge Retrieval', icon: Search },
   { key: 'responding', label: 'Generating Response', icon: Sparkles },
-  { key: 'validation', label: 'Persona Validation', icon: ShieldCheck },
+  { key: 'validation', label: 'Quality validation', icon: ShieldCheck },
 ];
 
 function buildSteps(events: AgentPipelineEvent[]): Record<StepName, StepState> {
@@ -61,8 +61,9 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
   const hasDoneContent = state.status === 'done';
 
   useEffect(() => {
-    if (state.status === 'done' && meta.key === 'validation' && state.validation && state.validation.alignment_score < 50) {
-      setExpanded(true);
+    if (state.status === 'done' && meta.key === 'validation' && state.validation) {
+      const c = state.validation.completeness_score ?? 50;
+      if (state.validation.alignment_score < 50 || c < 50) setExpanded(true);
     }
   }, [state.status, state.validation, meta.key]);
 
@@ -83,7 +84,12 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
           {meta.label}
         </span>
         {meta.key === 'validation' && state.status === 'done' && state.validation && (
-          <ScoreBadge score={state.validation.alignment_score} />
+          <span className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Persona</span>
+            <ScoreBadge score={state.validation.alignment_score} />
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide ml-1">Answer</span>
+            <ScoreBadge score={state.validation.completeness_score ?? 50} />
+          </span>
         )}
         {meta.key === 'retrieval' && state.status === 'done' && state.ragEmpty && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
@@ -159,6 +165,15 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
                   <span>This response may not fully align with the persona's profile. Review the flags below.</span>
                 </div>
               )}
+              {(state.validation.completeness_score ?? 50) < 50 && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900 text-xs">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>The reply may not fully answer the user or may be too thin, evasive, or incomplete.</span>
+                </div>
+              )}
+              {state.validation.flags.length > 0 && (
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Persona</p>
+              )}
               {state.validation.flags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {state.validation.flags.map((f, i) => (
@@ -171,6 +186,27 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
                   {state.validation.suggestions.map((s, i) => (
                     <p key={i} className="text-xs text-gray-600 flex items-start gap-1.5">
                       <Sparkles className="w-3 h-3 text-indigo-400 flex-shrink-0 mt-0.5" />
+                      {s}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {((state.validation.completeness_flags?.length ?? 0) > 0 ||
+                (state.validation.completeness_suggestions?.length ?? 0) > 0) && (
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide pt-1">Answer completeness</p>
+              )}
+              {(state.validation.completeness_flags ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {(state.validation.completeness_flags ?? []).map((f, i) => (
+                    <span key={i} className="inline-block px-2 py-0.5 bg-amber-100 text-amber-900 rounded-full text-xs">{f}</span>
+                  ))}
+                </div>
+              )}
+              {(state.validation.completeness_suggestions ?? []).length > 0 && (
+                <div className="space-y-1">
+                  {(state.validation.completeness_suggestions ?? []).map((s, i) => (
+                    <p key={i} className="text-xs text-gray-600 flex items-start gap-1.5">
+                      <Sparkles className="w-3 h-3 text-amber-500 flex-shrink-0 mt-0.5" />
                       {s}
                     </p>
                   ))}

@@ -193,12 +193,28 @@ export async function updatePersona(personaId: string, userId: string, updates: 
 }
 
 export async function deletePersona(personaId: string, userId: string): Promise<boolean> {
+  const groupsResult = await pool.query(
+    `SELECT DISTINCT fgp.focus_group_id
+     FROM focus_group_personas fgp
+     INNER JOIN focus_groups fg ON fg.id = fgp.focus_group_id AND fg.user_id = $2
+     WHERE fgp.persona_id = $1`,
+    [personaId, userId]
+  );
+  const affectedGroupIds: string[] = groupsResult.rows.map(
+    (r: { focus_group_id: string }) => r.focus_group_id
+  );
+
   const result = await pool.query(
     'DELETE FROM personas WHERE id = $1 AND user_id = $2',
     [personaId, userId]
   );
 
-  return result.rowCount !== null && result.rowCount > 0;
+  const deleted = result.rowCount !== null && result.rowCount > 0;
+  if (deleted && affectedGroupIds.length > 0) {
+    const { deleteFocusGroupsNowEmpty } = await import('./focusGroupService.js');
+    await deleteFocusGroupsNowEmpty(userId, affectedGroupIds);
+  }
+  return deleted;
 }
 
 export async function getPersonaFiles(personaId: string, userId: string): Promise<PersonaFile[]> {

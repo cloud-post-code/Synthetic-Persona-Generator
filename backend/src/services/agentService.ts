@@ -8,6 +8,14 @@ const MAX_SYSTEM_CHARS = 200000;
 /** Max think→retrieve→respond→validate cycles per user turn when validation is below threshold. */
 const MAX_QUALITY_ROUNDS = 3;
 const ALIGNMENT_PASS_THRESHOLD = 70;
+const COMPLETENESS_PASS_THRESHOLD = 70;
+
+function passesQualityGate(v: ValidationInfo): boolean {
+  return (
+    v.alignment_score >= ALIGNMENT_PASS_THRESHOLD &&
+    v.completeness_score >= COMPLETENESS_PASS_THRESHOLD
+  );
+}
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -43,8 +51,11 @@ export interface RetrievalInfo {
 
 export interface ValidationInfo {
   alignment_score: number;
+  completeness_score: number;
   flags: string[];
   suggestions: string[];
+  completeness_flags: string[];
+  completeness_suggestions: string[];
 }
 
 export interface AgentTurnResult {
@@ -84,9 +95,11 @@ You are about to respond to a message. Before responding, think carefully:
     systemPrompt += `
 
 ### Quality revision
-Your previous in-character reply scored ${validation.alignment_score}/100 on persona alignment. Refine your reasoning and retrieval plan to fix this.
-${validation.flags.length ? `Concerns: ${validation.flags.map(f => `- ${f}`).join('\n')}` : ''}
-${validation.suggestions.length ? `Suggestions:\n${validation.suggestions.map(s => `- ${s}`).join('\n')}` : ''}
+Your previous in-character reply scored ${validation.alignment_score}/100 on persona alignment and ${validation.completeness_score}/100 on answer completeness (fully addressing the user, substantive, not truncated or evasive). Refine your reasoning and retrieval plan to fix any issues.
+${validation.flags.length ? `Persona alignment concerns:\n${validation.flags.map(f => `- ${f}`).join('\n')}` : ''}
+${validation.suggestions.length ? `Persona alignment suggestions:\n${validation.suggestions.map(s => `- ${s}`).join('\n')}` : ''}
+${validation.completeness_flags.length ? `Answer completeness concerns:\n${validation.completeness_flags.map(f => `- ${f}`).join('\n')}` : ''}
+${validation.completeness_suggestions.length ? `Answer completeness suggestions:\n${validation.completeness_suggestions.map(s => `- ${s}`).join('\n')}` : ''}
 
 Previous reply (reference only—plan an improved approach):
 ${truncate(previousResponse, 4000)}`;
@@ -180,9 +193,11 @@ You ARE this persona. Respond in first person as them. Never describe or referen
     systemPrompt += `
 
 ### Revision pass
-Your earlier draft scored ${validation.alignment_score}/100 on persona alignment. Produce one improved in-character reply that addresses the feedback. Do not meta-comment about the review—just speak as the persona.
-${validation.flags.length ? `Issues: ${validation.flags.join('; ')}` : ''}
-${validation.suggestions.length ? `Guidance: ${validation.suggestions.join('; ')}` : ''}
+Your earlier draft scored ${validation.alignment_score}/100 on persona alignment and ${validation.completeness_score}/100 on answer completeness. Produce one improved in-character reply that addresses all feedback. Do not meta-comment about the review—just speak as the persona.
+${validation.flags.length ? `Persona issues: ${validation.flags.join('; ')}` : ''}
+${validation.suggestions.length ? `Persona guidance: ${validation.suggestions.join('; ')}` : ''}
+${validation.completeness_flags.length ? `Completeness issues: ${validation.completeness_flags.join('; ')}` : ''}
+${validation.completeness_suggestions.length ? `Completeness guidance: ${validation.completeness_suggestions.join('; ')}` : ''}
 
 Earlier draft to replace (do not quote verbatim):
 ${truncate(draft, 4000)}`;
@@ -271,34 +286,48 @@ async function appendRetrievalForQueries(
 async function validateStep(
   ai: GoogleGenAI,
   persona: { name: string; description: string },
+  userMessage: string,
   response: string,
   retrievedContext: string,
   ragEmpty: boolean,
   simulationInstructions?: string
 ): Promise<ValidationInfo> {
-  const systemPrompt = `You are a quality-assurance reviewer evaluating whether a response is authentically written from the perspective of the persona described below.
+  const systemPrompt = `You are a quality-assurance reviewer evaluating an in-character reply. You must score two independent dimensions.
 
 ### Persona
 Name: ${persona.name}
 Description: ${truncate(persona.description, 4000)}
 
+### User message (what the reply should address)
+${truncate(userMessage, 8000)}
+
 ${ragEmpty ? '### WARNING\nNo knowledge chunks were retrieved for this persona. The response was generated from the persona description only, with no supporting documents.\n' : ''}
 ${simulationInstructions ? `### Simulation context\n${truncate(simulationInstructions, 2000)}\n` : ''}
 ${retrievedContext ? `### Knowledge that was available\n${truncate(retrievedContext, 4000)}\n` : ''}
 
-### Task
-Evaluate the following response for persona alignment. Consider:
+### Task 1 — Persona alignment
+Consider:
 - Does the tone match the persona's likely communication style?
 - Does the content reflect the persona's expertise and background?
 - Are there any claims that contradict the persona's profile or knowledge?
 - Is the response staying in character?
 ${ragEmpty ? '- Factor in that no persona knowledge documents were available — the response may be generic.\n' : ''}
 
+### Task 2 — Answer completeness (independent of persona score)
+Judge whether the reply adequately completes the job for the user message. Consider:
+- Does it directly address what was asked (including all parts of a multi-part question)?
+- Is it substantive enough, or overly vague, dismissive, or placeholder?
+- Does it appear cut off, unfinished, or refuse to answer without good in-character reason?
+- For very short user messages, a brief reply may still be complete if it appropriately answers.
+
 Output JSON only:
 {
   "alignment_score": <1-100>,
-  "flags": ["<specific mismatch or concern>"],
-  "suggestions": ["<actionable improvement>"]
+  "completeness_score": <1-100>,
+  "flags": ["<persona alignment mismatch or concern>"],
+  "suggestions": ["<actionable persona improvement>"],
+  "completeness_flags": ["<specific completeness or answer-quality issue>"],
+  "completeness_suggestions": ["<actionable improvement to fully answer the user>"]
 }`;
 
   const result = await ai.models.generateContent({
@@ -315,11 +344,28 @@ Output JSON only:
     const parsed = JSON.parse(text);
     return {
       alignment_score: typeof parsed.alignment_score === 'number' ? Math.min(100, Math.max(1, Math.round(parsed.alignment_score))) : 50,
+      completeness_score:
+        typeof parsed.completeness_score === 'number'
+          ? Math.min(100, Math.max(1, Math.round(parsed.completeness_score)))
+          : 50,
       flags: Array.isArray(parsed.flags) ? parsed.flags.filter((f: unknown) => typeof f === 'string') : [],
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((s: unknown) => typeof s === 'string') : [],
+      completeness_flags: Array.isArray(parsed.completeness_flags)
+        ? parsed.completeness_flags.filter((f: unknown) => typeof f === 'string')
+        : [],
+      completeness_suggestions: Array.isArray(parsed.completeness_suggestions)
+        ? parsed.completeness_suggestions.filter((s: unknown) => typeof s === 'string')
+        : [],
     };
   } catch {
-    return { alignment_score: 50, flags: ['Could not parse validation response'], suggestions: [] };
+    return {
+      alignment_score: 50,
+      completeness_score: 50,
+      flags: ['Could not parse validation response'],
+      suggestions: [],
+      completeness_flags: [],
+      completeness_suggestions: [],
+    };
   }
 }
 
@@ -436,21 +482,44 @@ export async function runAgentTurnStreaming(
     write({ step: 'responding', status: 'done', response });
 
     write({ step: 'validation', status: 'active' });
-    try {
-      validation = await validateStep(ai, persona, response, retrievedContext, ragEmpty, simulationInstructions);
-    } catch (err: any) {
-      console.error(`[Validation] Failed:`, err?.message || err);
-      validation = null;
+    const trimmedResponse = (response || '').trim();
+    if (!trimmedResponse) {
+      validation = {
+        alignment_score: 25,
+        completeness_score: 5,
+        flags: ['Empty or whitespace-only response'],
+        suggestions: ['Generate a substantive in-character reply'],
+        completeness_flags: ['No answer content was produced'],
+        completeness_suggestions: ['Fully respond to the user message in character'],
+      };
+    } else {
+      try {
+        validation = await validateStep(
+          ai,
+          persona,
+          userMessage,
+          response,
+          retrievedContext,
+          ragEmpty,
+          simulationInstructions
+        );
+      } catch (err: any) {
+        console.error(`[Validation] Failed:`, err?.message || err);
+        validation = null;
+      }
     }
     const validationDone = validation || {
       alignment_score: 50,
+      completeness_score: 50,
       flags: ['Validation unavailable'],
       suggestions: [],
+      completeness_flags: [],
+      completeness_suggestions: [],
     };
     write({ step: 'validation', status: 'done', validation: validationDone });
     validation = validationDone;
 
-    if (validation.alignment_score >= ALIGNMENT_PASS_THRESHOLD) {
+    if (passesQualityGate(validation)) {
       break;
     }
   }

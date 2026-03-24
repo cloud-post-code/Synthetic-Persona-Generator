@@ -20,8 +20,11 @@ export interface RetrievalInfo {
 
 export interface ValidationInfo {
   alignment_score: number;
+  completeness_score: number;
   flags: string[];
   suggestions: string[];
+  completeness_flags: string[];
+  completeness_suggestions: string[];
 }
 
 export interface AgentTurnResponse {

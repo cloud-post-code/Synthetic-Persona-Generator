@@ -49,8 +49,11 @@ export interface Message {
   } | null;
   validation?: {
     alignment_score: number;
+    completeness_score?: number;
     flags: string[];
     suggestions: string[];
+    completeness_flags?: string[];
+    completeness_suggestions?: string[];
   } | null;
   createdAt?: string;
   created_at?: string;

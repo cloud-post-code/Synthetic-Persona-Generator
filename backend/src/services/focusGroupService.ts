@@ -141,6 +141,20 @@ export async function deleteFocusGroup(id: string, userId: string): Promise<bool
   return result.rowCount !== null && result.rowCount > 0;
 }
 
+/** Deletes focus groups in `focusGroupIds` that have no members (caller should pass groups that contained a removed persona). */
+export async function deleteFocusGroupsNowEmpty(userId: string, focusGroupIds: string[]): Promise<void> {
+  if (focusGroupIds.length === 0) return;
+  await pool.query(
+    `DELETE FROM focus_groups fg
+     WHERE fg.user_id = $1
+     AND fg.id = ANY($2::uuid[])
+     AND NOT EXISTS (
+       SELECT 1 FROM focus_group_personas fgp WHERE fgp.focus_group_id = fg.id
+     )`,
+    [userId, focusGroupIds]
+  );
+}
+
 export async function setFocusGroupPersonas(
   focusGroupId: string,
   userId: string,

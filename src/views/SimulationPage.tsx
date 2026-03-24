@@ -39,6 +39,41 @@ import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayNa
 
 const MAX_PERSONA_TURNS = 20;
 
+/** Persist think / RAG / validation on simulation messages (local + API). */
+function messageMetadataFromAgentTurn(agent: {
+  thinking?: string;
+  retrieval?: RetrievalInfo;
+  validation?: ValidationInfo | null;
+}): Pick<Message, 'thinking' | 'retrieval_summary' | 'validation'> {
+  const thinking = agent.thinking?.trim() ? agent.thinking : undefined;
+  const retrieval_summary = agent.retrieval
+    ? {
+        queries: agent.retrieval.queries,
+        chunks: agent.retrieval.chunks,
+        ragEmpty: agent.retrieval.ragEmpty,
+      }
+    : undefined;
+  const validation = agent.validation ?? undefined;
+  return { thinking, retrieval_summary, validation };
+}
+
+function personaResultToApiRow(r: {
+  personaId: string;
+  content: string;
+  thinking?: string;
+  retrieval?: RetrievalInfo;
+  validation?: ValidationInfo | null;
+}) {
+  return {
+    sender_type: 'persona' as const,
+    persona_id: r.personaId,
+    content: r.content,
+    thinking: r.thinking ?? null,
+    retrieval_summary: r.retrieval ?? null,
+    validation: r.validation ?? null,
+  };
+}
+
 /** Truncate text to at most maxWords; append "..." if longer. Used for simulation description on simulate page. */
 function truncateDescriptionToWords(text: string, maxWords: number = 25): string {
   const t = (text || '').trim();
@@ -833,6 +868,7 @@ const SimulationPage: React.FC = () => {
           const idPersonaTurn = addActivity(`${speakerName} is responding...`, `Turn ${turnCount + 1}`);
           let response: string;
           let turnThinking: string | undefined;
+          let turnPipelineMeta: Pick<Message, 'thinking' | 'retrieval_summary' | 'validation'> = {};
           try {
             setPipelineEvents([]);
             setPipelineActive(true);
@@ -850,6 +886,7 @@ const SimulationPage: React.FC = () => {
             setPipelineActive(false);
             response = agentResult.response;
             turnThinking = agentResult.thinking || undefined;
+            turnPipelineMeta = messageMetadataFromAgentTurn(agentResult);
             if (turnThinking) lastThinkingByPersona.set(currentSpeaker.id, turnThinking);
             markActivityDone(idPersonaTurn);
           } catch (err) {
@@ -864,8 +901,8 @@ const SimulationPage: React.FC = () => {
             senderType: 'persona',
             personaId: currentSpeaker.id,
             content: response,
-            thinking: turnThinking,
             createdAt: new Date().toISOString(),
+            ...turnPipelineMeta,
           };
           conversationMessages.push(personaMsg);
           setMessages([...conversationMessages]);
@@ -927,6 +964,21 @@ const SimulationPage: React.FC = () => {
 
         localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify(conversationMessages));
         localStorage.setItem(`simulationPersonas_${newSessionId}`, JSON.stringify(selectedPersonas));
+        try {
+          await simulationApi.createMessagesBulk(
+            newSessionId,
+            conversationMessages.map((m) => ({
+              sender_type: m.senderType,
+              persona_id: m.personaId,
+              content: m.content,
+              thinking: m.thinking ?? null,
+              retrieval_summary: m.retrieval_summary ?? null,
+              validation: m.validation ?? null,
+            }))
+          );
+        } catch (err) {
+          console.warn('Failed to sync persona conversation messages to backend:', err);
+        }
         setStage('result');
         loadHistory();
       } catch (err: unknown) {
@@ -1076,28 +1128,28 @@ const SimulationPage: React.FC = () => {
         senderType: 'persona',
         personaId: firstPersona.id,
         content: results[0].content,
-        thinking: results[0].thinking,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...messageMetadataFromAgentTurn({
+          thinking: results[0].thinking,
+          retrieval: results[0].retrieval,
+          validation: results[0].validation,
+        }),
       };
       
       setCurrentSessionId(newSessionId);
       setMessages([initialMessage]);
       setStage('result');
       loadHistory();
-      
-      localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify([initialMessage]));
+
+      localStorage.setItem(`simulationPersonaResults_${newSessionId}`, JSON.stringify(results));
+
+      try {
+        await simulationApi.createMessagesBulk(newSessionId, results.map(personaResultToApiRow));
+      } catch (err) {
+        console.warn('Failed to sync simulation agent messages to backend:', err);
+      }
 
       if (selectedSimulation.simulation_type === 'persuasion_simulation') {
-        try {
-          await simulationApi.createMessage(newSessionId, {
-            sender_type: 'persona',
-            persona_id: firstPersona.id,
-            content: results[0].content,
-            thinking: results[0].thinking,
-          });
-        } catch (err) {
-          console.warn('Failed to sync persuasion message to backend:', err);
-        }
         // Compute persuasion score via LLM so sidebar shows a value
         try {
           const conversationText = `Persona: ${results[0].content}`;
@@ -1185,7 +1237,7 @@ const SimulationPage: React.FC = () => {
       }, (ev) => setPipelineEvents(prev => [...prev, ev]));
       setPipelineActive(false);
       const response = agentResult.response;
-      const followUpThinking = agentResult.thinking || undefined;
+      const followUpMeta = messageMetadataFromAgentTurn(agentResult);
       
       const aiMsg: Message = {
         id: crypto.randomUUID(),
@@ -1193,17 +1245,24 @@ const SimulationPage: React.FC = () => {
         senderType: 'persona',
         personaId: selectedPersona.id,
         content: response,
-        thinking: followUpThinking,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...followUpMeta,
       };
 
       setMessages(prev => [...prev, aiMsg]);
-      // Sync persuasion messages to backend for sidebar API
+      // Sync follow-up turns to backend (persuasion workspace); include full agent trace on the persona reply
       if (currentSessionId && selectedSimulation?.simulation_type === 'persuasion_simulation') {
         try {
           await simulationApi.createMessagesBulk(currentSessionId, [
             { sender_type: 'user', content: userMsg.content },
-            { sender_type: 'persona', persona_id: selectedPersona.id, content: aiMsg.content, thinking: followUpThinking },
+            {
+              sender_type: 'persona',
+              persona_id: selectedPersona.id,
+              content: aiMsg.content,
+              thinking: aiMsg.thinking ?? null,
+              retrieval_summary: aiMsg.retrieval_summary ?? null,
+              validation: aiMsg.validation ?? null,
+            },
           ]);
         } catch (err) {
           console.warn('Failed to sync persuasion messages to backend:', err);
@@ -1334,6 +1393,19 @@ const SimulationPage: React.FC = () => {
       console.error('Failed to load messages from localStorage:', err);
       setMessages([]);
     }
+
+    try {
+      const savedResults = localStorage.getItem(`simulationPersonaResults_${session.id}`);
+      if (savedResults) {
+        const parsed = JSON.parse(savedResults);
+        setPersonaResults(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setPersonaResults([]);
+      }
+    } catch (err) {
+      console.error('Failed to load persona results from localStorage:', err);
+      setPersonaResults([]);
+    }
     
     setStage('result');
     setIsLoading(false);
@@ -1344,6 +1416,9 @@ const SimulationPage: React.FC = () => {
     if (window.confirm("Delete this simulation history?")) {
       try {
         await simulationApi.delete(id);
+        try {
+          localStorage.removeItem(`simulationPersonaResults_${id}`);
+        } catch { /* ignore */ }
         loadHistory();
         if (currentSessionId === id) {
           setStage('selection');
