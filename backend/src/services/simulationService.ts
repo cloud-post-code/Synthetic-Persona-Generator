@@ -150,7 +150,13 @@ export async function deleteSimulationSession(sessionId: string, userId: string)
   return result.rowCount !== null && result.rowCount > 0;
 }
 
-const PERSUASION_REGEX = /Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i;
+/** Last "Persuasion: N%" in a message wins when the model emits the line more than once. */
+function parseLastPersuasionScoreFromContent(content: string): number | null {
+  const re = /Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/gi;
+  const matches = [...content.matchAll(re)];
+  if (matches.length === 0) return null;
+  return clampPersuasionScore(parseFloat(matches[matches.length - 1][1]));
+}
 
 /** Clamp persuasion score to 1-100 for display. */
 function clampPersuasionScore(n: number): number {
@@ -179,9 +185,9 @@ export async function getPersuasionContext(
   // Search all persona messages (newest first) for the persuasion line so we always get a score when present
   const personaMessages = messages.filter((m) => m.sender_type === 'persona');
   for (let i = personaMessages.length - 1; i >= 0; i--) {
-    const match = personaMessages[i].content.match(PERSUASION_REGEX);
-    if (match) {
-      persuasionScore = clampPersuasionScore(parseFloat(match[1]));
+    const score = parseLastPersuasionScoreFromContent(personaMessages[i].content);
+    if (score != null) {
+      persuasionScore = score;
       break;
     }
   }

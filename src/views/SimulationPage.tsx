@@ -17,7 +17,6 @@ import {
   XCircle,
   LucideIcon,
   Download,
-  Brain,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession, FocusGroup } from '../models/types.js';
 import type { BusinessProfile } from '../models/types.js';
@@ -25,7 +24,12 @@ import { useAvailablePersonas } from '../hooks/usePersonas.js';
 import { simulationApi } from '../services/simulationApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService } from '../services/gemini.js';
-import { agentApi } from '../services/agentApi.js';
+import {
+  agentApi,
+  finalizePipelineEvents,
+  pipelineEventsFromPersonaResult,
+  pipelineEventsFromStoredMessage,
+} from '../services/agentApi.js';
 import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../services/agentApi.js';
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -36,6 +40,7 @@ import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
+import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
 
 const MAX_PERSONA_TURNS = 20;
 
@@ -263,28 +268,6 @@ const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean 
   );
 };
 
-const ThinkingPanel: React.FC<{ thinking?: string; compact?: boolean }> = ({ thinking, compact = false }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  if (!thinking) return null;
-  return (
-    <div className={compact ? 'mt-2' : 'mt-3'}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 text-xs font-semibold text-indigo-500 hover:text-indigo-700 transition-colors"
-      >
-        <Brain className="w-3.5 h-3.5" />
-        <span>Agent Reasoning</span>
-        {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-      </button>
-      {isOpen && (
-        <div className={`${compact ? 'mt-1.5 p-3' : 'mt-2 p-4'} bg-indigo-50/60 border border-indigo-100 rounded-xl text-sm text-indigo-900/80 leading-relaxed whitespace-pre-wrap`}>
-          {thinking}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const SimulationPage: React.FC = () => {
   const [stage, setStage] = useState<'selection' | 'inputs' | 'result'>('selection');
   const [selectedSimulation, setSelectedSimulation] = useState<SimulationTemplate | null>(null);
@@ -292,7 +275,19 @@ const SimulationPage: React.FC = () => {
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
-  const [personaResults, setPersonaResults] = useState<Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string; retrieval?: RetrievalInfo; validation?: ValidationInfo | null }>>([]);
+  const [personaResults, setPersonaResults] = useState<
+    Array<{
+      personaId: string;
+      name: string;
+      description?: string;
+      avatarUrl?: string;
+      content: string;
+      thinking?: string;
+      retrieval?: RetrievalInfo;
+      validation?: ValidationInfo | null;
+      pipeline_events?: AgentPipelineEvent[];
+    }>
+  >([]);
   const [bgInfo, setBgInfo] = useState('');
   const [openingLine, setOpeningLine] = useState('');
   const [stimulusImage, setStimulusImage] = useState<string | null>(null);
@@ -471,22 +466,24 @@ const SimulationPage: React.FC = () => {
       .getPersuasionContext(currentSessionId)
       .then(async (data) => {
         if (cancelled) return;
-        if (data.persuasionScore != null) {
-          setPersuasionContext(data);
+        const apiScore = coerceSinglePersuasionScore(data.persuasionScore);
+        const normalized = { ...data, persuasionScore: apiScore };
+        if (apiScore != null) {
+          setPersuasionContext(normalized);
           return;
         }
         if (data.fullConversation?.trim()) {
           try {
             const score = await geminiService.computePersuasionScore(data.fullConversation);
             if (!cancelled) {
-              setPersuasionContext({ ...data, persuasionScore: score });
+              setPersuasionContext({ ...normalized, persuasionScore: score });
             }
           } catch (err) {
             console.warn('Failed to compute persuasion score on load:', err);
-            if (!cancelled) setPersuasionContext(data);
+            if (!cancelled) setPersuasionContext(normalized);
           }
         } else {
-          setPersuasionContext(data);
+          setPersuasionContext(normalized);
         }
       })
       .catch(() => {
@@ -869,10 +866,12 @@ const SimulationPage: React.FC = () => {
           let response: string;
           let turnThinking: string | undefined;
           let turnPipelineMeta: Pick<Message, 'thinking' | 'retrieval_summary' | 'validation'> = {};
+          const turnCollected: AgentPipelineEvent[] = [];
+          let agentTurnResult: Awaited<ReturnType<typeof agentApi.turnStream>>;
           try {
             setPipelineEvents([]);
             setPipelineActive(true);
-            const agentResult = await agentApi.turnStream({
+            agentTurnResult = await agentApi.turnStream({
               personaId: currentSpeaker.id,
               personaIds: selectedPersonas.map(p => p.id),
               sessionId: newSessionId,
@@ -882,11 +881,14 @@ const SimulationPage: React.FC = () => {
                 .replace(/{{SELECTED_PROFILE}}/g, currentSpeaker.name)
                 .replace(/{{SELECTED_PROFILE_FULL}}/g, `[Your profile for ${currentSpeaker.name} — retrieved automatically from knowledge base]`),
               previousThinking: lastThinkingByPersona.get(currentSpeaker.id),
-            }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+            }, (ev) => {
+              turnCollected.push(ev);
+              setPipelineEvents((prev) => [...prev, ev]);
+            });
             setPipelineActive(false);
-            response = agentResult.response;
-            turnThinking = agentResult.thinking || undefined;
-            turnPipelineMeta = messageMetadataFromAgentTurn(agentResult);
+            response = agentTurnResult.response;
+            turnThinking = agentTurnResult.thinking || undefined;
+            turnPipelineMeta = messageMetadataFromAgentTurn(agentTurnResult);
             if (turnThinking) lastThinkingByPersona.set(currentSpeaker.id, turnThinking);
             markActivityDone(idPersonaTurn);
           } catch (err) {
@@ -895,6 +897,7 @@ const SimulationPage: React.FC = () => {
             throw err;
           }
           if (simulationCancelledRef.current) return;
+          const pipelineEventsForMsg = finalizePipelineEvents(turnCollected, agentTurnResult);
           const personaMsg: Message = {
             id: crypto.randomUUID(),
             sessionId: newSessionId,
@@ -903,6 +906,7 @@ const SimulationPage: React.FC = () => {
             content: response,
             createdAt: new Date().toISOString(),
             ...turnPipelineMeta,
+            pipeline_events: pipelineEventsForMsg,
           };
           conversationMessages.push(personaMsg);
           setMessages([...conversationMessages]);
@@ -994,7 +998,17 @@ const SimulationPage: React.FC = () => {
       return;
     }
 
-    const results: Array<{ personaId: string; name: string; description?: string; avatarUrl?: string; content: string; thinking?: string; retrieval?: RetrievalInfo; validation?: ValidationInfo | null }> = [];
+    const results: Array<{
+      personaId: string;
+      name: string;
+      description?: string;
+      avatarUrl?: string;
+      content: string;
+      thinking?: string;
+      retrieval?: RetrievalInfo;
+      validation?: ValidationInfo | null;
+      pipeline_events?: AgentPipelineEvent[];
+    }> = [];
 
     let persuasionSystemPrompt: string | null = null;
 
@@ -1046,23 +1060,32 @@ const SimulationPage: React.FC = () => {
       let resultThinking: string | undefined;
       let resultRetrieval: RetrievalInfo | undefined;
       let resultValidation: ValidationInfo | null | undefined;
+      const batchCollected: AgentPipelineEvent[] = [];
+      let batchAgentResult: Awaited<ReturnType<typeof agentApi.turnStream>>;
       try {
         setPipelineEvents([]);
         setPipelineActive(true);
-        const agentResult = await agentApi.turnStream({
-          personaId: selectedPersona.id,
-          personaIds: selectedPersonas.map(p => p.id),
-          history: [],
-          userMessage: userInputsString || fieldMap.bgInfo || bgInfo || 'Please respond based on the simulation instructions.',
-          simulationInstructions: instructions,
-          image: effectiveStimulusImage || undefined,
-          mimeType: effectiveMimeType || undefined,
-        }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+        batchAgentResult = await agentApi.turnStream(
+          {
+            personaId: selectedPersona.id,
+            personaIds: selectedPersonas.map((p) => p.id),
+            history: [],
+            userMessage:
+              userInputsString || fieldMap.bgInfo || bgInfo || 'Please respond based on the simulation instructions.',
+            simulationInstructions: instructions,
+            image: effectiveStimulusImage || undefined,
+            mimeType: effectiveMimeType || undefined,
+          },
+          (ev) => {
+            batchCollected.push(ev);
+            setPipelineEvents((prev) => [...prev, ev]);
+          }
+        );
         setPipelineActive(false);
-        result = agentResult.response;
-        resultThinking = agentResult.thinking || undefined;
-        resultRetrieval = agentResult.retrieval;
-        resultValidation = agentResult.validation;
+        result = batchAgentResult.response;
+        resultThinking = batchAgentResult.thinking || undefined;
+        resultRetrieval = batchAgentResult.retrieval;
+        resultValidation = batchAgentResult.validation;
         markActivityDone(idPersonaSim);
       } catch (err) {
         setPipelineActive(false);
@@ -1070,6 +1093,7 @@ const SimulationPage: React.FC = () => {
         throw err;
       }
       if (simulationCancelledRef.current) return;
+      const pipelineForPersona = finalizePipelineEvents(batchCollected, batchAgentResult);
       results.push({
         personaId: selectedPersona.id,
         name: selectedPersona.name,
@@ -1079,6 +1103,7 @@ const SimulationPage: React.FC = () => {
         thinking: resultThinking,
         retrieval: resultRetrieval,
         validation: resultValidation,
+        pipeline_events: pipelineForPersona,
       });
     }
 
@@ -1109,7 +1134,7 @@ const SimulationPage: React.FC = () => {
       
       const newSessionId = newSession.id;
 
-      // Index session context for RAG retrieval in follow-up chats
+      // Index session context so follow-up agent turns can load full simulation inputs as documents
       const sessionContextFields: Record<string, string> = {};
       if (fieldMap.bgInfo || bgInfo) sessionContextFields.bgInfo = fieldMap.bgInfo || bgInfo;
       if (userInputsString) sessionContextFields.openingLine = userInputsString;
@@ -1134,6 +1159,7 @@ const SimulationPage: React.FC = () => {
           retrieval: results[0].retrieval,
           validation: results[0].validation,
         }),
+        pipeline_events: results[0].pipeline_events,
       };
       
       setCurrentSessionId(newSessionId);
@@ -1224,21 +1250,29 @@ const SimulationPage: React.FC = () => {
       }));
 
       const lastPersonaThinking = [...messages].reverse().find(m => m.senderType === 'persona' && m.thinking)?.thinking;
+      const followUpCollected: AgentPipelineEvent[] = [];
       setPipelineEvents([]);
       setPipelineActive(true);
-      const agentResult = await agentApi.turnStream({
-        personaId: selectedPersona.id,
-        personaIds: [selectedPersona.id],
-        sessionId: currentSessionId,
-        history,
-        userMessage: currentInput,
-        simulationInstructions: bgInfo ? `Context provided by the person running the simulation: ${bgInfo}` : undefined,
-        previousThinking: lastPersonaThinking,
-      }, (ev) => setPipelineEvents(prev => [...prev, ev]));
+      const agentResult = await agentApi.turnStream(
+        {
+          personaId: selectedPersona.id,
+          personaIds: [selectedPersona.id],
+          sessionId: currentSessionId,
+          history,
+          userMessage: currentInput,
+          simulationInstructions: bgInfo ? `Context provided by the person running the simulation: ${bgInfo}` : undefined,
+          previousThinking: lastPersonaThinking,
+        },
+        (ev) => {
+          followUpCollected.push(ev);
+          setPipelineEvents((prev) => [...prev, ev]);
+        }
+      );
       setPipelineActive(false);
       const response = agentResult.response;
       const followUpMeta = messageMetadataFromAgentTurn(agentResult);
-      
+      const followUpPipeline = finalizePipelineEvents(followUpCollected, agentResult);
+
       const aiMsg: Message = {
         id: crypto.randomUUID(),
         sessionId: currentSessionId,
@@ -1247,6 +1281,7 @@ const SimulationPage: React.FC = () => {
         content: response,
         createdAt: new Date().toISOString(),
         ...followUpMeta,
+        pipeline_events: followUpPipeline,
       };
 
       setMessages(prev => [...prev, aiMsg]);
@@ -2071,13 +2106,19 @@ const SimulationPage: React.FC = () => {
           const isIdeaGeneration = simulationOutputType === 'idea_generation';
           const isChatLike = simulationOutputType === 'persuasion_simulation' || simulationOutputType === 'persona_conversation';
           const isPersonaConversation = simulationOutputType === 'persona_conversation';
-          /** Keep agent pipeline fixed above; do not duplicate it inside the scrolling message area. */
-          const showTopAgentStrip =
-            isLoading || (isChatLike && !isPersonaConversation && isTyping);
+          /** Batch (non-chat) simulations: pipeline + activity at top. Chat UIs use per-message pipeline. */
+          const showTopAgentStrip = isLoading && !isChatLike;
+          const showPersonaConversationActivity = isLoading && isPersonaConversation;
+          const showPersuasionRunPipeline = isChatLike && !isPersonaConversation && isLoading;
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
           const firstPersonaMessage = messages.find(m => m.senderType === 'persona');
           const firstPersonaContent = firstPersonaMessage?.content || '';
-          const firstPersonaThinking = firstPersonaMessage?.thinking || personaResults[0]?.thinking;
+          const firstPersonaPipelineEvents =
+            firstPersonaMessage != null
+              ? pipelineEventsFromStoredMessage(firstPersonaMessage)
+              : personaResults[0] != null
+                ? pipelineEventsFromPersonaResult(personaResults[0])
+                : [];
           const handleDownloadReport = () => {
             const text = messages.map(m => `${m.senderType === 'user' ? runnerDisplayName : (selectedPersona?.name || stablePersonaFallback)}: ${m.content}`).join('\n\n');
             const blob = new Blob([text], { type: 'text/plain' });
@@ -2149,65 +2190,120 @@ const SimulationPage: React.FC = () => {
               </div>
             </header>
 
-            {/* Agent pipeline (4 steps) fixed above; API / generation status below — same order for whole run */}
+            {/* Batch simulations only: pipeline + activity log at top */}
             {showTopAgentStrip && (
               <div className="mx-10 mt-6 shrink-0 space-y-4 pb-6 border-b border-gray-100">
                 <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} />
-                {isLoading ? (
-                  <div className="p-5 bg-indigo-50/80 border border-indigo-100 rounded-2xl shadow-sm">
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <h3 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Simulation in progress — API calls
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => { simulationCancelledRef.current = true; setIsLoading(false); setPipelineActive(false); }}
-                        className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all text-sm"
-                      >
-                        <CloseIcon className="w-4 h-4" />
-                        Cancel
-                      </button>
-                    </div>
-                    {simulationActivityLog.length > 0 ? (
-                      <ul className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {simulationActivityLog.map((a) => (
-                          <li
-                            key={a.id}
-                            className={`flex items-center gap-3 text-sm font-medium ${
-                              a.status === 'done'
-                                ? 'text-green-700'
-                                : a.status === 'error'
-                                  ? 'text-red-600'
-                                  : a.status === 'active'
-                                    ? 'text-indigo-700'
-                                    : 'text-gray-500'
-                            }`}
-                          >
-                            {a.status === 'done' && (
-                              <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
-                            )}
-                            {a.status === 'error' && (
-                              <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
-                            )}
-                            {a.status === 'active' && (
-                              <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
-                            )}
-                            <span>{a.label}</span>
-                            {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-indigo-600/80 font-medium">Starting simulation…</p>
-                    )}
+                <div className="p-5 bg-indigo-50/80 border border-indigo-100 rounded-2xl shadow-sm">
+                  <div className="flex items-center justify-between gap-4 mb-3">
+                    <h3 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Simulation in progress — API calls
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        simulationCancelledRef.current = true;
+                        setIsLoading(false);
+                        setPipelineActive(false);
+                      }}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all text-sm"
+                    >
+                      <CloseIcon className="w-4 h-4" />
+                      Cancel
+                    </button>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/50 px-5 py-3 text-sm font-semibold text-indigo-800">
-                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
-                    Generating response…
+                  {simulationActivityLog.length > 0 ? (
+                    <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {simulationActivityLog.map((a) => (
+                        <li
+                          key={a.id}
+                          className={`flex items-center gap-3 text-sm font-medium ${
+                            a.status === 'done'
+                              ? 'text-green-700'
+                              : a.status === 'error'
+                                ? 'text-red-600'
+                                : a.status === 'active'
+                                  ? 'text-indigo-700'
+                                  : 'text-gray-500'
+                          }`}
+                        >
+                          {a.status === 'done' && (
+                            <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
+                          )}
+                          {a.status === 'error' && (
+                            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                          )}
+                          {a.status === 'active' && (
+                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                          )}
+                          <span>{a.label}</span>
+                          {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-indigo-600/80 font-medium">Starting simulation…</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Persona v Persona: activity log only at top (per-turn pipeline lives on each message) */}
+            {showPersonaConversationActivity && (
+              <div className="mx-10 mt-6 shrink-0 pb-6 border-b border-gray-100">
+                <div className="p-5 bg-indigo-50/80 border border-indigo-100 rounded-2xl shadow-sm">
+                  <div className="flex items-center justify-between gap-4 mb-3">
+                    <h3 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Discussion in progress — API calls
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        simulationCancelledRef.current = true;
+                        setIsLoading(false);
+                        setPipelineActive(false);
+                      }}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all text-sm"
+                    >
+                      <CloseIcon className="w-4 h-4" />
+                      Cancel
+                    </button>
                   </div>
-                )}
+                  {simulationActivityLog.length > 0 ? (
+                    <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {simulationActivityLog.map((a) => (
+                        <li
+                          key={a.id}
+                          className={`flex items-center gap-3 text-sm font-medium ${
+                            a.status === 'done'
+                              ? 'text-green-700'
+                              : a.status === 'error'
+                                ? 'text-red-600'
+                                : a.status === 'active'
+                                  ? 'text-indigo-700'
+                                  : 'text-gray-500'
+                          }`}
+                        >
+                          {a.status === 'done' && (
+                            <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-xs">✓</span>
+                          )}
+                          {a.status === 'error' && (
+                            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                          )}
+                          {a.status === 'active' && (
+                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                          )}
+                          <span>{a.label}</span>
+                          {a.detail && <span className="text-gray-500 text-xs">({a.detail})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-indigo-600/80 font-medium">Starting discussion…</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2223,12 +2319,26 @@ const SimulationPage: React.FC = () => {
             {/* Main content: chat UI for chat/persuasion, single-output for others */}
             {isChatLike ? (
             <div className="flex-grow min-h-0 overflow-y-auto p-10 space-y-10 bg-gray-50/20">
+              {showPersuasionRunPipeline && selectedPersona && (
+                <div className="space-y-3 max-w-[85%] sm:max-w-[70%]">
+                  <p className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
+                    {getPersonaDisplayName(selectedPersona)}
+                  </p>
+                  <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
+                  <div className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/50 px-5 py-3 text-sm font-semibold text-indigo-800">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                    Generating first response…
+                  </div>
+                </div>
+              )}
               {messages.map((m) => {
                 const isUser = m.senderType === 'user';
                 const isModerator = m.senderType === 'moderator';
+                const isAgentPersona = !isUser && !isModerator;
                 const messagePersona = m.personaId ? personaById.get(m.personaId) : null;
                 const displayName = isModerator ? 'Moderator' : isUser ? runnerDisplayName : getPersonaDisplayName(messagePersona);
                 const avatarUrl = messagePersona?.avatarUrl ?? messagePersona?.avatar_url;
+                const msgPipeline = isAgentPersona ? pipelineEventsFromStoredMessage(m) : [];
                 return (
                   <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 group`}>
                     <div className={`flex gap-5 max-w-[85%] sm:max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -2241,8 +2351,11 @@ const SimulationPage: React.FC = () => {
                           <img src={avatarUrl} alt={displayName} className="w-12 h-12 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100 object-cover" />
                         )}
                       </div>
-                      <div className="space-y-1 min-w-0 relative">
+                      <div className="space-y-2 min-w-0 flex-1 relative">
                         {!isUser && <p className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">{displayName}</p>}
+                        {isAgentPersona && (
+                          <AgentPipelineViewer events={msgPipeline} isActive={false} compact />
+                        )}
                         <div className={`p-6 rounded-3xl shadow-sm text-xl relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : isModerator ? 'bg-amber-50 border border-amber-200 text-gray-800 rounded-tl-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
                           <FormattedSimulationResponse content={m.content} isUser={isUser} />
                           {!isPersonaConversation && (
@@ -2254,9 +2367,6 @@ const SimulationPage: React.FC = () => {
                             <XCircle className="w-4 h-4" />
                           </button>
                           )}
-                          {!isUser && !isModerator && m.thinking && (
-                            <ThinkingPanel thinking={m.thinking} compact />
-                          )}
                         </div>
                         {messagePersona && !isUser && !isModerator && (messagePersona.description?.trim()) && (
                           <p className="text-xs text-gray-500 ml-1 mt-1 line-clamp-2">{messagePersona.description}</p>
@@ -2266,11 +2376,26 @@ const SimulationPage: React.FC = () => {
                   </div>
                 );
               })}
-              {isTyping && (
-                <div className="flex justify-start">
-                  <div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] shadow-sm">
-                    <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
-                    <span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span>
+              {isTyping && !isPersonaConversation && selectedPersona && (
+                <div className="flex justify-start animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex gap-5 max-w-[85%] sm:max-w-[70%]">
+                    <div className="shrink-0 mt-1">
+                      <img
+                        src={selectedPersona.avatarUrl ?? selectedPersona.avatar_url ?? 'https://picsum.photos/seed/persona/200'}
+                        alt={getPersonaDisplayName(selectedPersona)}
+                        className="w-12 h-12 rounded-xl shadow-lg border-2 border-white ring-4 ring-gray-100 object-cover"
+                      />
+                    </div>
+                    <div className="space-y-2 min-w-0 flex-1">
+                      <p className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
+                        {getPersonaDisplayName(selectedPersona)}
+                      </p>
+                      <AgentPipelineViewer events={pipelineEvents} isActive={pipelineActive} compact />
+                      <div className="flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-[2rem] rounded-tl-none shadow-sm">
+                        <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                        <span className="text-xs font-black text-gray-300 uppercase tracking-widest">Processing...</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2287,24 +2412,29 @@ const SimulationPage: React.FC = () => {
               ) : personaResults.length > 1 ? (
                 <div className="space-y-8">
                   <p className="text-base text-gray-600 font-medium">Each persona’s response</p>
-                  {personaResults.map((pr, idx) => (
-                    <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
-                      <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-100">
+                  {personaResults.map((pr) => (
+                    <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm space-y-4">
+                      <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
                         {pr.avatarUrl && <img src={pr.avatarUrl} alt={pr.name} className="w-14 h-14 rounded-xl object-cover" />}
                         <div>
                           <span className="text-lg font-black text-gray-900 block">{pr.name}</span>
                           {(pr.description?.trim()) && <span className="text-sm text-gray-500">{pr.description.trim()}</span>}
                         </div>
                       </div>
+                      <AgentPipelineViewer events={pipelineEventsFromPersonaResult(pr)} isActive={false} compact />
                       <div className="text-gray-800 text-lg leading-relaxed">
                         <FormattedSimulationResponse content={pr.content} isUser={false} />
                       </div>
-                      <ThinkingPanel thinking={pr.thinking} />
                     </div>
                   ))}
                 </div>
               ) : (
                 <>
+              {firstPersonaPipelineEvents.length > 0 && (
+                <div className="mb-6">
+                  <AgentPipelineViewer events={firstPersonaPipelineEvents} isActive={false} compact />
+                </div>
+              )}
               {isReport && (
                 <>
                   <p className="text-base text-gray-600 mb-4 font-medium">Summary</p>
@@ -2357,7 +2487,6 @@ const SimulationPage: React.FC = () => {
                   <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
                 </div>
               )}
-              <ThinkingPanel thinking={firstPersonaThinking} />
               {isTyping && (
                 <div className="mt-4 flex gap-4 items-center bg-white border border-gray-100 px-6 py-4 rounded-2xl shadow-sm">
                   <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
@@ -2420,9 +2549,9 @@ const SimulationPage: React.FC = () => {
         const simulationOutputType = (selectedSimulation?.simulation_type || 'report') as string;
         const isPersuasion = simulationOutputType === 'persuasion_simulation';
         const lastPersonaContent = [...messages].reverse().find(m => m.senderType === 'persona')?.content || '';
-        const parsedPersuasionLocal = lastPersonaContent.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%/i)?.[1] ?? null;
-        const rawScore = persuasionContext?.persuasionScore ?? (parsedPersuasionLocal ? parseFloat(parsedPersuasionLocal) : null);
-        const persuasionScore = rawScore != null ? Math.min(100, Math.max(1, Math.round(Number(rawScore)))) : null;
+        const parsedLocal = parseLastPersuasionPercentFromText(lastPersonaContent);
+        const persuasionScore =
+          coerceSinglePersuasionScore(persuasionContext?.persuasionScore) ?? parsedLocal;
         return (
         <aside
           className="hidden lg:flex shrink-0 flex-col border-l border-gray-100 bg-gray-50/50 overflow-y-auto p-10 space-y-10"

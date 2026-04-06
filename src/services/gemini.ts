@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
 import { customerSegmentTemplate } from "../../templates/customerSegmentTemplate.js";
+import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
 
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
@@ -586,11 +587,8 @@ where N is an integer from 1 to 100. No other text.`;
       contents: prompt,
     });
     const text = (response.text || '').trim();
-    const match = text.match(/Persuasion\s*:\s*(\d+(?:\.\d+)?)\s*%?/i) || text.match(/(\d{1,3})/);
-    if (match) {
-      const n = Math.min(100, Math.max(1, Math.round(parseFloat(match[1]))));
-      return n;
-    }
+    const parsed = parseLastPersuasionPercentFromText(text);
+    if (parsed != null) return parsed;
     return 50; // fallback if parsing fails
   },
 

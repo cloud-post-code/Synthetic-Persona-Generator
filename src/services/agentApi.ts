@@ -36,7 +36,7 @@ export interface AgentTurnResponse {
 
 export interface AgentPipelineEvent {
   step: 'thinking' | 'retrieval' | 'responding' | 'validation' | 'complete';
-  status: 'active' | 'done';
+  status?: 'active' | 'done';
   thinking?: string;
   searchQueries?: string[];
   queries?: string[];
@@ -45,6 +45,91 @@ export interface AgentPipelineEvent {
   response?: string;
   validation?: ValidationInfo;
   result?: AgentTurnResponse;
+}
+
+function isDonePipelineStep(
+  ev: AgentPipelineEvent,
+  step: 'thinking' | 'retrieval' | 'responding' | 'validation'
+): boolean {
+  return ev.step === step && ev.status === 'done';
+}
+
+/** Rebuild the four visible pipeline steps (+ complete) from a finished turn (e.g. non-streaming JSON). */
+export function pipelineEventsFromTurnResult(result: AgentTurnResponse): AgentPipelineEvent[] {
+  const searchQueries = result.retrieval?.queries?.length ? result.retrieval.queries : [];
+  const thinking = result.thinking || '';
+  const chunks = result.retrieval?.chunks ?? [];
+  const ragEmpty = result.retrieval?.ragEmpty ?? true;
+  const response = result.response || '';
+  const validation =
+    result.validation ?? {
+      alignment_score: 50,
+      completeness_score: 50,
+      flags: [] as string[],
+      suggestions: [] as string[],
+      completeness_flags: [] as string[],
+      completeness_suggestions: [] as string[],
+    };
+  return [
+    { step: 'thinking', status: 'done', thinking, searchQueries },
+    { step: 'retrieval', status: 'done', chunks, ragEmpty },
+    { step: 'responding', status: 'done', response },
+    { step: 'validation', status: 'done', validation },
+    { step: 'complete', status: 'done', result },
+  ];
+}
+
+/** Prefer streamed step events; if the stream was JSON-only, synthesize from the final result. */
+export function finalizePipelineEvents(
+  collected: AgentPipelineEvent[],
+  result: AgentTurnResponse
+): AgentPipelineEvent[] {
+  if (
+    collected.some((e) => isDonePipelineStep(e, 'thinking')) &&
+    collected.some((e) => isDonePipelineStep(e, 'retrieval')) &&
+    collected.some((e) => isDonePipelineStep(e, 'responding')) &&
+    collected.some((e) => isDonePipelineStep(e, 'validation'))
+  ) {
+    if (collected.some((e) => e.step === 'complete')) return collected;
+    return [...collected, { step: 'complete', status: 'done' as const, result }];
+  }
+  return pipelineEventsFromTurnResult(result);
+}
+
+/** Restore or synthesize pipeline events for a persisted message. */
+export function pipelineEventsFromStoredMessage(m: {
+  content: string;
+  thinking?: string;
+  retrieval_summary?: RetrievalInfo | null;
+  validation?: ValidationInfo | null;
+  pipeline_events?: AgentPipelineEvent[] | null;
+}): AgentPipelineEvent[] {
+  if (m.pipeline_events && Array.isArray(m.pipeline_events) && m.pipeline_events.length > 0) {
+    return m.pipeline_events;
+  }
+  return pipelineEventsFromTurnResult({
+    response: m.content,
+    thinking: m.thinking || '',
+    retrieval: m.retrieval_summary || { queries: [], chunks: [], ragEmpty: true },
+    validation: m.validation ?? null,
+  });
+}
+
+/** Same as stored message, for multi-persona result cards (`retrieval` field). */
+export function pipelineEventsFromPersonaResult(pr: {
+  content: string;
+  thinking?: string;
+  retrieval?: RetrievalInfo | null;
+  validation?: ValidationInfo | null;
+  pipeline_events?: AgentPipelineEvent[] | null;
+}): AgentPipelineEvent[] {
+  if (pr.pipeline_events && pr.pipeline_events.length > 0) return pr.pipeline_events;
+  return pipelineEventsFromStoredMessage({
+    content: pr.content,
+    thinking: pr.thinking,
+    retrieval_summary: pr.retrieval ?? null,
+    validation: pr.validation ?? null,
+  });
 }
 
 export const agentApi = {

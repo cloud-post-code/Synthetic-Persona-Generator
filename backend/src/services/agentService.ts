@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import pool from '../config/database.js';
-import { retrieve, RetrievedChunk } from './embeddingService.js';
+import { loadFullKnowledgeDocuments, RetrievedChunk } from './embeddingService.js';
 
 const CHAT_MODEL = 'gemini-2.5-flash';
 const MAX_HISTORY_CHARS = 40000;
@@ -85,17 +85,18 @@ async function thinkStep(
 ): Promise<{ thinking: string; searchQueries: string[] }> {
   let systemPrompt = `You are ${persona.name}, ${persona.description}.
 
-You are about to respond to a message. Before responding, think carefully:
+You are about to respond to a message. Complete knowledge documents (persona profile, blueprint files, session inputs, and any client business profile) will be provided in full on the next step—no search is required.
+Before responding, think carefully:
 - What is the user really asking or trying to achieve?
-- What aspects of your expertise, background, or knowledge are most relevant?
-- What specific information should you look up from your knowledge base?`;
+- Which parts of those documents are most relevant to this message?
+- How should you stay in character while addressing it?`;
 
   if (retryContext) {
     const { previousResponse, validation } = retryContext;
     systemPrompt += `
 
 ### Quality revision
-Your previous in-character reply scored ${validation.alignment_score}/100 on persona alignment and ${validation.completeness_score}/100 on answer completeness (fully addressing the user, substantive, not truncated or evasive). Refine your reasoning and retrieval plan to fix any issues.
+Your previous in-character reply scored ${validation.alignment_score}/100 on persona alignment and ${validation.completeness_score}/100 on answer completeness (fully addressing the user, substantive, not truncated or evasive). Refine your reasoning and plan for using the knowledge documents to fix any issues.
 ${validation.flags.length ? `Persona alignment concerns:\n${validation.flags.map(f => `- ${f}`).join('\n')}` : ''}
 ${validation.suggestions.length ? `Persona alignment suggestions:\n${validation.suggestions.map(s => `- ${s}`).join('\n')}` : ''}
 ${validation.completeness_flags.length ? `Answer completeness concerns:\n${validation.completeness_flags.map(f => `- ${f}`).join('\n')}` : ''}
@@ -112,7 +113,7 @@ ${truncate(previousResponse, 4000)}`;
 You are participating in a simulation. Consider the following instructions when reasoning about what knowledge to retrieve and how to approach your response:
 ${truncate(simulationInstructions, 8000)}
 
-Factor the simulation goals and constraints into your reasoning. Generate search queries that target knowledge relevant to this simulation scenario, not just the literal message text.`;
+Factor the simulation goals and constraints into how you will use the knowledge documents in your reply.`;
   }
 
   if (previousThinking) {
@@ -127,8 +128,7 @@ ${truncate(previousThinking, 4000)}`;
 
 Output your thinking in JSON:
 {
-  "thinking": "your step-by-step reasoning here",
-  "search_queries": ["query 1", "optional query 2"]
+  "thinking": "your step-by-step reasoning here"
 }`;
 
   const contents = [
@@ -153,24 +153,25 @@ Output your thinking in JSON:
     const parsed = JSON.parse(text);
     return {
       thinking: parsed.thinking || '',
-      searchQueries: Array.isArray(parsed.search_queries) ? parsed.search_queries : [],
+      searchQueries: [],
     };
   } catch {
     return { thinking: text, searchQueries: [] };
   }
 }
 
+const MAX_RETRIEVED_CONTEXT_TOTAL_CHARS = 140_000;
+
 function buildRetrievedContextSection(chunks: RetrievedChunk[]): string {
   if (chunks.length === 0) return '';
-  const lines = chunks.map((c) => {
-    let label: string;
-    if (c.source_type === 'file') label = `[File: ${c.source_name}]`;
-    else if (c.source_type === 'profile') label = '[Profile]';
-    else if (c.source_type === 'business_profile') label = '[Business Context]';
-    else label = `[Context: ${c.source_name}]`;
-    return `${label}\n${c.text}`;
-  });
-  return '### Retrieved knowledge\n\n' + lines.join('\n\n---\n\n');
+  const body = chunks.map((c) => `### ${c.source_name}\n\n${c.text}`).join('\n\n---\n\n');
+  const header = '### Knowledge base (full documents)\n\n';
+  const full = header + body;
+  if (full.length <= MAX_RETRIEVED_CONTEXT_TOTAL_CHARS) return full;
+  return (
+    full.slice(0, MAX_RETRIEVED_CONTEXT_TOTAL_CHARS) +
+    '\n\n...[knowledge base section truncated for length]'
+  );
 }
 
 async function respondStep(
@@ -244,45 +245,6 @@ ${truncate(draft, 4000)}`;
   return response.text || '';
 }
 
-async function retrieveWithRetry(
-  query: string,
-  personaIds: string[],
-  sessionId: string | undefined,
-  topK: number,
-  userId: string | undefined
-): Promise<RetrievedChunk[]> {
-  try {
-    return await retrieve(query, personaIds, sessionId, topK, userId);
-  } catch (firstErr: any) {
-    console.warn(`[RAG] First retrieve attempt failed, retrying once:`, firstErr?.message || firstErr);
-    try {
-      return await retrieve(query, personaIds, sessionId, topK, userId);
-    } catch (retryErr: any) {
-      console.error(`[RAG] Retry also failed:`, retryErr?.message || retryErr);
-      return [];
-    }
-  }
-}
-
-async function appendRetrievalForQueries(
-  queries: string[],
-  effectivePersonaIds: string[],
-  sessionId: string | undefined,
-  userId: string | undefined,
-  allChunks: RetrievedChunk[],
-  seenTexts: Set<string>
-): Promise<void> {
-  for (const query of queries.slice(0, 3)) {
-    const chunks = await retrieveWithRetry(query, effectivePersonaIds, sessionId, 10, userId);
-    for (const chunk of chunks) {
-      if (!seenTexts.has(chunk.text)) {
-        seenTexts.add(chunk.text);
-        allChunks.push(chunk);
-      }
-    }
-  }
-}
-
 async function validateStep(
   ai: GoogleGenAI,
   persona: { name: string; description: string },
@@ -301,7 +263,7 @@ Description: ${truncate(persona.description, 4000)}
 ### User message (what the reply should address)
 ${truncate(userMessage, 8000)}
 
-${ragEmpty ? '### WARNING\nNo knowledge chunks were retrieved for this persona. The response was generated from the persona description only, with no supporting documents.\n' : ''}
+${ragEmpty ? '### WARNING\nNo knowledge documents were loaded (no profile text beyond the system prompt, no blueprint files, no session inputs, and no runner business profile). The reply may rely only on the short persona description in the system prompt.\n' : ''}
 ${simulationInstructions ? `### Simulation context\n${truncate(simulationInstructions, 2000)}\n` : ''}
 ${retrievedContext ? `### Knowledge that was available\n${truncate(retrievedContext, 4000)}\n` : ''}
 
@@ -311,7 +273,7 @@ Consider:
 - Does the content reflect the persona's expertise and background?
 - Are there any claims that contradict the persona's profile or knowledge?
 - Is the response staying in character?
-${ragEmpty ? '- Factor in that no persona knowledge documents were available — the response may be generic.\n' : ''}
+${ragEmpty ? '- Factor in that no extended knowledge documents were available — the response may be generic.\n' : ''}
 
 ### Task 2 — Answer completeness (independent of persona score)
 Judge whether the reply adequately completes the job for the user message. Consider:
@@ -394,16 +356,25 @@ export async function runAgentTurnStreaming(
   const persona = await getPersonaIdentity(personaId);
   const effectivePersonaIds = personaIds && personaIds.length > 0 ? personaIds : [personaId];
 
-  const allChunks: RetrievedChunk[] = [];
-  const seenTexts = new Set<string>();
-  const queriesAccum: string[] = [];
+  let fullDocuments: RetrievedChunk[] = [];
+  try {
+    fullDocuments = await loadFullKnowledgeDocuments(effectivePersonaIds, sessionId, userId);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Knowledge] loadFullKnowledgeDocuments failed:', msg);
+    fullDocuments = [];
+  }
+
+  const documentQueries = fullDocuments.map((d) => d.source_name);
+  const ragEmpty = fullDocuments.length === 0;
+
   let thinking = '';
   let response = '';
   let validation: ValidationInfo | null = null;
   let retrievalInfo: RetrievalInfo = {
-    queries: [],
+    queries: documentQueries,
     chunks: [],
-    ragEmpty: true,
+    ragEmpty,
   };
 
   for (let round = 1; round <= MAX_QUALITY_ROUNDS; round++) {
@@ -424,40 +395,17 @@ export async function runAgentTurnStreaming(
       retryContext
     );
     thinking = thinkOut.thinking;
-    const searchQueries = thinkOut.searchQueries;
-    write({ step: 'thinking', status: 'done', thinking, searchQueries });
+    write({ step: 'thinking', status: 'done', thinking, searchQueries: [] });
 
-    const queries = searchQueries.length > 0 ? searchQueries : [userMessage];
-    for (const q of queries) {
-      if (!queriesAccum.includes(q)) queriesAccum.push(q);
-    }
-
-    write({ step: 'retrieval', status: 'active', queries });
-    await appendRetrievalForQueries(queries, effectivePersonaIds, sessionId, userId, allChunks, seenTexts);
-
-    if (allChunks.length === 0 && persona.description) {
-      const fallbackQuery = `${persona.name} ${truncate(persona.description, 200)}`;
-      if (!queriesAccum.includes(fallbackQuery)) queriesAccum.push(fallbackQuery);
-      const fallbackChunks = await retrieveWithRetry(fallbackQuery, effectivePersonaIds, sessionId, 10, userId);
-      for (const chunk of fallbackChunks) {
-        if (!seenTexts.has(chunk.text)) {
-          seenTexts.add(chunk.text);
-          allChunks.push(chunk);
-        }
-      }
-    }
-
-    allChunks.sort((a, b) => b.score - a.score);
-    const topChunks = allChunks.slice(0, 15);
-    const ragEmpty = topChunks.length === 0;
-    const retrievedContext = buildRetrievedContextSection(topChunks);
+    write({ step: 'retrieval', status: 'active', queries: documentQueries });
+    const retrievedContext = buildRetrievedContextSection(fullDocuments);
     retrievalInfo = {
-      queries: [...queriesAccum],
-      chunks: topChunks.map(c => ({
+      queries: documentQueries,
+      chunks: fullDocuments.map((c) => ({
         source_type: c.source_type,
         source_name: c.source_name,
         score: c.score,
-        preview: truncate(c.text, 150),
+        preview: `${c.text.length.toLocaleString()} chars — ${truncate(c.text, 120)}`,
       })),
       ragEmpty,
     };

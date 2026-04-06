@@ -22,7 +22,7 @@ interface StepState {
 
 const STEP_META: { key: StepName; label: string; icon: React.ElementType }[] = [
   { key: 'thinking', label: 'Thinking', icon: Brain },
-  { key: 'retrieval', label: 'Knowledge Retrieval', icon: Search },
+  { key: 'retrieval', label: 'Knowledge (full documents)', icon: Search },
   { key: 'responding', label: 'Generating Response', icon: Sparkles },
   { key: 'validation', label: 'Quality validation', icon: ShieldCheck },
 ];
@@ -127,7 +127,7 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
               {state.ragEmpty && (
                 <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-800 text-xs">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>No persona knowledge was found. The response is based on the persona description only. Consider re-indexing this persona.</span>
+                  <span>No knowledge documents were loaded (no extended profile, blueprint files, session inputs, or runner business profile). The reply may rely only on the short persona line in the system prompt.</span>
                 </div>
               )}
               {state.chunks && state.chunks.length > 0 && (
@@ -137,14 +137,16 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 text-xs">
                           <span className="font-medium text-gray-700">{c.source_name || c.source_type}</span>
-                          <span className="text-gray-400">{Math.round(c.score * 100)}%</span>
+                          <span className="text-gray-400">
+                            {c.source_type.startsWith('full_') ? 'full document' : `${Math.round(c.score * 100)}%`}
+                          </span>
                         </div>
                         <p className="text-xs text-gray-500 truncate mt-0.5">{c.preview}</p>
                       </div>
                     </div>
                   ))}
                   {state.chunks.length > 5 && (
-                    <p className="text-xs text-gray-400">+{state.chunks.length - 5} more chunks</p>
+                    <p className="text-xs text-gray-400">+{state.chunks.length - 5} more documents</p>
                   )}
                 </div>
               )}

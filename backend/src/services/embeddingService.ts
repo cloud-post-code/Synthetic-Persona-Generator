@@ -306,6 +306,137 @@ export interface RetrievedChunk {
   score: number;
 }
 
+/** Per-document cap when loading full text into the agent (characters). */
+export const MAX_FULL_DOCUMENT_CHARS = 120_000;
+
+function truncateFullDocument(text: string, maxChars = MAX_FULL_DOCUMENT_CHARS): string {
+  const t = (text || '').trim();
+  if (!t) return '';
+  return t.length > maxChars ? `${t.slice(0, maxChars)}\n\n...[truncated]` : t;
+}
+
+function formatBusinessProfileRow(profile: Record<string, unknown>): string {
+  const labels: [string, string][] = [
+    ['Business name', 'business_name'],
+    ['Mission', 'mission_statement'],
+    ['Vision', 'vision_statement'],
+    ['Main offerings', 'description_main_offerings'],
+    ['Key features/benefits', 'key_features_or_benefits'],
+    ['USP', 'unique_selling_proposition'],
+    ['Pricing model', 'pricing_model'],
+    ['Customer segments', 'customer_segments'],
+    ['Geographic focus', 'geographic_focus'],
+    ['Industry served', 'industry_served'],
+    ['What differentiates', 'what_differentiates'],
+    ['Market niche', 'market_niche'],
+    ['Revenue streams', 'revenue_streams'],
+    ['Distribution channels', 'distribution_channels'],
+    ['Key personnel', 'key_personnel'],
+    ['Major achievements', 'major_achievements'],
+    ['Revenue', 'revenue'],
+    ['KPIs', 'key_performance_indicators'],
+    ['Funding', 'funding_rounds'],
+    ['Website', 'website'],
+  ];
+  const lines: string[] = [];
+  for (const [label, key] of labels) {
+    const v = profile[key];
+    if (v != null && String(v).trim()) lines.push(`${label}: ${String(v).trim()}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Load complete knowledge sources for the agent (no vector search).
+ * Each item is one logical document with a clear title in `source_name`.
+ */
+export async function loadFullKnowledgeDocuments(
+  personaIds: string[],
+  sessionId?: string,
+  userId?: string
+): Promise<RetrievedChunk[]> {
+  const out: RetrievedChunk[] = [];
+  const seenKeys = new Set<string>();
+
+  const push = (source_type: string, source_name: string, text: string) => {
+    const body = truncateFullDocument(text);
+    if (!body.trim()) return;
+    const key = `${source_type}:${source_name}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    out.push({ source_type, source_name, text: body, score: 1 });
+  };
+
+  const uniquePersonaIds = [...new Set(personaIds.filter(Boolean))];
+  for (const pid of uniquePersonaIds) {
+    const pr = await pool.query('SELECT id, name, description FROM personas WHERE id = $1', [pid]);
+    if (pr.rows.length === 0) continue;
+    const { name, description } = pr.rows[0] as { name: string; description: string | null };
+    const profileText = description?.trim() ? `Name: ${name}\n\n${description}` : `Name: ${name}`;
+    push('full_persona_profile', `Persona profile — ${name} (name & description)`, profileText);
+
+    const files = await pool.query(
+      'SELECT name, content FROM persona_files WHERE persona_id = $1 ORDER BY name ASC',
+      [pid]
+    );
+    for (const f of files.rows as { name: string; content: string | null }[]) {
+      if (f.content && String(f.content).trim()) {
+        push(
+          'full_persona_file',
+          `Blueprint file — ${name} / ${f.name}`,
+          String(f.content)
+        );
+      }
+    }
+  }
+
+  if (sessionId) {
+    const sr = await pool.query(
+      `SELECT source_name, chunk_text, chunk_index FROM knowledge_chunks
+       WHERE session_id = $1 AND source_type = 'session_context'
+       ORDER BY source_name ASC, chunk_index ASC`,
+      [sessionId]
+    );
+    const byField = new Map<string, string[]>();
+    for (const row of sr.rows as { source_name: string; chunk_text: string }[]) {
+      const field = row.source_name || 'context';
+      if (!byField.has(field)) byField.set(field, []);
+      byField.get(field)!.push(row.chunk_text);
+    }
+    for (const [fieldName, parts] of byField) {
+      push(
+        'full_session_field',
+        `Simulation session input — ${fieldName}`,
+        parts.join('\n\n')
+      );
+    }
+  }
+
+  if (userId) {
+    const br = await pool.query(
+      `SELECT business_name, mission_statement, vision_statement, description_main_offerings,
+              key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments,
+              geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams,
+              distribution_channels, key_personnel, major_achievements, revenue,
+              key_performance_indicators, funding_rounds, website
+       FROM business_profiles WHERE user_id = $1`,
+      [userId]
+    );
+    if (br.rows.length > 0) {
+      const profileText = formatBusinessProfileRow(br.rows[0] as Record<string, unknown>);
+      if (profileText.trim()) {
+        push(
+          'full_business_profile',
+          "Runner's business profile — client company (from simulation runner, not the persona)",
+          profileText
+        );
+      }
+    }
+  }
+
+  return out;
+}
+
 export async function retrieve(
   query: string,
   personaIds: string[],

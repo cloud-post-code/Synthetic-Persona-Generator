@@ -8,7 +8,7 @@ import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import { geminiService } from '../services/gemini.js';
-import { agentApi } from '../services/agentApi.js';
+import { agentApi, finalizePipelineEvents, pipelineEventsFromStoredMessage } from '../services/agentApi.js';
 import type { AgentPipelineEvent } from '../services/agentApi.js';
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { Persona, ChatSession, Message, FocusGroup } from '../models/types.js';
@@ -461,17 +461,25 @@ const ChatPage: React.FC = () => {
           text: m.content,
         }));
 
+        const chatTurnCollected: AgentPipelineEvent[] = [];
         setChatPipelineEvents([]);
         setChatPipelineActive(true);
-        const agentResult = await agentApi.turnStream({
-          personaId: persona.id,
-          personaIds: selectedPersonas.map(p => p.id),
-          sessionId: session.id,
-          history,
-          userMessage: currentInput,
-        }, (ev) => setChatPipelineEvents(prev => [...prev, ev]));
+        const agentResult = await agentApi.turnStream(
+          {
+            personaId: persona.id,
+            personaIds: selectedPersonas.map((p) => p.id),
+            sessionId: session.id,
+            history,
+            userMessage: currentInput,
+          },
+          (ev) => {
+            chatTurnCollected.push(ev);
+            setChatPipelineEvents((prev) => [...prev, ev]);
+          }
+        );
         setChatPipelineActive(false);
         const responseText = agentResult.response;
+        const turnPipeline = finalizePipelineEvents(chatTurnCollected, agentResult);
 
         const aiMessage: Message = {
           id: crypto.randomUUID(),
@@ -480,6 +488,10 @@ const ChatPage: React.FC = () => {
           personaId: persona.id,
           content: responseText,
           createdAt: new Date().toISOString(),
+          thinking: agentResult.thinking || undefined,
+          retrieval_summary: agentResult.retrieval,
+          validation: agentResult.validation ?? undefined,
+          pipeline_events: turnPipeline,
         };
 
         setMessages(prev => [...prev, aiMessage]);
@@ -649,11 +661,18 @@ const ChatPage: React.FC = () => {
                           />
                         )}
                       </div>
-                      <div className="space-y-1 min-w-0 flex-grow relative">
+                      <div className="space-y-2 min-w-0 flex-grow relative">
                         {!isUser && (
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                             {getPersonaDisplayName(persona)}
                           </p>
+                        )}
+                        {!isUser && (
+                          <AgentPipelineViewer
+                            events={pipelineEventsFromStoredMessage(m)}
+                            isActive={false}
+                            compact
+                          />
                         )}
                         <div className={`p-5 rounded-3xl shadow-sm text-base relative ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
                           <FormattedContent content={m.content} isUser={isUser} />
@@ -691,11 +710,9 @@ const ChatPage: React.FC = () => {
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                           {getPersonaDisplayName(persona)} is processing...
                         </p>
-                        {chatPipelineEvents.length > 0 && (
-                          <div className="min-w-[280px]">
-                            <AgentPipelineViewer events={chatPipelineEvents} isActive={chatPipelineActive} compact />
-                          </div>
-                        )}
+                        <div className="min-w-[280px]">
+                          <AgentPipelineViewer events={chatPipelineEvents} isActive={chatPipelineActive} compact />
+                        </div>
                         <div className="bg-white border border-gray-100 p-5 rounded-3xl rounded-tl-none flex items-center gap-4 shadow-sm">
                            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
                            <div className="flex gap-1">

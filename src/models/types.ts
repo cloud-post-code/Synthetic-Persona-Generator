@@ -1,3 +1,5 @@
+import type { AgentPipelineEvent } from '../services/agentApi.js';
+
 export type PersonaType = 'synthetic_user' | 'advisor';
 
 export type PersonaVisibility = 'private' | 'public' | 'global';
@@ -55,6 +57,8 @@ export interface Message {
     completeness_flags?: string[];
     completeness_suggestions?: string[];
   } | null;
+  /** Serialized agent pipeline (4 steps + complete) for this reply */
+  pipeline_events?: AgentPipelineEvent[];
   createdAt?: string;
   created_at?: string;
 }
