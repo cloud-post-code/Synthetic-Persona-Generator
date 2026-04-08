@@ -265,7 +265,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       if (!cancelledRef.current) {
         console.error('Generation error:', err);
         const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-        alert(`Generation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+        alert(`Generation failed: ${errorMessage}`);
       }
     } finally {
       if (!cancelledRef.current) setLoading(false);
@@ -812,7 +812,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       if (!cancelledRef.current) {
         console.error('Advisor generation error:', err);
         const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-        alert(`Analysis failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+        alert(`Analysis failed: ${errorMessage}`);
       }
     } finally {
       if (!cancelledRef.current) setLoading(false);

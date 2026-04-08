@@ -989,7 +989,7 @@ const SimulationPage: React.FC = () => {
         console.error('Persona conversation error:', err);
         const errorMessage = err instanceof Error ? err.message : String(err);
         alert(
-          `Persona conversation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set\n2. You have sufficient API quota\n3. Check browser console for details`
+          `Persona conversation failed: ${errorMessage}`
         );
       } finally {
         setIsLoading(false);
@@ -1217,7 +1217,7 @@ const SimulationPage: React.FC = () => {
     } catch (err: any) {
       console.error('Simulation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-      alert(`Simulation failed: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set in .env file\n2. You have sufficient API quota\n3. Check browser console for details`);
+      alert(`Simulation failed: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -1323,7 +1323,7 @@ const SimulationPage: React.FC = () => {
       console.error('Chat error:', err);
       setPipelineActive(false);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
-      alert(`Failed to send message: ${errorMessage}\n\nPlease check:\n1. Gemini API key is set\n2. You have sufficient API quota\n3. Check browser console for details`);
+      alert(`Failed to send message: ${errorMessage}`);
     } finally {
       setIsTyping(false);
     }
