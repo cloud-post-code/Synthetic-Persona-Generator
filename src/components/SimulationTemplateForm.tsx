@@ -784,15 +784,14 @@ ${description.trim() || '(empty - please create an initial description based on 
                           )}
                         </div>
                       ))}
-                      {surveyQuestions.length < 1 && (
-                        <button
-                          type="button"
-                          onClick={addSurveyQuestion}
-                          className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-400 flex items-center justify-center gap-2 text-sm"
-                        >
-                          <Plus className="w-4 h-4" /> Add question
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={addSurveyQuestion}
+                        className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-400 flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Plus className="w-4 h-4" />{' '}
+                        {surveyQuestions.length === 0 ? 'Add question' : 'Add another question'}
+                      </button>
                     </div>
                   </div>
                 </>
