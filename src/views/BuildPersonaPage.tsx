@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Brain, Search, Check, ShieldCheck } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Check, Users, Image as ImageIcon } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -55,55 +55,89 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
   );
 };
 
-// --- PIPELINE INDICATOR ---
+// --- MARKDOWN / DOCUMENT BUILD PROGRESS (matches real outputs, not generic “agent” phases) ---
 
-const PIPELINE_STEPS = [
-  { label: 'Thinking', icon: Brain },
-  { label: 'Knowledge Retrieval', icon: Search },
-  { label: 'Generating Response', icon: Sparkles },
-  { label: 'Persona Validation', icon: ShieldCheck },
-] as const;
+type MdStep = { title: string; subtitle: string; icon: React.ElementType };
 
-function getPipelineStepIndex(loadingStage: string): number {
-  if (!loadingStage) return 0;
+const SYNTHETIC_MD_STEPS: MdStep[] = [
+  { title: 'Market_Canvas.md', subtitle: 'Strategic canvas from your inputs', icon: FileText },
+  { title: 'Job_Builder.md', subtitle: 'Jobs and roles to be done', icon: FileText },
+  { title: 'Metrics.md', subtitle: 'Success metrics', icon: FileText },
+  { title: 'Persona list', subtitle: 'Names and titles for each synthetic user', icon: Users },
+  { title: '10Point_Agent_Profile.md', subtitle: 'Deep profile (per persona)', icon: FileText },
+  { title: 'Agent_Behaviors.md', subtitle: 'Behaviors (per persona)', icon: FileText },
+  { title: 'Portrait', subtitle: 'Avatar image (per persona)', icon: ImageIcon },
+];
+
+const ADVISOR_MD_STEPS: MdStep[] = [
+  { title: 'Source material', subtitle: 'Extract text from LinkedIn, PDF, or supporting docs', icon: FileText },
+  { title: 'Identity', subtitle: 'Name, title, and summary', icon: Users },
+  { title: '1_Expert_Blueprint.md', subtitle: 'High-fidelity expert profile', icon: FileText },
+  { title: 'Portrait', subtitle: 'Avatar image', icon: ImageIcon },
+  { title: 'Knowledge_Source.md', subtitle: 'Stored reference material', icon: FileText },
+];
+
+function getSyntheticMdStepIndex(loadingStage: string): number {
   const s = loadingStage.toLowerCase();
-  if (s.includes('digital likeness') || s.includes('capturing')) return 3;
-  if (s.includes('profiling agent') || s.includes('defining behaviors') ||
-      s.includes('high-fidelity blueprint') || s.includes('building high')) return 2;
-  if (s.includes('job architecture') || s.includes('success metrics') ||
-      s.includes('discovering identity') || s.includes('identifying author') ||
-      s.includes('extracting text from other') || s.includes('extracting text from document')) return 1;
+  if (!s.trim()) return 0;
+  if (s.includes('market canvas')) return 0;
+  if (s.includes('job architecture')) return 1;
+  if (s.includes('success metrics')) return 2;
+  if (s.includes('identifying synthetic')) return 3;
+  if (s.includes('profiling agent')) return 4;
+  if (s.includes('defining behaviors')) return 5;
+  if (s.includes('digital likeness') || s.includes('capturing')) return 6;
   return 0;
 }
 
-const BuildPipelineIndicator: React.FC<{ loadingStage: string; isAdvisor?: boolean }> = ({ loadingStage, isAdvisor }) => {
-  const currentIndex = getPipelineStepIndex(loadingStage);
+function getAdvisorMdStepIndex(loadingStage: string): number {
+  const s = loadingStage.toLowerCase();
+  if (!s.trim()) return 0;
+  if (s.includes('analyzing professional') || s.includes('extracting text from other') || s.includes('extracting text from document')) return 0;
+  if (s.includes('discovering identity') || s.includes('identifying author')) return 1;
+  if (s.includes('saving 1_expert') || s.includes('high-fidelity blueprint') || s.includes('building high')) return 2;
+  if (s.includes('digital likeness') || s.includes('generating digital')) return 3;
+  if (s.includes('knowledge_source') || s.includes('knowledge source')) return 4;
+  return 0;
+}
+
+const BuildMarkdownStepsIndicator: React.FC<{ loadingStage: string; variant: 'synthetic' | 'advisor' }> = ({ loadingStage, variant }) => {
+  const steps = variant === 'synthetic' ? SYNTHETIC_MD_STEPS : ADVISOR_MD_STEPS;
+  const currentIndex = variant === 'synthetic' ? getSyntheticMdStepIndex(loadingStage) : getAdvisorMdStepIndex(loadingStage);
+  const isAdvisor = variant === 'advisor';
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
       <div className={`flex items-center gap-2 px-5 py-3 border-b border-gray-100 ${isAdvisor ? 'bg-violet-50/40' : 'bg-indigo-50/40'}`}>
-        <Brain className={`w-4 h-4 ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'}`} />
-        <span className={`text-xs font-bold uppercase tracking-widest ${isAdvisor ? 'text-violet-600' : 'text-indigo-600'}`}>Agent Pipeline</span>
+        <FileText className={`w-4 h-4 ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'}`} />
+        <span className={`text-xs font-bold uppercase tracking-widest ${isAdvisor ? 'text-violet-600' : 'text-indigo-600'}`}>Document steps</span>
         <Loader2 className={`w-3.5 h-3.5 ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'} animate-spin ml-auto`} />
       </div>
       <div className="px-5 py-3 space-y-0.5">
-        {PIPELINE_STEPS.map((step, i) => {
+        {steps.map((step, i) => {
           const Icon = step.icon;
           const done = i < currentIndex;
           const active = i === currentIndex;
           return (
-            <div key={step.label} className={`flex items-center gap-3 py-2.5 ${i < PIPELINE_STEPS.length - 1 ? 'border-b border-gray-50' : ''}`}>
-              <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center">
+            <div key={step.title} className={`flex items-start gap-3 py-2.5 ${i < steps.length - 1 ? 'border-b border-gray-50' : ''}`}>
+              <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center mt-0.5">
                 {done && <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center"><Check className="w-4 h-4 text-green-600" /></div>}
                 {active && <div className={`w-7 h-7 rounded-full ${isAdvisor ? 'bg-violet-100' : 'bg-indigo-100'} flex items-center justify-center`}><Loader2 className={`w-4 h-4 ${isAdvisor ? 'text-violet-600' : 'text-indigo-600'} animate-spin`} /></div>}
                 {!done && !active && <div className="w-7 h-7 rounded-full border-2 border-gray-200 flex items-center justify-center"><div className="w-2 h-2 rounded-full bg-gray-200" /></div>}
               </div>
-              <Icon className={`w-4 h-4 ${active ? (isAdvisor ? 'text-violet-500' : 'text-indigo-500') : done ? 'text-green-500' : 'text-gray-300'}`} />
-              <span className={`text-sm font-semibold ${active ? (isAdvisor ? 'text-violet-700' : 'text-indigo-700') : done ? 'text-gray-700' : 'text-gray-400'}`}>
-                {step.label}
-              </span>
-              {done && <span className="ml-auto text-xs font-medium text-green-600">Complete</span>}
-              {active && <span className={`ml-auto text-xs font-medium ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'} animate-pulse`}>In progress...</span>}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-4 h-4 flex-shrink-0 ${active ? (isAdvisor ? 'text-violet-500' : 'text-indigo-500') : done ? 'text-green-500' : 'text-gray-300'}`} />
+                  <span className={`text-sm font-semibold ${active ? (isAdvisor ? 'text-violet-700' : 'text-indigo-700') : done ? 'text-gray-800' : 'text-gray-400'}`}>
+                    {step.title}
+                  </span>
+                </div>
+                <p className={`text-xs mt-0.5 pl-6 ${active ? (isAdvisor ? 'text-violet-600' : 'text-indigo-600') : done ? 'text-gray-500' : 'text-gray-400'}`}>
+                  {step.subtitle}
+                </p>
+              </div>
+              {done && <span className="flex-shrink-0 text-xs font-medium text-green-600 self-center">Done</span>}
+              {active && <span className={`flex-shrink-0 text-xs font-medium self-center ${isAdvisor ? 'text-violet-500' : 'text-indigo-500'} animate-pulse`}>In progress</span>}
             </div>
           );
         })}
@@ -195,6 +229,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       const metrics = await geminiService.generateChain(metricsTemplate, { "Context": marketCanvas, "Jobs": jobBuilder });
       if (cancelledRef.current) return;
 
+      setLoadingStage('Identifying synthetic personas...');
       const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. CRITICAL: Each persona must have a unique full name—no two personas in the list may share the same name. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
       const raw = await geminiService.generateBasic(idPrompt, true);
       if (cancelledRef.current) return;
@@ -329,10 +364,10 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
         <div className="space-y-8 animate-in fade-in duration-500">
           <div className="text-center space-y-2">
             <h3 className="text-2xl font-bold text-gray-900">Building Your Personas</h3>
-            <p className="text-gray-500 font-medium">Our AI agents are working together to craft your synthetic personas.</p>
+            <p className="text-gray-500 font-medium">Each step fills the markdown files attached to your synthetic users, in order.</p>
           </div>
 
-          <BuildPipelineIndicator loadingStage={loadingStage} />
+          <BuildMarkdownStepsIndicator loadingStage={loadingStage} variant="synthetic" />
 
           <div className="flex items-center justify-center gap-3 bg-indigo-50/60 border border-indigo-100 rounded-2xl px-5 py-4">
             <Loader2 className="w-5 h-5 text-indigo-500 animate-spin flex-shrink-0" />
@@ -699,6 +734,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
           avatarUrl: avatarUrl,
           metadata: { personaGroupId: "N/A" },
         });
+        setLoadingStage('Saving 1_Expert_Blueprint.md...');
         await personaApi.createFile(persona.id, {
           name: `1_Expert_Blueprint.md`,
           content: profileOutput,
@@ -707,6 +743,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         const storedContent = combined.length > 50000
           ? combined.substring(0, 50000) + '\n\n[Content truncated for storage]'
           : combined;
+        setLoadingStage('Saving Knowledge_Source.md...');
         await personaApi.createFile(persona.id, {
           name: `Knowledge_Source.md`,
           content: storedContent,
@@ -793,6 +830,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         metadata: { personaGroupId: "N/A" },
       });
 
+      setLoadingStage('Saving 1_Expert_Blueprint.md...');
       await personaApi.createFile(persona.id, {
         name: `1_Expert_Blueprint.md`,
         content: profileOutput,
@@ -801,7 +839,8 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       const storedContent = extractedText.length > 50000 
         ? extractedText.substring(0, 50000) + '\n\n[Content truncated for storage]'
         : extractedText;
-        
+
+      setLoadingStage('Saving Knowledge_Source.md...');
       await personaApi.createFile(persona.id, {
         name: `Knowledge_Source.md`,
         content: storedContent,
@@ -876,10 +915,10 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         <div className="space-y-8 animate-in fade-in duration-500">
           <div className="text-center space-y-2">
             <h3 className="text-2xl font-bold text-gray-900">Building Your Advisor</h3>
-            <p className="text-gray-500 font-medium">Our AI agents are analyzing source material and crafting your advisor profile.</p>
+            <p className="text-gray-500 font-medium">Each step prepares or writes the markdown files stored on your advisor persona.</p>
           </div>
 
-          <BuildPipelineIndicator loadingStage={loadingStage} isAdvisor />
+          <BuildMarkdownStepsIndicator loadingStage={loadingStage} variant="advisor" />
 
           <div className="flex items-center justify-center gap-3 bg-violet-50/60 border border-violet-100 rounded-2xl px-5 py-4">
             <Loader2 className="w-5 h-5 text-violet-500 animate-spin flex-shrink-0" />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Brain, Search, Sparkles, ShieldCheck, ChevronDown, ChevronRight, Check, Loader2, AlertTriangle } from 'lucide-react';
 import type { AgentPipelineEvent, ValidationInfo } from '../services/agentApi.js';
+import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
 
 interface Props {
   events: AgentPipelineEvent[];
@@ -153,11 +154,14 @@ function StepRow({ meta, state, compact }: { key?: string; meta: typeof STEP_MET
             </>
           )}
 
-          {meta.key === 'responding' && state.response && (
+          {meta.key === 'responding' && state.response && (() => {
+            const preview = ensureSimulationPlainText(state.response);
+            return (
             <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-gray-700 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
-              {state.response.slice(0, 500)}{state.response.length > 500 ? '...' : ''}
+              {preview.slice(0, 500)}{preview.length > 500 ? '...' : ''}
             </div>
-          )}
+            );
+          })()}
 
           {meta.key === 'validation' && state.validation && (
             <div className="space-y-2">

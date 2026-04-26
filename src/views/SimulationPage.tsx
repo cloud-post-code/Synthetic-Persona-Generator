@@ -41,6 +41,8 @@ import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
+import { formatSurveySimulationContent, getStoredSurveyQuestions } from '../utils/surveySimulationDisplay.js';
+import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
 
 const MAX_PERSONA_TURNS = 20;
 
@@ -152,7 +154,8 @@ const ResizableDivider: React.FC<{
 };
 
 const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser = false }) => {
-  const lines = content.split('\n');
+  const displayContent = ensureSimulationPlainText(content ?? '');
+  const lines = displayContent.split('\n');
   
   const processLine = (line: string, lineIdx: number): React.ReactNode => {
     // Handle headers (## or ###)
@@ -1051,6 +1054,30 @@ const SimulationPage: React.FC = () => {
         instructions = instructions.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
       }
 
+      if (selectedSimulation.simulation_type === 'survey') {
+        instructions += `
+
+### MANDATORY OUTPUT FORMAT (survey)
+Use **plain text only**. Do NOT output JSON, YAML, XML, or markdown code fences (\`\`\`) around survey answers.
+
+1. Start the entire response with an overall summary block (required):
+Summary: <2–4 sentences on how you approach the survey and the main themes in your answers>
+(then one blank line)
+
+2. For **each** survey question, in the same order as listed in these instructions, write exactly:
+
+Question: <the full question wording>
+Summary: <1–2 sentences: gist of your reasoning or the headline of your answer for this item only>
+Answer: <your full in-character answer>
+
+Put one blank line after each complete Question/Summary/Answer block. Answer every question.`;
+      }
+
+      instructions += `
+
+### MANDATORY (all simulation types)
+Deliver your simulation result as human-readable plain text only. Never use JSON, YAML, or XML for the overall response body. Never wrap the primary answer in a \`\`\`json (or similar) fenced block. Headings, paragraphs, and markdown-style lists are fine—machine-readable structured payloads are not.`;
+
       if (selectedSimulation.simulation_type === 'persuasion_simulation' && selectedPersona.id === selectedPersonas[0].id) {
         persuasionSystemPrompt = instructions;
       }
@@ -1190,12 +1217,28 @@ const SimulationPage: React.FC = () => {
         }
       }
       
-      if (isGeneratedSurvey && surveyQuestions.length > 0) {
-        localStorage.setItem(`simulationSurveyData_${newSessionId}`, JSON.stringify({
-          questions: surveyQuestions,
-          answers: {}, // Generated: persona answers in result content; no runner answers.
-          respondentName: firstPersona.name,
-        }));
+      if (selectedSimulation.simulation_type === 'survey') {
+        let allSurveyQs: SurveyQuestion[] = [];
+        if (isGeneratedSurvey && surveyQuestions.length > 0) {
+          allSurveyQs = surveyQuestions;
+        } else {
+          for (const field of selectedSimulation.required_input_fields ?? []) {
+            if (field.type === 'survey_questions') {
+              const qs = runnerSurveyQuestions[field.name] || [];
+              allSurveyQs = allSurveyQs.concat(qs);
+            }
+          }
+        }
+        if (allSurveyQs.length > 0) {
+          localStorage.setItem(
+            `simulationSurveyData_${newSessionId}`,
+            JSON.stringify({
+              questions: allSurveyQs,
+              answers: {},
+              respondentName: firstPersona.name,
+            })
+          );
+        }
       }
       
       const personaWithFiles = {
@@ -2113,6 +2156,12 @@ const SimulationPage: React.FC = () => {
           const personaById = new Map<string, Persona>(selectedPersonas.map((p) => [p.id, p]));
           const firstPersonaMessage = messages.find(m => m.senderType === 'persona');
           const firstPersonaContent = firstPersonaMessage?.content || '';
+          const storedSurveyQsResult = getStoredSurveyQuestions(currentSessionId);
+          const surveyQuestionsForDisplay =
+            storedSurveyQsResult.length > 0
+              ? storedSurveyQsResult
+              : ((selectedSimulation?.type_specific_config?.survey_questions as SurveyQuestion[]) || []);
+          const surveyContentFormatted = formatSurveySimulationContent(firstPersonaContent, surveyQuestionsForDisplay);
           const firstPersonaPipelineEvents =
             firstPersonaMessage != null
               ? pipelineEventsFromStoredMessage(firstPersonaMessage)
@@ -2423,7 +2472,10 @@ const SimulationPage: React.FC = () => {
                       </div>
                       <AgentPipelineViewer events={pipelineEventsFromPersonaResult(pr)} isActive={false} compact />
                       <div className="text-gray-800 text-lg leading-relaxed">
-                        <FormattedSimulationResponse content={pr.content} isUser={false} />
+                        <FormattedSimulationResponse
+                          content={isSurvey ? formatSurveySimulationContent(pr.content, surveyQuestionsForDisplay) : pr.content}
+                          isUser={false}
+                        />
                       </div>
                     </div>
                   ))}
@@ -2445,9 +2497,9 @@ const SimulationPage: React.FC = () => {
               )}
               {isSurvey && (
                 <>
-                  <p className="text-base text-gray-600 mb-2 font-medium">Summary & key points</p>
-                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed">
-                    <FormattedSimulationResponse content={firstPersonaContent} isUser={false} />
+                  <p className="text-base text-gray-600 mb-2 font-medium">Summary & question-by-question responses</p>
+                  <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed whitespace-pre-wrap">
+                    <FormattedSimulationResponse content={surveyContentFormatted} isUser={false} />
                   </div>
                 </>
               )}
