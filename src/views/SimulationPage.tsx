@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
   ChevronRight, 
@@ -18,6 +18,11 @@ import {
   XCircle,
   LucideIcon,
   Download,
+  Search,
+  Star,
+  Edit,
+  PlayCircle,
+  Users,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession, FocusGroup } from '../models/types.js';
 import type { BusinessProfile } from '../models/types.js';
@@ -35,10 +40,16 @@ import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../servi
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
-import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
+import {
+  simulationTemplateApi,
+  SimulationTemplate,
+  CreateSimulationRequest,
+  UpdateSimulationRequest,
+} from '../services/simulationTemplateApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
+import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
 import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
@@ -106,6 +117,13 @@ function truncateDescriptionToWords(text: string, maxWords: number = 25): string
   return words.slice(0, maxWords).join(' ') + '...';
 }
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
+
+type HubTab = 'find' | 'yours' | 'saved' | 'build';
+
+function creatorLabel(sim: SimulationTemplate): string {
+  if (sim.visibility === 'global') return 'Admin';
+  return sim.creator_username || 'User';
+}
 
 const STORAGE_KEY_LEFT = 'simulation-left-panel-width';
 const STORAGE_KEY_RIGHT = 'simulation-right-panel-width';
@@ -319,6 +337,11 @@ const SimulationPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSimulations, setIsLoadingSimulations] = useState(true);
   const [simulationsError, setSimulationsError] = useState<string | null>(null);
+  const [hubTab, setHubTab] = useState<HubTab>('find');
+  const [hubSearch, setHubSearch] = useState('');
+  const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
+  const [togglingStarId, setTogglingStarId] = useState<string | null>(null);
+  const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -441,43 +464,143 @@ const SimulationPage: React.FC = () => {
     !savedBusinessProfile
   );
 
-  // Load simulations on mount
-  useEffect(() => {
-    const loadSimulations = async () => {
-      setIsLoadingSimulations(true);
-      setSimulationsError(null);
-      try {
-        const sims = await simulationTemplateApi.getAll();
-        setSimulations(sims);
-      } catch (error) {
-        console.error('Failed to load simulations:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to load simulations';
-        setSimulationsError(errorMessage);
-      } finally {
-        setIsLoadingSimulations(false);
-      }
-    };
-    loadSimulations();
+  const loadStarredIds = useCallback(async () => {
+    try {
+      const starred = await simulationTemplateApi.getStarred();
+      setStarredIds(new Set(starred.map((s) => s.id)));
+    } catch {
+      setStarredIds(new Set());
+    }
   }, []);
+
+  const loadSimulationListForHub = useCallback(async () => {
+    if (hubTab === 'build') {
+      setIsLoadingSimulations(false);
+      setSimulations([]);
+      return;
+    }
+    setIsLoadingSimulations(true);
+    setSimulationsError(null);
+    try {
+      let sims: SimulationTemplate[];
+      if (hubTab === 'find') sims = await simulationTemplateApi.getLibrary();
+      else if (hubTab === 'yours') sims = await simulationTemplateApi.getMine();
+      else sims = await simulationTemplateApi.getStarred();
+      setSimulations(sims);
+      await loadStarredIds();
+    } catch (error) {
+      console.error('Failed to load simulations:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load simulations';
+      setSimulationsError(errorMessage);
+    } finally {
+      setIsLoadingSimulations(false);
+    }
+  }, [hubTab, loadStarredIds]);
+
+  useEffect(() => {
+    void loadSimulationListForHub();
+  }, [loadSimulationListForHub]);
 
   useEffect(() => {
     const templateId = searchParams.get('templateId');
     if (!templateId || isLoadingSimulations || simulationsError) return;
-    if (simulations.length === 0) return;
-    const sim = simulations.find((s) => s.id === templateId);
-    const next = new URLSearchParams(searchParams);
-    if (!sim) {
+
+    let cancelled = false;
+
+    const resolveTemplate = async () => {
+      let sim = simulations.find((s) => s.id === templateId);
+      if (!sim) {
+        try {
+          sim = await simulationTemplateApi.getByIdUser(templateId);
+        } catch {
+          const next = new URLSearchParams(searchParams);
+          next.delete('templateId');
+          setSearchParams(next, { replace: true });
+          return;
+        }
+      }
+      if (cancelled || !sim) return;
+
+      setSelectedSimulation(sim);
+      setStage('inputs');
+      setInputFields({});
+      setSurveyGeneratedAnswers({});
+      const next = new URLSearchParams(searchParams);
       next.delete('templateId');
       setSearchParams(next, { replace: true });
-      return;
-    }
-    setSelectedSimulation(sim);
-    setStage('inputs');
-    setInputFields({});
-    setSurveyGeneratedAnswers({});
-    next.delete('templateId');
-    setSearchParams(next, { replace: true });
+    };
+
+    void resolveTemplate();
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, simulations, isLoadingSimulations, simulationsError, setSearchParams]);
+
+  const hubFilteredSimulations = useMemo(() => {
+    const base =
+      hubTab === 'yours' && user?.id
+        ? simulations.filter((s) => s.user_id === user.id)
+        : simulations;
+    const q = hubSearch.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((s) => {
+      return (
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q) ||
+        creatorLabel(s).toLowerCase().includes(q)
+      );
+    });
+  }, [simulations, hubSearch, hubTab, user?.id]);
+
+  const handleHubToggleStar = async (sim: SimulationTemplate) => {
+    const id = sim.id;
+    const isStarred = starredIds.has(id);
+    setTogglingStarId(id);
+    try {
+      if (isStarred) {
+        await simulationTemplateApi.unstar(id);
+        setStarredIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        await simulationTemplateApi.star(id);
+        setStarredIds((prev) => new Set([...prev, id]));
+      }
+      if (hubTab === 'saved') await loadSimulationListForHub();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update saved');
+    } finally {
+      setTogglingStarId(null);
+    }
+  };
+
+  const handleTemplateSubmit = async (data: CreateSimulationRequest | UpdateSimulationRequest) => {
+    if (editingSimulation) {
+      await simulationTemplateApi.updateMine(editingSimulation.id, data);
+    } else {
+      await simulationTemplateApi.createMine(data as CreateSimulationRequest);
+    }
+    setEditingSimulation(null);
+    setHubTab('yours');
+    await loadSimulationListForHub();
+  };
+
+  const handleDeleteTemplateFromHub = async (id: string) => {
+    if (!window.confirm('Delete this simulation template?')) return;
+    try {
+      await simulationTemplateApi.deleteMine(id);
+      await loadSimulationListForHub();
+      await loadStarredIds();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const retryLoadSimulations = () => {
+    void loadSimulationListForHub();
+  };
 
   useEffect(() => {
     if (selectedSimulation) {
@@ -1709,88 +1832,244 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       {/* Main Area */}
       <main className="flex-grow flex flex-col relative bg-white overflow-hidden min-w-0">
         {stage === 'selection' && (
-          <div className="max-w-6xl mx-auto px-6 py-12 w-full overflow-y-auto">
-            <div className="text-center mb-16">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-black uppercase tracking-widest mb-4">
-                 Validation Engine
+          <div className="max-w-6xl mx-auto px-6 py-10 w-full overflow-y-auto">
+            <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-2">Run simulation</h1>
+                <p className="text-gray-600 max-w-2xl">
+                  Browse templates, manage what you built and saved, or switch to Build to create a new template—then open Configure test to run.
+                </p>
               </div>
-              <h1 className="text-5xl font-black text-gray-900 mb-4 tracking-tight">Execute Simulation</h1>
-              <p className="text-xl text-gray-500 font-medium max-w-2xl mx-auto">Select a specialized testing mode to see how your synthetic personas react to your work.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingSimulation(null);
+                  setHubTab('build');
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                New template
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {isLoadingSimulations ? (
-                <div className="col-span-full text-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
-                  <p className="text-gray-500">Loading simulations...</p>
-                </div>
-              ) : simulationsError ? (
-                <div className="col-span-full text-center py-12">
-                  <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
-                  <p className="text-red-600 font-bold mb-2">Failed to load simulations</p>
-                  <p className="text-gray-500 text-sm">{simulationsError}</p>
+            <div className="border-b border-gray-200 mb-6">
+              <nav className="-mb-px flex flex-wrap gap-4" aria-label="Simulation templates">
+                {(
+                  [
+                    { id: 'find' as const, label: 'Find' },
+                    { id: 'yours' as const, label: 'Your simulations' },
+                    { id: 'saved' as const, label: 'Saved' },
+                    { id: 'build' as const, label: 'Build' },
+                  ] as const
+                ).map((tab) => (
                   <button
+                    key={tab.id}
+                    type="button"
                     onClick={() => {
-                      const loadSimulations = async () => {
-                        setIsLoadingSimulations(true);
-                        setSimulationsError(null);
-                        try {
-                          const sims = await simulationTemplateApi.getAll();
-                          setSimulations(sims);
-                        } catch (error) {
-                          console.error('Failed to load simulations:', error);
-                          const errorMessage = error instanceof Error ? error.message : 'Failed to load simulations';
-                          setSimulationsError(errorMessage);
-                        } finally {
-                          setIsLoadingSimulations(false);
-                        }
-                      };
-                      loadSimulations();
+                      setHubTab(tab.id);
+                      setEditingSimulation(null);
                     }}
-                    className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                    className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                      hubTab === tab.id
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
                   >
-                    Retry
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+
+            {hubTab === 'build' ? (
+              <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 sm:p-8">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {editingSimulation ? 'Edit simulation template' : 'Build simulation template'}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingSimulation(null);
+                      setHubTab('yours');
+                    }}
+                    className="text-sm text-gray-600 hover:text-indigo-600 font-medium"
+                  >
+                    Back to your simulations
                   </button>
                 </div>
-              ) : simulations.length === 0 ? (
-                <div className="col-span-full text-center py-12">
-                  <p className="text-gray-500">No simulations available</p>
+                <SimulationTemplateForm
+                  simulation={editingSimulation}
+                  onSubmit={handleTemplateSubmit}
+                  onCancel={() => {
+                    setEditingSimulation(null);
+                    setHubTab('yours');
+                  }}
+                />
+              </div>
+            ) : isLoadingSimulations ? (
+              <div className="text-center py-20">
+                <Loader2 className="w-10 h-10 animate-spin text-indigo-600 mx-auto mb-4" />
+                <p className="text-gray-500">Loading simulations...</p>
+              </div>
+            ) : simulationsError ? (
+              <div className="text-center py-16 rounded-2xl border border-red-100 bg-red-50/50">
+                <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-4" />
+                <p className="text-red-700 font-bold mb-2">Failed to load simulations</p>
+                <p className="text-gray-600 text-sm mb-4">{simulationsError}</p>
+                <button
+                  type="button"
+                  onClick={() => retryLoadSimulations()}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm mb-8">
+                  <div className="relative max-w-xl">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                      type="search"
+                      placeholder="Search by title, description, or creator..."
+                      value={hubSearch}
+                      onChange={(e) => setHubSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                    />
+                  </div>
                 </div>
-              ) : (
-                simulations.map((sim) => {
-                  const Icon = getIcon(sim.icon);
-                  return (
-                    <button
-                      key={sim.id}
-                      onClick={() => { 
-                        setSelectedSimulation(sim);
-                        setStage('inputs');
-                        // Reset input fields when selecting new simulation
-                        setInputFields({});
-                        setSurveyGeneratedAnswers({});
-                      }}
-                      className="group p-8 bg-white border border-gray-100 rounded-[2.5rem] text-left hover:shadow-2xl hover:-translate-y-2 transition-all border-b-8 hover:border-indigo-600 flex flex-col h-full"
-                    >
-                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-8 shadow-lg transition-all group-hover:scale-110 group-hover:text-white bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600">
-                        <Icon className="w-7 h-7" />
-                      </div>
-                      <h3 className="text-xl font-black text-gray-900 mb-2">{sim.title}</h3>
-                      <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow">{truncateDescriptionToWords(sim.description || 'Stress-test your strategy using this specialized simulation prompt.')}</p>
-                      <div className="mt-8 flex items-center text-[10px] font-black uppercase tracking-[0.2em] text-gray-300 group-hover:text-indigo-600">
-                        Configure Test <ChevronRight className="ml-2 w-3 h-3" />
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+
+                {hubFilteredSimulations.length === 0 ? (
+                  <div className="text-center py-16 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                    <p className="text-gray-600 font-medium">
+                      {hubTab === 'find' && 'No public simulations to explore yet.'}
+                      {hubTab === 'yours' && "You haven't created any simulations yet. Use the Build tab."}
+                      {hubTab === 'saved' && 'Nothing saved yet. Star templates from Find or Your simulations.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {hubFilteredSimulations.map((sim) => {
+                      const Icon = getIcon(sim.icon);
+                      const minP = sim.persona_count_min ?? 1;
+                      const maxP = sim.persona_count_max ?? 1;
+                      return (
+                        <div
+                          key={sim.id}
+                          className="group bg-white border border-gray-100 rounded-[2rem] p-8 flex flex-col h-full hover:shadow-xl hover:-translate-y-1 transition-all shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-6">
+                            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                              <Icon className="w-7 h-7" />
+                            </div>
+                            <button
+                              type="button"
+                              title={starredIds.has(sim.id) ? 'Remove from saved' : 'Save'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleHubToggleStar(sim);
+                              }}
+                              disabled={togglingStarId === sim.id}
+                              className="p-2 rounded-xl text-gray-400 hover:text-amber-500 hover:bg-amber-50 disabled:opacity-50 shrink-0"
+                            >
+                              {togglingStarId === sim.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <Star
+                                  className={`w-5 h-5 ${starredIds.has(sim.id) ? 'fill-amber-400 text-amber-500' : ''}`}
+                                />
+                              )}
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h3 className="text-xl font-black text-gray-900">{sim.title}</h3>
+                            {hubTab === 'yours' && (
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                  sim.visibility === 'public'
+                                    ? 'bg-indigo-100 text-indigo-800'
+                                    : 'bg-gray-100 text-gray-700'
+                                }`}
+                              >
+                                {sim.visibility === 'public' ? 'Public' : 'Private'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mb-2">
+                            {hubTab === 'yours' ? (
+                              <span className="text-gray-600">Your template</span>
+                            ) : (
+                              <>
+                                By <span className="font-semibold text-gray-700">{creatorLabel(sim)}</span>
+                                {hubTab === 'find' && sim.visibility === 'public' && (
+                                  <span className="ml-2 text-indigo-600 font-medium">· Public</span>
+                                )}
+                              </>
+                            )}
+                          </p>
+                          <p className="text-gray-400 text-sm font-medium leading-relaxed flex-grow mb-4">
+                            {truncateDescriptionToWords(sim.description || 'Stress-test your strategy using this specialized simulation prompt.')}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-gray-400 mb-6">
+                            <Users className="w-4 h-4 shrink-0" />
+                            <span>
+                              {minP === maxP ? `${minP} persona${minP !== 1 ? 's' : ''}` : `${minP}–${maxP} personas`}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-auto">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSimulation(sim);
+                                setStage('inputs');
+                                setInputFields({});
+                                setSurveyGeneratedAnswers({});
+                              }}
+                              className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-black uppercase tracking-wider hover:bg-indigo-700"
+                            >
+                              <PlayCircle className="w-4 h-4" />
+                              Configure test
+                            </button>
+                            {hubTab === 'yours' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSimulation(sim);
+                                    setHubTab('build');
+                                  }}
+                                  className="p-3 border border-gray-200 rounded-xl text-indigo-600 hover:bg-gray-50"
+                                  title="Edit template"
+                                >
+                                  <Edit className="w-5 h-5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteTemplateFromHub(sim.id)}
+                                  className="p-3 border border-gray-200 rounded-xl text-red-600 hover:bg-red-50"
+                                  title="Delete template"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
         {stage === 'inputs' && (
           <div className="max-w-4xl mx-auto px-6 py-12 w-full overflow-y-auto">
             <button onClick={() => setStage('selection')} className="flex items-center text-sm font-black text-gray-400 uppercase tracking-widest mb-8 hover:text-indigo-600 transition-colors">
-              <ArrowLeft className="w-4 h-4 mr-2" /> Back to Modes
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back to templates
             </button>
 
             <div className="bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-gray-100 p-8 sm:p-14 space-y-12">

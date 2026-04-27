@@ -116,27 +116,31 @@ export async function getAccessibleTemplatesForUser(userId: string): Promise<Sim
   return result.rows.map((row) => mapRowToTemplate(row));
 }
 
+/** Templates this user created for their workspace (private/public only). Excludes global/library rows so “mine” is not mixed with platform-wide templates tied to an admin user_id. */
 export async function getMine(userId: string): Promise<SimulationTemplate[]> {
   const q = `
     SELECT ${SQL_CREATOR_AND_STAR(1)}
     FROM simulations s
     LEFT JOIN users u ON u.id = s.user_id
     WHERE s.user_id = $1
+      AND s.visibility IN ('private', 'public')
     ORDER BY s.created_at DESC
   `;
   const result = await pool.query(q, [userId]);
   return result.rows.map((row) => mapRowToTemplate(row));
 }
 
-/** Public + global templates from other users (explore). Global (admin) first. */
+/** Explore tab: other users’ public templates + all global (admin/library) templates. Globals include ones you own so admins still see platform sims in Find. */
 export async function getLibrary(userId: string): Promise<SimulationTemplate[]> {
   const q = `
     SELECT ${SQL_CREATOR_AND_STAR(1)}
     FROM simulations s
     LEFT JOIN users u ON u.id = s.user_id
     WHERE s.is_active = TRUE
-      AND s.visibility IN ('public', 'global')
-      AND (s.user_id IS DISTINCT FROM $1 OR s.user_id IS NULL)
+      AND (
+        (s.visibility = 'public' AND s.user_id IS DISTINCT FROM $1)
+        OR (s.visibility = 'global')
+      )
     ORDER BY CASE WHEN s.visibility = 'global' THEN 0 ELSE 1 END,
       s.created_at DESC
   `;

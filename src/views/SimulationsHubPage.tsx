@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -19,6 +19,7 @@ import {
 } from '../services/simulationTemplateApi.js';
 import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
+import { useAuth } from '../context/AuthContext.js';
 
 type HubTab = 'find' | 'yours' | 'saved' | 'build';
 
@@ -29,6 +30,7 @@ function creatorLabel(sim: SimulationTemplate): string {
 
 const SimulationsHubPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<HubTab>('find');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<SimulationTemplate[]>([]);
@@ -141,15 +143,19 @@ const SimulationsHubPage: React.FC = () => {
     }
   };
 
-  const filtered = items.filter((s) => {
+  const filtered = useMemo(() => {
+    const base =
+      activeTab === 'yours' && user?.id ? items.filter((s) => s.user_id === user.id) : items;
     const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (s.title || '').toLowerCase().includes(q) ||
-      (s.description || '').toLowerCase().includes(q) ||
-      creatorLabel(s).toLowerCase().includes(q)
-    );
-  });
+    if (!q) return base;
+    return base.filter((s) => {
+      return (
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q) ||
+        creatorLabel(s).toLowerCase().includes(q)
+      );
+    });
+  }, [items, search, activeTab, user?.id]);
 
   const tabs: { id: HubTab; label: string }[] = [
     { id: 'find', label: 'Find' },
