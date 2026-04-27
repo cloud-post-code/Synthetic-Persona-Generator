@@ -1110,6 +1110,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
             simulationInstructions: instructions,
             image: effectiveStimulusImage || undefined,
             mimeType: effectiveMimeType || undefined,
+            skipDeepPipeline: true,
           },
           (ev) => {
             batchCollected.push(ev);

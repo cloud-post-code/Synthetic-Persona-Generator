@@ -6,7 +6,18 @@ import pool from '../config/database.js';
 
 export async function turn(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { personaId, personaIds, sessionId, history, userMessage, simulationInstructions, previousThinking, image, mimeType } = req.body;
+    const {
+      personaId,
+      personaIds,
+      sessionId,
+      history,
+      userMessage,
+      simulationInstructions,
+      previousThinking,
+      image,
+      mimeType,
+      skipDeepPipeline,
+    } = req.body;
 
     if (!personaId || !userMessage) {
       return res.status(400).json({ error: 'personaId and userMessage are required' });
@@ -23,6 +34,7 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       previousThinking: previousThinking || undefined,
       image: image || undefined,
       mimeType: mimeType || undefined,
+      skipDeepPipeline: skipDeepPipeline === true,
     };
 
     const wantStream = req.query.stream === '1' || (req.headers.accept || '').includes('application/x-ndjson');
@@ -31,11 +43,27 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       res.setHeader('Content-Type', 'application/x-ndjson');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders();
 
-      await runAgentTurnStreaming(params, (event) => {
-        res.write(JSON.stringify(event) + '\n');
-      });
+      const heartbeatMs = 12_000;
+      const heartbeat = setInterval(() => {
+        try {
+          if (!res.writableEnded) {
+            res.write(JSON.stringify({ step: 'heartbeat', t: Date.now() }) + '\n');
+          }
+        } catch {
+          /* ignore */
+        }
+      }, heartbeatMs);
+
+      try {
+        await runAgentTurnStreaming(params, (event) => {
+          res.write(JSON.stringify(event) + '\n');
+        });
+      } finally {
+        clearInterval(heartbeat);
+      }
       res.end();
     } else {
       const result = await runAgentTurn(params);

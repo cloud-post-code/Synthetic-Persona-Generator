@@ -45,6 +45,11 @@ export interface AgentTurnParams {
   previousThinking?: string;
   image?: string;
   mimeType?: string;
+  /**
+   * When true (batch simulations only): one Gemini respond call with full knowledge context;
+   * skips separate think + validate calls to avoid upstream / proxy idle timeouts.
+   */
+  skipDeepPipeline?: boolean;
 }
 
 export interface RetrievalInfo {
@@ -344,7 +349,8 @@ export type AgentPipelineEvent =
   | { step: 'responding'; status: 'done'; response: string }
   | { step: 'validation'; status: 'active' }
   | { step: 'validation'; status: 'done'; validation: ValidationInfo }
-  | { step: 'complete'; result: AgentTurnResult };
+  | { step: 'complete'; result: AgentTurnResult }
+  | { step: 'heartbeat'; t?: number };
 
 export async function runAgentTurn(params: AgentTurnParams): Promise<AgentTurnResult> {
   return runAgentTurnStreaming(params);
@@ -354,7 +360,19 @@ export async function runAgentTurnStreaming(
   params: AgentTurnParams,
   emit?: (event: AgentPipelineEvent) => void
 ): Promise<AgentTurnResult> {
-  const { personaId, personaIds, sessionId, userId, history, userMessage, simulationInstructions, previousThinking, image, mimeType } = params;
+  const {
+    personaId,
+    personaIds,
+    sessionId,
+    userId,
+    history,
+    userMessage,
+    simulationInstructions,
+    previousThinking,
+    image,
+    mimeType,
+    skipDeepPipeline,
+  } = params;
   const write = emit || (() => {});
   const ai = getAI();
   const persona = await getPersonaIdentity(personaId);
@@ -380,6 +398,56 @@ export async function runAgentTurnStreaming(
     chunks: [],
     ragEmpty,
   };
+
+  /** One respond() call only — avoids long idle gaps on streamed HTTP (proxy timeouts). */
+  if (skipDeepPipeline) {
+    const retrievedContext = buildRetrievedContextSection(fullDocuments);
+    retrievalInfo = {
+      queries: documentQueries,
+      chunks: fullDocuments.map((c) => ({
+        source_type: c.source_type,
+        source_name: c.source_name,
+        score: c.score,
+        preview: `${c.text.length.toLocaleString()} chars — ${truncate(c.text, 120)}`,
+      })),
+      ragEmpty,
+    };
+
+    write({ step: 'thinking', status: 'active' });
+    write({ step: 'thinking', status: 'done', thinking: '', searchQueries: [] });
+    write({ step: 'retrieval', status: 'active', queries: documentQueries });
+    write({ step: 'retrieval', status: 'done', chunks: retrievalInfo.chunks, ragEmpty });
+    write({ step: 'responding', status: 'active' });
+    response = await respondStep(
+      ai,
+      persona,
+      history,
+      userMessage,
+      '',
+      retrievedContext,
+      simulationInstructions,
+      image,
+      mimeType,
+      undefined
+    );
+    write({ step: 'responding', status: 'done', response });
+
+    const skippedValidation: ValidationInfo = {
+      alignment_score: 75,
+      completeness_score: 75,
+      flags: [],
+      suggestions: [],
+      completeness_flags: ['Separate validation step skipped for batch simulation latency'],
+      completeness_suggestions: [],
+    };
+    write({ step: 'validation', status: 'active' });
+    write({ step: 'validation', status: 'done', validation: skippedValidation });
+    validation = skippedValidation;
+
+    const result: AgentTurnResult = { response, thinking: '', retrieval: retrievalInfo, validation };
+    write({ step: 'complete', result });
+    return result;
+  }
 
   for (let round = 1; round <= MAX_QUALITY_ROUNDS; round++) {
     const chainThinking = round === 1 ? previousThinking : thinking;

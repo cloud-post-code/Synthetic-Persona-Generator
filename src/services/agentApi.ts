@@ -10,6 +10,8 @@ export interface AgentTurnRequest {
   previousThinking?: string;
   image?: string;
   mimeType?: string;
+  /** Batch simulations: one respond call, skip think+validate (avoids proxy idle timeouts). */
+  skipDeepPipeline?: boolean;
 }
 
 export interface RetrievalInfo {
@@ -35,7 +37,7 @@ export interface AgentTurnResponse {
 }
 
 export interface AgentPipelineEvent {
-  step: 'thinking' | 'retrieval' | 'responding' | 'validation' | 'complete';
+  step: 'thinking' | 'retrieval' | 'responding' | 'validation' | 'complete' | 'heartbeat';
   status?: 'active' | 'done';
   thinking?: string;
   searchQueries?: string[];
@@ -45,6 +47,7 @@ export interface AgentPipelineEvent {
   response?: string;
   validation?: ValidationInfo;
   result?: AgentTurnResponse;
+  t?: number;
 }
 
 function isDonePipelineStep(
@@ -187,6 +190,7 @@ export const agentApi = {
         if (line.trim()) {
           try {
             const event: AgentPipelineEvent = JSON.parse(line);
+            if (event.step === 'heartbeat') continue;
             onEvent(event);
             if (event.step === 'complete' && event.result) {
               finalResult = event.result;
@@ -198,9 +202,11 @@ export const agentApi = {
     if (buffer.trim()) {
       try {
         const event: AgentPipelineEvent = JSON.parse(buffer);
-        onEvent(event);
-        if (event.step === 'complete' && event.result) {
-          finalResult = event.result;
+        if (event.step !== 'heartbeat') {
+          onEvent(event);
+          if (event.step === 'complete' && event.result) {
+            finalResult = event.result;
+          }
         }
       } catch { /* skip */ }
     }
