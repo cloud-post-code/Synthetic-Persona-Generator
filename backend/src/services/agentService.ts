@@ -5,8 +5,12 @@ import { loadFullKnowledgeDocuments, RetrievedChunk } from './embeddingService.j
 const CHAT_MODEL = 'gemini-2.5-flash';
 const MAX_HISTORY_CHARS = 40000;
 const MAX_SYSTEM_CHARS = 200000;
-/** Max think→retrieve→respond→validate cycles per user turn when validation is below threshold. */
-const MAX_QUALITY_ROUNDS = 3;
+/**
+ * Max think→retrieve→respond→validate cycles per user turn when validation is below threshold.
+ * Kept at 1 so every simulation run returns the first complete response; retries caused long
+ * multi-call turns, upstream timeouts, and white-screen failures. Quality scores still apply but do not re-run the chain.
+ */
+const MAX_QUALITY_ROUNDS = 1;
 const ALIGNMENT_PASS_THRESHOLD = 70;
 const COMPLETENESS_PASS_THRESHOLD = 70;
 

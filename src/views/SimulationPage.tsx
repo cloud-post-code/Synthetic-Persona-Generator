@@ -43,6 +43,13 @@ import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayNa
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
 import { formatSurveySimulationContent, getStoredSurveyQuestions } from '../utils/surveySimulationDisplay.js';
 import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
+import {
+  setJsonItemSafe,
+  setSimulationMessagesSafe,
+  setSimulationPersonaCacheSafe,
+  setSimulationPersonaResultsSafe,
+  setSimulationPersonasListSafe,
+} from '../utils/simulationLocalStorage.js';
 
 const MAX_PERSONA_TURNS = 20;
 
@@ -289,6 +296,7 @@ const SimulationPage: React.FC = () => {
       retrieval?: RetrievalInfo;
       validation?: ValidationInfo | null;
       pipeline_events?: AgentPipelineEvent[];
+      _storageTruncated?: boolean;
     }>
   >([]);
   const [bgInfo, setBgInfo] = useState('');
@@ -969,8 +977,8 @@ const SimulationPage: React.FC = () => {
         conversationMessages.push(moderatorMsg);
         setMessages([...conversationMessages]);
 
-        localStorage.setItem(`simulationMessages_${newSessionId}`, JSON.stringify(conversationMessages));
-        localStorage.setItem(`simulationPersonas_${newSessionId}`, JSON.stringify(selectedPersonas));
+        setSimulationMessagesSafe(newSessionId, conversationMessages);
+        setSimulationPersonasListSafe(newSessionId, selectedPersonas);
         try {
           await simulationApi.createMessagesBulk(
             newSessionId,
@@ -1194,7 +1202,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       setStage('result');
       loadHistory();
 
-      localStorage.setItem(`simulationPersonaResults_${newSessionId}`, JSON.stringify(results));
+      setSimulationPersonaResultsSafe(newSessionId, results);
 
       try {
         await simulationApi.createMessagesBulk(newSessionId, results.map(personaResultToApiRow));
@@ -1230,14 +1238,11 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
           }
         }
         if (allSurveyQs.length > 0) {
-          localStorage.setItem(
-            `simulationSurveyData_${newSessionId}`,
-            JSON.stringify({
-              questions: allSurveyQs,
-              answers: {},
-              respondentName: firstPersona.name,
-            })
-          );
+          setJsonItemSafe(`simulationSurveyData_${newSessionId}`, {
+            questions: allSurveyQs,
+            answers: {},
+            respondentName: firstPersona.name,
+          });
         }
       }
       
@@ -1256,7 +1261,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
           console.error('Failed to load persona files:', err);
         }
       }
-      localStorage.setItem(`simulationPersona_${newSessionId}`, JSON.stringify(personaWithFiles));
+      setSimulationPersonaCacheSafe(newSessionId, personaWithFiles);
     } catch (err: any) {
       console.error('Simulation error:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error occurred';
@@ -1441,7 +1446,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
             const files = await personaApi.getFiles(persona.id);
             persona.files = files.map((f) => ({ ...f, createdAt: f.created_at || f.createdAt }));
           }
-          localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+          setSimulationPersonaCacheSafe(session.id, persona);
         } catch (err) {
           console.error('Failed to fetch persona:', err);
         }
@@ -1450,7 +1455,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
         try {
           const files = await personaApi.getFiles(persona.id);
           persona.files = files.map((f) => ({ ...f, createdAt: f.created_at || f.createdAt }));
-          localStorage.setItem(`simulationPersona_${session.id}`, JSON.stringify(persona));
+          setSimulationPersonaCacheSafe(session.id, persona);
         } catch (err) {
           console.error('Failed to load persona files:', err);
         }
@@ -1514,7 +1519,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       const updated = prev.filter(m => m.id !== messageId);
       // Update localStorage
       if (currentSessionId) {
-        localStorage.setItem(`simulationMessages_${currentSessionId}`, JSON.stringify(updated));
+        setSimulationMessagesSafe(currentSessionId, updated);
       }
       return updated;
     });
