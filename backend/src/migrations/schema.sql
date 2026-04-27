@@ -145,6 +145,10 @@ CREATE TABLE IF NOT EXISTS simulation_stars (
   PRIMARY KEY (user_id, simulation_id)
 );
 
+-- Legacy databases: CREATE TABLE IF NOT EXISTS skips columns added later; indexes below require these columns.
+ALTER TABLE simulations ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE simulations ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) DEFAULT 'private';
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_personas_user_id ON personas(user_id);
