@@ -44,11 +44,12 @@ import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from 
 import { formatSurveySimulationContent, getStoredSurveyQuestions } from '../utils/surveySimulationDisplay.js';
 import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
 import {
-  setJsonItemSafe,
   setSimulationMessagesSafe,
   setSimulationPersonaCacheSafe,
   setSimulationPersonaResultsSafe,
   setSimulationPersonasListSafe,
+  setSimulationSurveyDataSafe,
+  setStorageItemSafe,
 } from '../utils/simulationLocalStorage.js';
 
 const MAX_PERSONA_TURNS = 20;
@@ -448,14 +449,14 @@ const SimulationPage: React.FC = () => {
   // Save messages to localStorage when they change
   useEffect(() => {
     if (currentSessionId && messages.length > 0) {
-      localStorage.setItem(`simulationMessages_${currentSessionId}`, JSON.stringify(messages));
+      setSimulationMessagesSafe(currentSessionId, messages);
     }
   }, [messages, currentSessionId]);
 
   // Save active session to localStorage
   useEffect(() => {
     if (currentSessionId) {
-      localStorage.setItem('simulationActiveSessionId', currentSessionId);
+      setStorageItemSafe('simulationActiveSessionId', currentSessionId);
     } else {
       localStorage.removeItem('simulationActiveSessionId');
     }
@@ -1239,7 +1240,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
           }
         }
         if (allSurveyQs.length > 0) {
-          setJsonItemSafe(`simulationSurveyData_${newSessionId}`, {
+          setSimulationSurveyDataSafe(newSessionId, {
             questions: allSurveyQs,
             answers: {},
             respondentName: firstPersona.name,
