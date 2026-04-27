@@ -49,6 +49,7 @@ import {
 import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
 import {
   getSimulationRunSummary,
+  hardEvictAllSimulationLocalStorage,
   setSimulationMessagesSafe,
   setSimulationPersonaCacheSafe,
   setSimulationPersonaResultsSafe,
@@ -335,9 +336,17 @@ const SimulationPage: React.FC = () => {
   /** Survey: one executive summary from a final Gemini call (not part of persona agent turn). */
   const [simulationRunSummary, setSimulationRunSummary] = useState<string | null>(null);
   const [simulationRunSummaryLoading, setSimulationRunSummaryLoading] = useState(false);
+  const [adminClearingSimulationLogs, setAdminClearingSimulationLogs] = useState(false);
 
   /** When true, the running simulation should stop at next opportunity */
   const simulationCancelledRef = useRef(false);
+
+  /**
+   * While resuming a session from history, `currentSessionId` can update before `messages`
+   * are swapped; skipping autosave prevents writing the previous session's chat under the
+   * new session's localStorage key (which made every history item look the same).
+   */
+  const suppressMessageAutosaveRef = useRef(false);
 
   /** Activity log: each API call step as it unfolds (for user to watch simulation progress) */
   const [simulationActivityLog, setSimulationActivityLog] = useState<Array<{
@@ -417,7 +426,7 @@ const SimulationPage: React.FC = () => {
   }, [focusGroups, allowedPersonasForSimulation, selectedSimulation?.allowed_persona_types]);
 
   const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
   const selectedPersona = selectedPersonas[0] ?? null;
   const runnerDisplayName = getRunnerDisplayName(user?.username);
@@ -457,9 +466,15 @@ const SimulationPage: React.FC = () => {
 
   // Save messages to localStorage when they change
   useEffect(() => {
-    if (currentSessionId && messages.length > 0) {
-      setSimulationMessagesSafe(currentSessionId, messages);
-    }
+    if (suppressMessageAutosaveRef.current) return;
+    if (!currentSessionId || messages.length === 0) return;
+    const sid = currentSessionId;
+    const mismatched = messages.some((m) => {
+      const ms = m.sessionId ?? m.session_id;
+      return ms != null && ms !== sid;
+    });
+    if (mismatched) return;
+    setSimulationMessagesSafe(sid, messages);
   }, [messages, currentSessionId]);
 
   // Save active session to localStorage
@@ -1396,7 +1411,9 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
   };
 
   const resumeSimulation = async (session: SimulationSession) => {
+    suppressMessageAutosaveRef.current = true;
     setIsLoading(true);
+    try {
     setCurrentSessionId(session.id);
     setMode(session.mode);
     setBgInfo(session.bgInfo);
@@ -1512,7 +1529,10 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
     setSimulationRunSummaryLoading(false);
     
     setStage('result');
-    setIsLoading(false);
+    } finally {
+      suppressMessageAutosaveRef.current = false;
+      setIsLoading(false);
+    }
   };
 
   const deleteSession = async (e: React.MouseEvent, id: string) => {
@@ -1533,6 +1553,40 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
         console.error('Failed to delete simulation:', err);
         alert('Failed to delete simulation. Please try again.');
       }
+    }
+  };
+
+  const handleAdminClearAllSimulationLogs = async () => {
+    if (!isAdmin || simulationHistory.length === 0) return;
+    const n = simulationHistory.length;
+    if (
+      !window.confirm(
+        `Delete all ${n} simulation log(s) for your account? This removes saved sessions and cached data in this browser. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setAdminClearingSimulationLogs(true);
+    try {
+      const ids = simulationHistory.map((s) => s.id);
+      const results = await Promise.allSettled(ids.map((id) => simulationApi.delete(id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      hardEvictAllSimulationLocalStorage();
+      try {
+        localStorage.removeItem('simulationActiveSessionId');
+      } catch {
+        /* ignore */
+      }
+      await loadHistory();
+      startNewSim();
+      if (failed > 0) {
+        alert(`${failed} of ${n} simulation(s) could not be deleted. Refresh and try again if needed.`);
+      }
+    } catch (err) {
+      console.error('Failed to clear simulation logs:', err);
+      alert('Failed to clear simulation logs. Please try again.');
+    } finally {
+      setAdminClearingSimulationLogs(false);
     }
   };
 
@@ -1582,7 +1636,27 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
           </button>
         </div>
         <div className="flex-grow overflow-y-auto p-3 space-y-1.5">
-           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 px-2">Simulation Logs</h3>
+          <div className="flex items-start justify-between gap-2 mb-3 px-2">
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] leading-tight pt-0.5">
+              Simulation Logs
+            </h3>
+            {isAdmin && simulationHistory.length > 0 ? (
+              <button
+                type="button"
+                disabled={adminClearingSimulationLogs}
+                onClick={() => void handleAdminClearAllSimulationLogs()}
+                title="Admin: delete all simulation history for your account"
+                className="shrink-0 flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {adminClearingSimulationLogs ? (
+                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="w-3 h-3" aria-hidden />
+                )}
+                Clear all
+              </button>
+            ) : null}
+          </div>
            {simulationHistory.length > 0 ? simulationHistory.map(s => (
              <div key={s.id} className="group relative">
                <button
