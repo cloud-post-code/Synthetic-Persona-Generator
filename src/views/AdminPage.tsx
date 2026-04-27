@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -7,17 +7,19 @@ import {
   MessageSquare, 
   PlayCircle, 
   Plus, 
-  Edit, 
-  Trash2,
   Loader2,
   Shield,
   Database,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Search,
+  Boxes,
+  Sparkles,
 } from 'lucide-react';
 import { adminApi, AdminStats, UserWithStats, PersonaWithOwner, ReindexEvent } from '../services/adminApi.js';
 import { simulationTemplateApi, SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../services/simulationTemplateApi.js';
 import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
+import { SimulationTemplateListCard } from '../components/SimulationTemplateListCard.js';
 
 type TabType = 'dashboard' | 'users' | 'personas' | 'simulations';
 
@@ -48,7 +50,22 @@ const AdminPage: React.FC = () => {
   const [embedProgress, setEmbedProgress] = useState<EmbedProgress | null>(null);
   const [diagResult, setDiagResult] = useState<DiagResult | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [simAdminSearch, setSimAdminSearch] = useState('');
   const navigate = useNavigate();
+
+  const filteredSimulationsAdmin = useMemo(() => {
+    const q = simAdminSearch.trim().toLowerCase();
+    if (!q) return simulations;
+    return simulations.filter((s) => {
+      const owner =
+        s.visibility === 'global' ? 'admin' : (s.creator_username || '').toLowerCase();
+      return (
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q) ||
+        owner.includes(q)
+      );
+    });
+  }, [simulations, simAdminSearch]);
 
   const handleTestEmbed = async () => {
     setDiagLoading(true);
@@ -458,30 +475,59 @@ const AdminPage: React.FC = () => {
               </div>
             )}
 
-            {/* Simulations Tab */}
+            {/* Simulations Tab — aligned with user Simulations hub */}
             {activeTab === 'simulations' && (
-              <div>
-                <div className="mb-4 flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-gray-900">Simulation Templates</h2>
+              <section className="space-y-8">
+                <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600">
+                      Admin
+                    </p>
+                    <div className="mb-2 flex items-center gap-3">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/25">
+                        <Boxes className="h-6 w-6" aria-hidden />
+                      </span>
+                      <h2 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+                        Simulation templates
+                      </h2>
+                    </div>
+                    <p className="max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
+                      All templates system-wide (including inactive). Edit, publish, or test in the runner—same
+                      structure as the user-facing template library.
+                    </p>
+                  </div>
                   {!showSimulationForm && (
                     <button
+                      type="button"
                       onClick={() => {
                         setEditingSimulation(null);
                         setShowSimulationForm(true);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                      className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
                     >
-                      <Plus className="w-4 h-4" />
-                      Create Simulation
+                      <Plus className="h-4 w-4 shrink-0" aria-hidden />
+                      Create simulation
                     </button>
                   )}
-                </div>
+                </header>
 
                 {showSimulationForm ? (
-                  <div className="bg-white rounded-lg shadow p-6 mb-6">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">
-                      {editingSimulation ? 'Edit Simulation' : 'Create New Simulation'}
-                    </h3>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-950/5 sm:p-8">
+                    <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-6">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                          <Sparkles className="h-5 w-5" aria-hidden />
+                        </span>
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900">
+                            {editingSimulation ? 'Edit simulation' : 'Create simulation'}
+                          </h3>
+                          <p className="text-sm text-slate-500">
+                            Admin context: visibility, activation, and global defaults.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                     <SimulationTemplateForm
                       simulation={editingSimulation}
                       isAdminContext
@@ -493,59 +539,67 @@ const AdminPage: React.FC = () => {
                     />
                   </div>
                 ) : (
-                  <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Input Fields</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {simulations.map((sim) => (
-                            <tr key={sim.id}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{sim.title}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                {sim.visibility === 'global' ? 'Admin' : sim.creator_username || '—'}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">{sim.description || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{sim.required_input_fields.length}</td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                {sim.is_active ? (
-                                  <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">Active</span>
-                                ) : (
-                                  <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">Inactive</span>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => handleEditSimulation(sim)}
-                                    className="text-indigo-600 hover:text-indigo-900"
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteSimulation(sim.id)}
-                                    className="text-red-600 hover:text-red-900"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  <>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/5">
+                      <label htmlFor="admin-sim-search" className="sr-only">
+                        Search simulation templates
+                      </label>
+                      <div className="relative max-w-xl">
+                        <Search
+                          className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+                          aria-hidden
+                        />
+                        <input
+                          id="admin-sim-search"
+                          type="search"
+                          autoComplete="off"
+                          placeholder="Search by title, description, or owner…"
+                          value={simAdminSearch}
+                          onChange={(e) => setSimAdminSearch(e.target.value)}
+                          className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-slate-50/80 pl-11 pr-4 text-sm text-slate-900 shadow-inner transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        />
+                      </div>
                     </div>
-                  </div>
+
+                    {filteredSimulationsAdmin.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-20 text-center">
+                        <PlayCircle className="mb-4 h-10 w-10 text-slate-300" aria-hidden />
+                        <h3 className="text-lg font-bold text-slate-800">No templates match</h3>
+                        <p className="mt-2 max-w-md text-sm text-slate-600">
+                          {simulations.length === 0
+                            ? 'Create a simulation to get started, or adjust your search.'
+                            : 'Try a different search, or clear the filter to see all templates.'}
+                        </p>
+                        {simAdminSearch.trim() !== '' && (
+                          <button
+                            type="button"
+                            onClick={() => setSimAdminSearch('')}
+                            className="mt-6 text-sm font-semibold text-indigo-600 underline-offset-4 hover:underline"
+                          >
+                            Clear search
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {filteredSimulationsAdmin.map((sim) => (
+                          <li key={sim.id} className="list-none">
+                            <SimulationTemplateListCard
+                              sim={sim}
+                              variant="admin"
+                              onRun={() =>
+                                navigate(`/simulate?templateId=${encodeURIComponent(sim.id)}`)
+                              }
+                              onEdit={() => handleEditSimulation(sim)}
+                              onDelete={() => handleDeleteSimulation(sim.id)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
-              </div>
+              </section>
             )}
           </div>
         )}
