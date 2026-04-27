@@ -16,7 +16,6 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       previousThinking,
       image,
       mimeType,
-      skipDeepPipeline,
     } = req.body;
 
     if (!personaId || !userMessage) {
@@ -34,7 +33,6 @@ export async function turn(req: AuthRequest, res: Response, next: NextFunction) 
       previousThinking: previousThinking || undefined,
       image: image || undefined,
       mimeType: mimeType || undefined,
-      skipDeepPipeline: skipDeepPipeline === true,
     };
 
     const wantStream = req.query.stream === '1' || (req.headers.accept || '').includes('application/x-ndjson');

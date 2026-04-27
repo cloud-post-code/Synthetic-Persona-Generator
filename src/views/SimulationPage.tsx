@@ -41,13 +41,19 @@ import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
-import { formatSurveySimulationContent, getStoredSurveyQuestions } from '../utils/surveySimulationDisplay.js';
+import {
+  formatSurveySimulationContent,
+  getStoredSurveyQuestions,
+  stripSurveySummaryBlocks,
+} from '../utils/surveySimulationDisplay.js';
 import { ensureSimulationPlainText } from '../utils/simulationResponsePlainText.js';
 import {
+  getSimulationRunSummary,
   setSimulationMessagesSafe,
   setSimulationPersonaCacheSafe,
   setSimulationPersonaResultsSafe,
   setSimulationPersonasListSafe,
+  setSimulationRunSummarySafe,
   setSimulationSurveyDataSafe,
   setStorageItemSafe,
 } from '../utils/simulationLocalStorage.js';
@@ -326,6 +332,9 @@ const SimulationPage: React.FC = () => {
     persuasionScore: number | null;
   } | null>(null);
   const [persuasionContextLoading, setPersuasionContextLoading] = useState(false);
+  /** Survey: one executive summary from a final Gemini call (not part of persona agent turn). */
+  const [simulationRunSummary, setSimulationRunSummary] = useState<string | null>(null);
+  const [simulationRunSummaryLoading, setSimulationRunSummaryLoading] = useState(false);
 
   /** When true, the running simulation should stop at next opportunity */
   const simulationCancelledRef = useRef(false);
@@ -686,6 +695,8 @@ const SimulationPage: React.FC = () => {
     setIsLoading(true);
     setSimulationActivityLog([]);
     setPersonaResults([]);
+    setSimulationRunSummary(null);
+    setSimulationRunSummaryLoading(false);
     setMessages([]);
     setPipelineEvents([]);
     setPipelineActive(true);
@@ -1063,25 +1074,6 @@ const SimulationPage: React.FC = () => {
         instructions = instructions.replace(new RegExp(`{{${key.toUpperCase()}}}`, 'g'), value || '');
       }
 
-      if (selectedSimulation.simulation_type === 'survey') {
-        instructions += `
-
-### MANDATORY OUTPUT FORMAT (survey)
-Use **plain text only**. Do NOT output JSON, YAML, XML, or markdown code fences (\`\`\`) around survey answers.
-
-1. Start the entire response with an overall summary block (required):
-Summary: <2–4 sentences on how you approach the survey and the main themes in your answers>
-(then one blank line)
-
-2. For **each** survey question, in the same order as listed in these instructions, write exactly:
-
-Question: <the full question wording>
-Summary: <1–2 sentences: gist of your reasoning or the headline of your answer for this item only>
-Answer: <your full in-character answer>
-
-Put one blank line after each complete Question/Summary/Answer block. Answer every question.`;
-      }
-
       instructions += `
 
 ### MANDATORY (all simulation types)
@@ -1111,7 +1103,6 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
             simulationInstructions: instructions,
             image: effectiveStimulusImage || undefined,
             mimeType: effectiveMimeType || undefined,
-            skipDeepPipeline: true,
           },
           (ev) => {
             batchCollected.push(ev);
@@ -1131,12 +1122,14 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       }
       if (simulationCancelledRef.current) return;
       const pipelineForPersona = finalizePipelineEvents(batchCollected, batchAgentResult);
+      const storedContent =
+        selectedSimulation.simulation_type === 'survey' ? stripSurveySummaryBlocks(result) : result;
       results.push({
         personaId: selectedPersona.id,
         name: selectedPersona.name,
         description: selectedPersona.description,
         avatarUrl: selectedPersona.avatarUrl,
-        content: result,
+        content: storedContent,
         thinking: resultThinking,
         retrieval: resultRetrieval,
         validation: resultValidation,
@@ -1170,6 +1163,29 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       });
       
       const newSessionId = newSession.id;
+
+      if (selectedSimulation.simulation_type === 'survey' && results.length > 0) {
+        setSimulationRunSummaryLoading(true);
+        const idSurveySummary = addActivity('Generating survey summary...');
+        try {
+          const bundle = results
+            .map((r) => `Participant: ${r.name}\n${r.content}`)
+            .join('\n\n---\n\n');
+          const summaryText = await geminiService.summarizeSurveyRun(bundle, selectedSimulation.title);
+          setSimulationRunSummary(summaryText);
+          setSimulationRunSummarySafe(newSessionId, summaryText);
+          markActivityDone(idSurveySummary);
+        } catch (err) {
+          console.warn('Survey run summary failed:', err);
+          markActivityError(idSurveySummary);
+          setSimulationRunSummary(null);
+        } finally {
+          setSimulationRunSummaryLoading(false);
+        }
+      } else {
+        setSimulationRunSummary(null);
+        setSimulationRunSummaryLoading(false);
+      }
 
       // Index session context so follow-up agent turns can load full simulation inputs as documents
       const sessionContextFields: Record<string, string> = {};
@@ -1491,6 +1507,9 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       console.error('Failed to load persona results from localStorage:', err);
       setPersonaResults([]);
     }
+
+    setSimulationRunSummary(getSimulationRunSummary(session.id));
+    setSimulationRunSummaryLoading(false);
     
     setStage('result');
     setIsLoading(false);
@@ -1503,6 +1522,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
         await simulationApi.delete(id);
         try {
           localStorage.removeItem(`simulationPersonaResults_${id}`);
+          localStorage.removeItem(`simulationRunSummary_${id}`);
         } catch { /* ignore */ }
         loadHistory();
         if (currentSessionId === id) {
@@ -1542,6 +1562,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
     setSurveyGeneratedAnswers({});
     setMessages([]);
     setPersuasionContext(null);
+    setSimulationRunSummary(null);
+    setSimulationRunSummaryLoading(false);
   };
 
   return (
@@ -2467,6 +2489,21 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                 </div>
               ) : personaResults.length > 1 ? (
                 <div className="space-y-8">
+                  {isSurvey && (
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-8 shadow-sm">
+                      <p className="mb-3 text-xs font-black uppercase tracking-widest text-indigo-600">Summary</p>
+                      {simulationRunSummaryLoading ? (
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Loader2 className="h-5 w-5 shrink-0 animate-spin text-indigo-600" />
+                          <span className="text-sm font-medium">Generating summary…</span>
+                        </div>
+                      ) : simulationRunSummary?.trim() ? (
+                        <div className="whitespace-pre-wrap text-lg leading-relaxed text-gray-800">{simulationRunSummary}</div>
+                      ) : (
+                        <p className="text-sm text-gray-500">No summary for this run.</p>
+                      )}
+                    </div>
+                  )}
                   <p className="text-base text-gray-600 font-medium">Each persona’s response</p>
                   {personaResults.map((pr) => (
                     <div key={pr.personaId} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm space-y-4">
@@ -2504,7 +2541,20 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
               )}
               {isSurvey && (
                 <>
-                  <p className="text-base text-gray-600 mb-2 font-medium">Summary & question-by-question responses</p>
+                  <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-8 shadow-sm">
+                    <p className="mb-3 text-xs font-black uppercase tracking-widest text-indigo-600">Summary</p>
+                    {simulationRunSummaryLoading ? (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Loader2 className="h-5 w-5 shrink-0 animate-spin text-indigo-600" />
+                        <span className="text-sm font-medium">Generating summary…</span>
+                      </div>
+                    ) : simulationRunSummary?.trim() ? (
+                      <div className="whitespace-pre-wrap text-lg leading-relaxed text-gray-800">{simulationRunSummary}</div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No summary for this run.</p>
+                    )}
+                  </div>
+                  <p className="text-base text-gray-600 mb-2 font-medium">Question-by-question responses</p>
                   <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm text-gray-800 text-lg leading-relaxed whitespace-pre-wrap">
                     <FormattedSimulationResponse content={surveyContentFormatted} isUser={false} />
                   </div>

@@ -17,6 +17,7 @@ const SIMULATION_STORAGE_PREFIXES = [
   'simulationPersona_',
   'simulationSurveyData_',
   'simulationPersonas_',
+  'simulationRunSummary_',
 ] as const;
 
 function sessionIdFromSimulationStorageKey(key: string): string | null {
@@ -244,6 +245,23 @@ export function setSimulationSurveyDataSafe(
     questions: slimSurveyQuestionsForStorage(data.questions || []),
   };
   trySetItemSmart(key, JSON.stringify(slim), sessionId);
+}
+
+export function getSimulationRunSummary(sessionId: string): string | null {
+  try {
+    const raw = localStorage.getItem(`simulationRunSummary_${sessionId}`);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { text?: string };
+    return typeof p.text === 'string' && p.text.trim() ? p.text.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSimulationRunSummarySafe(sessionId: string, text: string): void {
+  const key = `simulationRunSummary_${sessionId}`;
+  const json = JSON.stringify({ text });
+  trySetItemSmart(key, json, sessionId);
 }
 
 export function setJsonItemSafe(key: string, data: unknown): void {

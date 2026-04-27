@@ -1,5 +1,47 @@
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 
+/**
+ * Remove legacy overall and per-item "Summary:" blocks so the UI shows one executive summary from a separate API call.
+ */
+export function stripSurveySummaryBlocks(raw: string): string {
+  const lines = (raw ?? '').replace(/^\uFEFF/, '').split('\n');
+  const out: string[] = [];
+  let seenFirstQuestion = false;
+  let skippingItemSummary = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const tr = line.trim();
+
+    if (!seenFirstQuestion) {
+      if (/^Question:/i.test(tr)) {
+        seenFirstQuestion = true;
+        out.push(line);
+        continue;
+      }
+      if (/^Summary:/i.test(tr)) continue;
+      if (tr === '') continue;
+      out.push(line);
+      continue;
+    }
+
+    if (skippingItemSummary) {
+      if (/^Answer:/i.test(tr)) {
+        skippingItemSummary = false;
+        out.push(line);
+      }
+      continue;
+    }
+    if (/^Summary:/i.test(tr)) {
+      skippingItemSummary = true;
+      continue;
+    }
+    out.push(line);
+  }
+
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export function getStoredSurveyQuestions(sessionId: string | null): SurveyQuestion[] {
   if (!sessionId) return [];
   try {
@@ -190,13 +232,13 @@ export function formatSurveySimulationContent(
     const parsed = tryParseJsonValue(candidate);
     if (parsed !== null) {
       const qa = jsonSurveyToPlainText(parsed, questions);
-      if (qa) return qa;
+      if (qa) return stripSurveySummaryBlocks(qa);
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         const flat = objectStringFieldsToQA(parsed as Record<string, unknown>);
-        if (flat) return flat;
+        if (flat) return stripSurveySummaryBlocks(flat);
       }
     }
   }
 
-  return trimmed;
+  return stripSurveySummaryBlocks(trimmed);
 }

@@ -34,7 +34,7 @@ export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   response_simulation:
     'Strict output: Exactly one response as plain sentences and labels—never JSON, YAML, XML, or ```json. Must include: (1) the confidence level (e.g. percentage or score), (2) the single output—for numeric type always give a number AND its unit (e.g. "45 minutes", "$1,200", "75%"); for action/text give the chosen action or text answer—and (3) at most one paragraph of reasoning. No chat. No further interaction.',
   survey:
-    'Strict output: Survey results only, as plain text. First write a short overall "Summary:" section (2–4 sentences) capturing your stance and themes across the whole survey, then a blank line. Then for each survey question in order use exactly this pattern (no exceptions): "Question: <full question text>", then "Summary: <1–2 sentences distilling your answer or reasoning for this item>", then "Answer: <full in-character answer>", then one blank line before the next question block. Do NOT output JSON, YAML, XML, or markdown code fences. No chat. No follow-up conversation.',
+    'Strict output: Survey results only, as plain text. Do NOT write any "Summary:" lines or overall summary—the app adds that separately. For each survey question in order use exactly: "Question: <full question text>", then "Answer: <full in-character answer>", then one blank line before the next question block. Do NOT output JSON, YAML, XML, or markdown code fences. No chat. No follow-up conversation.',
   persona_conversation:
     'Moderated multi-persona conversation. Multiple personas discuss an opening line in turns; an LLM moderator decides who speaks next and when the conversation ends. Each persona responds in a separate call with full conversation context—plain dialogue only, never JSON or XML payloads. After the conversation (or after max 20 persona turns), the moderator summarizes and answers the opening line in plain text. No user chat—conversation is persona-to-persona only.',
   idea_generation:
@@ -829,6 +829,31 @@ Write in clear paragraphs. No JSON. Output only the summary and answer.`;
       contents: prompt,
     });
     return (response.text || '').trim() || 'No summary generated.';
+    });
+  },
+
+  /**
+   * One-shot executive summary for a completed survey run (not part of the persona agent turn).
+   */
+  summarizeSurveyRun: async (qaPlainTextBundle: string, simulationTitle?: string): Promise<string> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+    return withRetry(async () => {
+      const ai = new GoogleGenAI({ apiKey });
+      const title = (simulationTitle || 'Survey').trim();
+      const prompt = `You are summarizing completed survey responses for an analyst.
+
+Simulation: "${truncate(title, 200)}"
+
+Below is plain-text survey output (Question / Answer blocks only). Write ONE cohesive executive summary: 2–4 short paragraphs covering overall stance, key themes, notable patterns, and any tensions or surprises. Do not repeat each question. Do not use bullet lists unless essential. No JSON. No "Question:" or "Answer:" labels in your output—prose only.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `${prompt}\n\n---\n\n${truncate(qaPlainTextBundle, 48000)}`,
+      });
+      return (response.text || '').trim() || 'No summary generated.';
     });
   },
 };

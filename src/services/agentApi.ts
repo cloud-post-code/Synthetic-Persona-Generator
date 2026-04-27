@@ -10,8 +10,6 @@ export interface AgentTurnRequest {
   previousThinking?: string;
   image?: string;
   mimeType?: string;
-  /** Batch simulations: one respond call, skip think+validate (avoids proxy idle timeouts). */
-  skipDeepPipeline?: boolean;
 }
 
 export interface RetrievalInfo {
