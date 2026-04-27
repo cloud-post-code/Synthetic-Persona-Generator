@@ -22,7 +22,6 @@ router.get('/test-embed', adminController.testEmbed);
 
 // Simulation template management (admin only)
 router.get('/simulations', simulationTemplateController.getAllSimulations);
-router.post('/simulations/preview-prompt', simulationTemplateController.previewSystemPrompt);
 router.get('/simulations/:id', simulationTemplateController.getSimulationById);
 router.post('/simulations', simulationTemplateController.createSimulation);
 router.put('/simulations/:id', simulationTemplateController.updateSimulation);

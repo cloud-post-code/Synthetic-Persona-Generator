@@ -1,11 +1,12 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, BookOpen, Briefcase } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, BookOpen, Briefcase, Boxes } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
 import ChatPage from './views/ChatPage.js';
 import SimulationPage from './views/SimulationPage.js';
+import SimulationsHubPage from './views/SimulationsHubPage.js';
 import GalleryPage from './views/GalleryPage.js';
 import PersonaLibraryPage from './views/PersonaLibraryPage.js';
 import LoginPage from './views/LoginPage.js';
@@ -23,7 +24,8 @@ const Sidebar: React.FC = () => {
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { label: 'Simulation', path: '/simulate', icon: PlayCircle },
+    { label: 'Simulations', path: '/simulations', icon: Boxes },
+    { label: 'Run simulation', path: '/simulate', icon: PlayCircle },
     { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Persona Library', path: '/library', icon: BookOpen },
@@ -213,6 +215,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <SimulationPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/simulations"
+        element={
+          <ProtectedRoute>
+            <SimulationsHubPage />
           </ProtectedRoute>
         }
       />

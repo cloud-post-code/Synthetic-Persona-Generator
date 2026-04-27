@@ -180,6 +180,8 @@ export interface SurveyQuestion {
  * - response_simulation: decision_type, question, possible_outputs, etc.
  * - idea_generation: num_ideas (number of ideas to output as a bullet list)
  */
+export type SimulationVisibility = 'private' | 'public' | 'global';
+
 export interface SimulationTemplate {
   id: string;
   title: string;
@@ -193,6 +195,10 @@ export interface SimulationTemplate {
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  user_id?: string | null;
+  visibility?: SimulationVisibility;
+  creator_username?: string;
+  is_starred?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -202,13 +208,15 @@ export interface CreateSimulationRequest {
   description?: string;
   icon?: string;
   required_input_fields: SimulationInputField[];
-  system_prompt: string;
+  system_prompt?: string;
   is_active?: boolean;
   simulation_type?: SimulationType;
   allowed_persona_types?: PersonaType[];
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  /** User-created templates only; admin creates global on the server. */
+  visibility?: SimulationVisibility;
 }
 
 export interface UpdateSimulationRequest {
@@ -223,5 +231,6 @@ export interface UpdateSimulationRequest {
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  visibility?: SimulationVisibility;
 }
 

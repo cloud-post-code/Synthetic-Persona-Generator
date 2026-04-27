@@ -7,6 +7,7 @@ import {
   SurveyQuestion,
   CreateSimulationRequest,
   UpdateSimulationRequest,
+  SimulationVisibility,
 } from '../services/simulationTemplateApi.js';
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
@@ -32,12 +33,15 @@ interface SimulationTemplateFormProps {
   simulation?: SimulationTemplate | null;
   onSubmit: (data: CreateSimulationRequest | UpdateSimulationRequest) => Promise<void>;
   onCancel: () => void;
+  /** When true (admin panel), templates are always global — hide Private/Public visibility. */
+  isAdminContext?: boolean;
 }
 
 export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   simulation,
   onSubmit,
   onCancel,
+  isAdminContext = false,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -57,6 +61,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [isImprovingWithAI, setIsImprovingWithAI] = useState(false);
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
+  const [templateVisibility, setTemplateVisibility] = useState<'private' | 'public'>('private');
 
   const setConfig = (key: string, value: unknown) =>
     setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
@@ -75,6 +80,9 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setInputFields(simulation.required_input_fields || []);
       setShowPromptReview(false);
       setReviewedSystemPrompt('');
+      setTemplateVisibility(simulation.visibility === 'public' ? 'public' : 'private');
+    } else {
+      setTemplateVisibility('private');
     }
   }, [simulation]);
 
@@ -222,6 +230,10 @@ ${description.trim() || '(empty - please create an initial description based on 
           is_active: isActive,
           system_prompt: reviewedSystemPrompt.trim(),
         };
+        if (!isAdminContext) {
+          (data as CreateSimulationRequest & UpdateSimulationRequest).visibility =
+            templateVisibility as SimulationVisibility;
+        }
         if (simulation) {
           (data as UpdateSimulationRequest).simulation_type = simulationType || undefined;
           (data as UpdateSimulationRequest).allowed_persona_types = allowedPersonaTypes;
@@ -293,6 +305,9 @@ ${description.trim() || '(empty - please create an initial description based on 
         is_active: isActive,
         system_prompt: systemPrompt.trim(),
       };
+      if (!isAdminContext) {
+        (data as CreateSimulationRequest).visibility = templateVisibility as SimulationVisibility;
+      }
       await onSubmit(data);
     } catch (error: any) {
       alert(`Failed to save: ${error.message || 'Unknown error'}`);
@@ -938,8 +953,44 @@ ${description.trim() || '(empty - please create an initial description based on 
         </div>
       </section>
 
-      {/* 8. Active + 9. Submit / Cancel */}
+      {/* 8. Visibility (user-built) + Active + Submit */}
       <section className="border-t border-gray-200 pt-8 space-y-4">
+        {!isAdminContext && (
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-900">Who can see this simulation</h2>
+            <p className="text-sm text-gray-600">Private templates stay in &quot;Your Simulations&quot; only. Public templates appear in Find for everyone.</p>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <label
+                className={`flex items-center gap-2 cursor-pointer rounded-lg border px-4 py-3 flex-1 ${
+                  templateVisibility === 'private' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="template_visibility"
+                  checked={templateVisibility === 'private'}
+                  onChange={() => setTemplateVisibility('private')}
+                  className="border-gray-300 text-indigo-600"
+                />
+                <span className="text-sm font-medium text-gray-800">Private</span>
+              </label>
+              <label
+                className={`flex items-center gap-2 cursor-pointer rounded-lg border px-4 py-3 flex-1 ${
+                  templateVisibility === 'public' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="template_visibility"
+                  checked={templateVisibility === 'public'}
+                  onChange={() => setTemplateVisibility('public')}
+                  className="border-gray-300 text-indigo-600"
+                />
+                <span className="text-sm font-medium text-gray-800">Public</span>
+              </label>
+            </div>
+          </div>
+        )}
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-gray-300 text-indigo-600 w-4 h-4" />
           <span className="text-sm text-gray-700">Active (visible to users)</span>

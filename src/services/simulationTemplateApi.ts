@@ -8,6 +8,8 @@ export type SimulationType =
   | 'persona_conversation'
   | 'idea_generation';
 
+export type SimulationVisibility = 'private' | 'public' | 'global';
+
 export interface SimulationInputField {
   name: string;
   type: 'text' | 'image' | 'table' | 'pdf' | 'multiple_choice' | 'business_profile' | 'survey_questions';
@@ -36,6 +38,10 @@ export interface SimulationTemplate {
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  user_id?: string | null;
+  visibility?: SimulationVisibility;
+  creator_username?: string;
+  is_starred?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +58,7 @@ export interface CreateSimulationRequest {
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  visibility?: SimulationVisibility;
 }
 
 export interface UpdateSimulationRequest {
@@ -66,12 +73,54 @@ export interface UpdateSimulationRequest {
   persona_count_min?: number;
   persona_count_max?: number;
   type_specific_config?: Record<string, unknown>;
+  visibility?: SimulationVisibility;
 }
 
 export const simulationTemplateApi = {
-  // Public endpoint - get active simulations
+  /** Templates the current user can run (own + public + global). Admin/global first. */
   getAll: async (): Promise<SimulationTemplate[]> => {
     return apiClient.get<SimulationTemplate[]>('/simulations/templates');
+  },
+
+  getMine: async (): Promise<SimulationTemplate[]> => {
+    return apiClient.get<SimulationTemplate[]>('/simulations/templates/mine');
+  },
+
+  getLibrary: async (): Promise<SimulationTemplate[]> => {
+    return apiClient.get<SimulationTemplate[]>('/simulations/templates/library');
+  },
+
+  getStarred: async (): Promise<SimulationTemplate[]> => {
+    return apiClient.get<SimulationTemplate[]>('/simulations/templates/starred');
+  },
+
+  getByIdUser: async (id: string): Promise<SimulationTemplate> => {
+    return apiClient.get<SimulationTemplate>(`/simulations/templates/${id}`);
+  },
+
+  createMine: async (data: CreateSimulationRequest): Promise<SimulationTemplate> => {
+    return apiClient.post<SimulationTemplate>('/simulations/templates', data);
+  },
+
+  updateMine: async (id: string, data: UpdateSimulationRequest): Promise<SimulationTemplate> => {
+    return apiClient.put<SimulationTemplate>(`/simulations/templates/${id}`, data);
+  },
+
+  deleteMine: async (id: string): Promise<void> => {
+    return apiClient.delete<void>(`/simulations/templates/${id}`);
+  },
+
+  star: async (id: string): Promise<void> => {
+    return apiClient.post<void>(`/simulations/templates/${id}/star`, {});
+  },
+
+  unstar: async (id: string): Promise<void> => {
+    return apiClient.delete<void>(`/simulations/templates/${id}/star`);
+  },
+
+  /** Generate system prompt from config (deterministic server-side). */
+  previewPrompt: async (data: CreateSimulationRequest): Promise<{ system_prompt: string }> => {
+    return apiClient.post<{ system_prompt: string }>('/simulations/templates/preview-prompt', data);
   },
 
   // Admin endpoints
@@ -91,14 +140,7 @@ export const simulationTemplateApi = {
     return apiClient.put<SimulationTemplate>(`/admin/simulations/${id}`, data);
   },
 
-  /** Generate system prompt from config (for review/edit before save) */
-  previewPrompt: async (data: CreateSimulationRequest): Promise<{ system_prompt: string }> => {
-    return apiClient.post<{ system_prompt: string }>('/admin/simulations/preview-prompt', data);
-  },
-
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/admin/simulations/${id}`);
   },
 };
-
-

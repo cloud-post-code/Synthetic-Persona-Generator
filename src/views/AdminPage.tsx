@@ -484,6 +484,7 @@ const AdminPage: React.FC = () => {
                     </h3>
                     <SimulationTemplateForm
                       simulation={editingSimulation}
+                      isAdminContext
                       onSubmit={handleCreateSimulation}
                       onCancel={() => {
                         setShowSimulationForm(false);
@@ -498,6 +499,7 @@ const AdminPage: React.FC = () => {
                         <thead className="bg-gray-50">
                           <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Input Fields</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -508,6 +510,9 @@ const AdminPage: React.FC = () => {
                           {simulations.map((sim) => (
                             <tr key={sim.id}>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{sim.title}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                {sim.visibility === 'global' ? 'Admin' : sim.creator_username || '—'}
+                              </td>
                               <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">{sim.description || '-'}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{sim.required_input_fields.length}</td>
                               <td className="px-6 py-4 whitespace-nowrap">

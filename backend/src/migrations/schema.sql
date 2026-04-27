@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS simulation_sessions (
 -- Simulations table (templates for simulation modes)
 CREATE TABLE IF NOT EXISTS simulations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
   icon VARCHAR(50),
@@ -131,8 +132,17 @@ CREATE TABLE IF NOT EXISTS simulations (
   persona_count_min INTEGER DEFAULT 1,
   persona_count_max INTEGER DEFAULT 1,
   type_specific_config JSONB DEFAULT '{}',
+  visibility VARCHAR(20) NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'public', 'global')),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Starred simulation templates (user bookmarks)
+CREATE TABLE IF NOT EXISTS simulation_stars (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  simulation_id UUID NOT NULL REFERENCES simulations(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, simulation_id)
 );
 
 -- Create indexes for better query performance
@@ -147,6 +157,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_simulation_sessions_user_id ON simulation_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_simulation_sessions_persona_id ON simulation_sessions(persona_id);
 CREATE INDEX IF NOT EXISTS idx_simulations_is_active ON simulations(is_active);
+CREATE INDEX IF NOT EXISTS idx_simulations_user_id ON simulations(user_id);
+CREATE INDEX IF NOT EXISTS idx_simulations_visibility ON simulations(visibility);
+CREATE INDEX IF NOT EXISTS idx_simulation_stars_user_id ON simulation_stars(user_id);
+CREATE INDEX IF NOT EXISTS idx_simulation_stars_simulation_id ON simulation_stars(simulation_id);
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

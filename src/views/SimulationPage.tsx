@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   ChevronRight, 
   ChevronDown,
@@ -337,6 +338,7 @@ const SimulationPage: React.FC = () => {
   const [simulationRunSummary, setSimulationRunSummary] = useState<string | null>(null);
   const [simulationRunSummaryLoading, setSimulationRunSummaryLoading] = useState(false);
   const [adminClearingSimulationLogs, setAdminClearingSimulationLogs] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   /** When true, the running simulation should stop at next opportunity */
   const simulationCancelledRef = useRef(false);
@@ -457,6 +459,25 @@ const SimulationPage: React.FC = () => {
     };
     loadSimulations();
   }, []);
+
+  useEffect(() => {
+    const templateId = searchParams.get('templateId');
+    if (!templateId || isLoadingSimulations || simulationsError) return;
+    if (simulations.length === 0) return;
+    const sim = simulations.find((s) => s.id === templateId);
+    const next = new URLSearchParams(searchParams);
+    if (!sim) {
+      next.delete('templateId');
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    setSelectedSimulation(sim);
+    setStage('inputs');
+    setInputFields({});
+    setSurveyGeneratedAnswers({});
+    next.delete('templateId');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, simulations, isLoadingSimulations, simulationsError, setSearchParams]);
 
   useEffect(() => {
     if (selectedSimulation) {

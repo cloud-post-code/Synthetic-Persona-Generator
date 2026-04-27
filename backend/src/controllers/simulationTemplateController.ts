@@ -3,10 +3,13 @@ import { AuthRequest } from '../middleware/auth.js';
 import * as simulationTemplateService from '../services/simulationTemplateService.js';
 import { CreateSimulationRequest, UpdateSimulationRequest } from '../types/index.js';
 
-// Public endpoint - get active simulations
+// Authenticated: templates the user can run (own + public + global)
 export async function getActiveSimulations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const simulations = await simulationTemplateService.getAllSimulations(false);
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const simulations = await simulationTemplateService.getAccessibleTemplatesForUser(req.userId);
     res.json(simulations);
   } catch (error: any) {
     console.error('Error fetching active simulations:', error);
@@ -40,7 +43,7 @@ export async function getAllSimulations(req: AuthRequest, res: Response, next: N
 export async function getSimulationById(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const simulation = await simulationTemplateService.getSimulationById(id);
+    const simulation = await simulationTemplateService.getSimulationById(id); // full row for admin
     
     if (!simulation) {
       return res.status(404).json({ error: 'Simulation not found' });
@@ -67,18 +70,11 @@ export async function createSimulation(req: AuthRequest, res: Response, next: Ne
       return res.status(400).json({ error: 'Either system_prompt or simulation_type with description is required' });
     }
 
-    const simulation = await simulationTemplateService.createSimulation(data);
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const simulation = await simulationTemplateService.createSimulationForAdmin(req.userId, data);
     res.status(201).json(simulation);
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function previewSystemPrompt(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const data: CreateSimulationRequest = req.body;
-    const systemPrompt = simulationTemplateService.buildSystemPromptFromConfig(data);
-    res.json({ system_prompt: systemPrompt });
   } catch (error) {
     next(error);
   }
@@ -86,10 +82,16 @@ export async function previewSystemPrompt(req: AuthRequest, res: Response, next:
 
 export async function updateSimulation(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     const { id } = req.params;
     const data: UpdateSimulationRequest = req.body;
     
-    const simulation = await simulationTemplateService.updateSimulation(id, data);
+    const simulation = await simulationTemplateService.updateSimulation(id, data, {
+      userId: req.userId,
+      isAdmin: true,
+    });
     
     if (!simulation) {
       return res.status(404).json({ error: 'Simulation not found' });
@@ -103,8 +105,14 @@ export async function updateSimulation(req: AuthRequest, res: Response, next: Ne
 
 export async function deleteSimulation(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     const { id } = req.params;
-    const deleted = await simulationTemplateService.deleteSimulation(id);
+    const deleted = await simulationTemplateService.deleteSimulation(id, {
+      userId: req.userId,
+      isAdmin: true,
+    });
     
     if (!deleted) {
       return res.status(404).json({ error: 'Simulation not found' });

@@ -84,6 +84,48 @@ async function migrate() {
       }
     }
 
+    // Simulation templates: owner, visibility (private/public/global), stars
+    try {
+      await pool.query(`ALTER TABLE simulations ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL`);
+      await pool.query(`ALTER TABLE simulations ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) NOT NULL DEFAULT 'private'`);
+      await pool.query(`ALTER TABLE simulations DROP CONSTRAINT IF EXISTS simulations_visibility_check`);
+      await pool.query(
+        `ALTER TABLE simulations ADD CONSTRAINT simulations_visibility_check CHECK (visibility IN ('private', 'public', 'global'))`
+      );
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_simulations_user_id ON simulations(user_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_simulations_visibility ON simulations(visibility)`);
+    } catch (err: any) {
+      if (err.code !== '42701' && err.code !== '42P01') throw err;
+    }
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS simulation_stars (
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          simulation_id UUID NOT NULL REFERENCES simulations(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, simulation_id)
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_simulation_stars_user_id ON simulation_stars(user_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_simulation_stars_simulation_id ON simulation_stars(simulation_id)`);
+    } catch (err: any) {
+      if (err.code !== '42P07') throw err;
+    }
+    try {
+      const firstAdmin = await pool.query(
+        `SELECT id FROM users WHERE is_admin = TRUE ORDER BY created_at ASC LIMIT 1`
+      );
+      if (firstAdmin.rows.length > 0) {
+        const adminId = firstAdmin.rows[0].id;
+        await pool.query(
+          `UPDATE simulations SET visibility = 'global', user_id = COALESCE(user_id, $1::uuid) WHERE user_id IS NULL`,
+          [adminId]
+        );
+      }
+    } catch (err: any) {
+      if (err.code !== '42P01') throw err;
+    }
+
     // Persona visibility and persona_stars for library/starring; restrict persona type to core types: synthetic_user, advisor
     try {
       await pool.query(`UPDATE personas SET type = 'advisor' WHERE type = 'practice_person'`);
@@ -360,6 +402,22 @@ Start the simulation. You have just reviewed the deck. Address the founder (User
       console.log('✅ Default simulations seeded successfully!');
     } else {
       console.log('⚠️  Simulations already exist, skipping seed');
+    }
+
+    // Assign any newly seeded or legacy simulations without an owner to first admin (global)
+    try {
+      const firstAdmin = await pool.query(
+        `SELECT id FROM users WHERE is_admin = TRUE ORDER BY created_at ASC LIMIT 1`
+      );
+      if (firstAdmin.rows.length > 0) {
+        const adminId = firstAdmin.rows[0].id;
+        await pool.query(
+          `UPDATE simulations SET visibility = 'global', user_id = COALESCE(user_id, $1::uuid) WHERE user_id IS NULL`,
+          [adminId]
+        );
+      }
+    } catch (err: any) {
+      if (err.code !== '42P01') throw err;
     }
     
     console.log('✅ Database migrations completed successfully!');

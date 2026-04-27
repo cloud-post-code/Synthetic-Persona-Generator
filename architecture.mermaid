@@ -1,0 +1,361 @@
+graph TD
+
+%% ─────────────────────────────────────────────
+%%  EXTERNAL SERVICES
+%% ─────────────────────────────────────────────
+subgraph EXT["☁️  External Services"]
+    GEMINI["Google Gemini AI\ngemini-2.5-flash\nEmbeddings API"]
+end
+
+%% ─────────────────────────────────────────────
+%%  FRONTEND  (React 19 + Vite + TypeScript)
+%% ─────────────────────────────────────────────
+subgraph FE["🖥️  Frontend  ·  React 19 + Vite + TypeScript  ·  port 5173"]
+
+    subgraph FE_ENTRY["Entry"]
+        INDEX["index.tsx"]
+        APP["App.tsx\n(Router · Sidebar · Auth Guard)"]
+    end
+
+    subgraph FE_CTX["Global State"]
+        AUTH_CTX["AuthContext\n(user, token, login/logout)"]
+    end
+
+    subgraph FE_VIEWS["Views / Pages"]
+        V_HOME["HomePage\n(Dashboard)"]
+        V_BUILD["BuildPersonaPage\n(AI persona creation)"]
+        V_CHAT["ChatPage\n(Multi-persona chat)"]
+        V_SIM["SimulationPage\n(Scenario testing)"]
+        V_GALLERY["GalleryPage\n(My Personas)"]
+        V_LIB["PersonaLibraryPage\n(Public / Global)"]
+        V_BIZ["BusinessProfilePage"]
+        V_ADMIN["AdminPage"]
+        V_LOGIN["LoginPage"]
+    end
+
+    subgraph FE_COMP["Reusable Components"]
+        C_BTN["Button · FormInput\nLoadingSpinner · ErrorMessage"]
+        C_BANNER["ApiErrorBanner\n(global error notifications)"]
+        C_ICON["IconPicker"]
+        C_AGENT["AgentPipelineViewer\n(think · retrieve · respond · validate)"]
+        C_SIMFORM["SimulationTemplateForm"]
+    end
+
+    subgraph FE_HOOKS["Custom Hooks"]
+        H_CHAT["useChatSessions()"]
+        H_PERSONA["usePersonas()"]
+    end
+
+    subgraph FE_SVC["API Service Layer"]
+        SVC_BASE["api.ts\n(base HTTP client · token · errors)"]
+        SVC_AUTH["authApi.ts"]
+        SVC_PERSONA["personaApi.ts"]
+        SVC_CHAT["chatApi.ts"]
+        SVC_SIM["simulationApi.ts"]
+        SVC_AGENT["agentApi.ts"]
+        SVC_BIZ["businessProfileApi.ts"]
+        SVC_FG["focusGroupApi.ts"]
+        SVC_ADMIN["adminApi.ts"]
+        SVC_GEMINI_FE["gemini.ts\n(direct Gemini client)"]
+    end
+
+    subgraph FE_UTILS["Utils"]
+        U_DATE["dateUtils\n(date formatting)"]
+        U_NORM["normalizeData\n(API response normalizer)"]
+        U_BIZ["businessProfile\n(profile helpers)"]
+        U_NAMES["humanNames\n(name generation)"]
+        U_PERSUADE["persuasionScore\n(score calculator)"]
+        U_SIMDISP["simulationResponsePlainText\nsurveySimulationDisplay"]
+    end
+end
+
+%% ─────────────────────────────────────────────
+%%  BACKEND  (Express + TypeScript)
+%% ─────────────────────────────────────────────
+subgraph BE["⚙️  Backend  ·  Express 4 + TypeScript  ·  port 3001"]
+
+    subgraph BE_ENTRY["Entry"]
+        BE_IDX["index.ts\n(server bootstrap · route registration)"]
+    end
+
+    subgraph BE_MW["Middleware"]
+        MW_AUTH["authenticateToken\n(JWT verify · inject userId)"]
+        MW_CORS["CORS\n(localhost:3000 / :5173)"]
+        MW_BODY["Body Parser\n(JSON · 50 MB limit)"]
+        MW_ERR["errorHandler\n(global error responses)"]
+    end
+
+    subgraph BE_ROUTES["Routes  →  Controllers"]
+        R_AUTH["POST /api/auth/register\nPOST /api/auth/login\n→ authController"]
+        R_PERSONA["GET · POST /api/personas\nGET · PUT · DELETE /api/personas/:id\nstar · unstar · files\n→ personaController"]
+        R_CHAT["GET · POST /api/chat/sessions\nmessages · personas\n→ chatController"]
+        R_AGENT["POST /api/agent/chat\n→ agentController"]
+        R_SIM["GET · POST /api/simulations\n→ simulationController"]
+        R_BIZ["GET · POST /api/profile/business\n→ businessProfileController"]
+        R_FG["GET · POST · PUT · DELETE\n/api/focus-groups\n→ focusGroupController"]
+        R_ADMIN["GET /api/admin/users\nGET /api/admin/analytics\n→ adminController"]
+        R_HEALTH["GET /health"]
+    end
+
+    subgraph BE_PROMPTS["📝  System Prompts Layer"]
+        P_AGENT["Agent System Prompt\nPersona description + files\nBusiness profile context\nConversation history\nRAG retrieved chunks"]
+        P_SIM["Simulation System Prompt\nMode: web_page · marketing\nsales_pitch · investor_pitch\nPersona personality\nStimulus content"]
+        P_TMPL["Simulation Templates\n(custom system_prompt field\nstored in DB per template)"]
+    end
+
+    subgraph BE_SVC["Service Layer (Business Logic)"]
+        S_AUTH["authService\n(bcrypt · JWT)"]
+        S_PERSONA["personaService\n(CRUD · visibility · star)"]
+        S_CHAT["chatService\n(sessions · messages)"]
+        S_AGENT["agentService\n4-step Agent Pipeline\n① think  ② retrieve\n③ respond  ④ validate"]
+        S_EMBED["embeddingService\n(RAG · vector indexing)"]
+        S_SIM["simulationService"]
+        S_SIMMSG["simulationMessageService"]
+        S_BIZ["businessProfileService"]
+        S_FG["focusGroupService"]
+        S_ADMIN["adminService"]
+        S_SIMTMPL["simulationTemplateService"]
+    end
+
+    subgraph BE_DB_CFG["DB Config"]
+        DB_POOL["database.ts\n(pg Pool · connection string)"]
+    end
+end
+
+%% ─────────────────────────────────────────────
+%%  DATABASE  (PostgreSQL)
+%% ─────────────────────────────────────────────
+subgraph DB["🗄️  PostgreSQL  ·  port 5432"]
+    direction LR
+
+    subgraph DB_AUTH_T["Auth & Users"]
+        T_USERS["users\nid · username · email\npassword_hash · is_admin\ncreated_at · updated_at"]
+    end
+
+    subgraph DB_PERSONA_T["Persona Domain"]
+        T_PERSONAS["personas\nid · user_id · name · type\ndescription · visibility\nmetadata (JSONB)\nlast_embedded_at"]
+        T_FILES["persona_files\nid · persona_id · name\ncontent · type"]
+    end
+
+    subgraph DB_PROFILE_T["Business"]
+        T_BIZ["business_profiles\nid · user_id (UNIQUE)\nmission · vision\nofferings · KPIs\nfunding · 20+ fields"]
+    end
+
+    subgraph DB_CHAT_T["Chat Domain"]
+        T_SESSIONS["chat_sessions\nid · user_id · name"]
+        T_SES_P["chat_session_personas\n(junction)"]
+        T_MSGS["messages\nid · session_id · sender_type\npersona_id · content\nthinking · retrieval_summary\nvalidation · pipeline_events (JSON)"]
+    end
+
+    subgraph DB_SIM_T["Simulation Domain"]
+        T_SIM_SESSIONS["simulation_sessions\nid · user_id · persona_id\npersona_ids (JSONB)\nmode · stimulus_image"]
+        T_SIM_TMPL["simulations (templates)\ntitle · icon · system_prompt\nallowed_persona_types\npersona_count_min/max"]
+    end
+
+    subgraph DB_FG_T["Focus Groups"]
+        T_FG["focus_groups\nid · user_id · name"]
+        T_FGP["focus_group_personas\n(junction)"]
+    end
+end
+
+%% ─────────────────────────────────────────────
+%%  EDGES — Frontend Internal
+%% ─────────────────────────────────────────────
+INDEX --> APP
+APP --> AUTH_CTX
+APP --> C_BANNER
+APP --> V_LOGIN
+APP --> V_HOME
+APP --> V_BUILD
+APP --> V_CHAT
+APP --> V_SIM
+APP --> V_GALLERY
+APP --> V_LIB
+APP --> V_BIZ
+APP --> V_ADMIN
+
+V_CHAT --> H_CHAT
+V_GALLERY --> H_PERSONA
+V_LIB --> H_PERSONA
+H_CHAT --> SVC_CHAT
+H_PERSONA --> SVC_PERSONA
+
+V_HOME --> SVC_PERSONA
+V_HOME --> SVC_CHAT
+V_HOME --> SVC_SIM
+V_HOME --> U_DATE
+V_BUILD --> SVC_PERSONA
+V_BUILD --> SVC_GEMINI_FE
+V_BUILD --> C_ICON
+V_BUILD --> U_NAMES
+V_CHAT --> SVC_AGENT
+V_CHAT --> C_AGENT
+V_SIM --> SVC_SIM
+V_SIM --> SVC_AGENT
+V_SIM --> C_SIMFORM
+V_SIM --> U_PERSUADE
+V_SIM --> U_SIMDISP
+V_BIZ --> SVC_BIZ
+V_BIZ --> U_BIZ
+V_ADMIN --> SVC_ADMIN
+V_LOGIN --> SVC_AUTH
+V_GALLERY --> U_DATE
+AUTH_CTX --> SVC_AUTH
+
+SVC_PERSONA --> U_NORM
+SVC_CHAT --> U_NORM
+
+SVC_AUTH --> SVC_BASE
+SVC_PERSONA --> SVC_BASE
+SVC_CHAT --> SVC_BASE
+SVC_SIM --> SVC_BASE
+SVC_AGENT --> SVC_BASE
+SVC_BIZ --> SVC_BASE
+SVC_FG --> SVC_BASE
+SVC_ADMIN --> SVC_BASE
+
+V_CHAT --> C_BTN
+V_BUILD --> C_BTN
+V_LOGIN --> C_BTN
+
+%% ─────────────────────────────────────────────
+%%  EDGES — Frontend → Gemini (direct)
+%% ─────────────────────────────────────────────
+SVC_GEMINI_FE -->|"Gemini API Key (VITE_)"| GEMINI
+
+%% ─────────────────────────────────────────────
+%%  EDGES — Frontend → Backend (HTTP/REST)
+%% ─────────────────────────────────────────────
+SVC_BASE -->|"HTTP · Bearer JWT"| BE_IDX
+
+%% ─────────────────────────────────────────────
+%%  EDGES — Backend Internal
+%% ─────────────────────────────────────────────
+BE_IDX --> MW_CORS
+BE_IDX --> MW_BODY
+BE_IDX --> R_AUTH
+BE_IDX --> R_PERSONA
+BE_IDX --> R_CHAT
+BE_IDX --> R_AGENT
+BE_IDX --> R_SIM
+BE_IDX --> R_BIZ
+BE_IDX --> R_FG
+BE_IDX --> R_ADMIN
+BE_IDX --> R_HEALTH
+BE_IDX --> MW_ERR
+
+R_AUTH --> MW_AUTH
+R_PERSONA --> MW_AUTH
+R_CHAT --> MW_AUTH
+R_AGENT --> MW_AUTH
+R_SIM --> MW_AUTH
+R_BIZ --> MW_AUTH
+R_FG --> MW_AUTH
+R_ADMIN --> MW_AUTH
+
+R_AUTH --> S_AUTH
+R_PERSONA --> S_PERSONA
+R_CHAT --> S_CHAT
+R_AGENT --> S_AGENT
+R_SIM --> S_SIM
+R_BIZ --> S_BIZ
+R_FG --> S_FG
+R_ADMIN --> S_ADMIN
+
+S_AGENT --> S_EMBED
+S_SIM --> S_SIMMSG
+S_SIMMSG --> S_AGENT
+S_PERSONA --> S_EMBED
+S_SIMTMPL --> P_TMPL
+
+%% Prompt assembly flows
+S_BIZ -->|"business context"| P_AGENT
+S_EMBED -->|"RAG chunks"| P_AGENT
+P_AGENT --> S_AGENT
+S_SIM --> P_SIM
+P_TMPL --> P_SIM
+P_SIM --> S_AGENT
+
+S_AUTH --> DB_POOL
+S_PERSONA --> DB_POOL
+S_CHAT --> DB_POOL
+S_AGENT --> DB_POOL
+S_EMBED --> DB_POOL
+S_SIM --> DB_POOL
+S_SIMMSG --> DB_POOL
+S_BIZ --> DB_POOL
+S_FG --> DB_POOL
+S_ADMIN --> DB_POOL
+S_SIMTMPL --> DB_POOL
+
+%% ─────────────────────────────────────────────
+%%  EDGES — Backend → Gemini
+%% ─────────────────────────────────────────────
+S_AGENT -->|"think · retrieve\nrespond · validate"| GEMINI
+S_EMBED -->|"Embeddings API"| GEMINI
+
+%% ─────────────────────────────────────────────
+%%  EDGES — DB Pool → Tables
+%% ─────────────────────────────────────────────
+DB_POOL --> T_USERS
+DB_POOL --> T_PERSONAS
+DB_POOL --> T_FILES
+DB_POOL --> T_BIZ
+DB_POOL --> T_SESSIONS
+DB_POOL --> T_SES_P
+DB_POOL --> T_MSGS
+DB_POOL --> T_SIM_SESSIONS
+DB_POOL --> T_SIM_TMPL
+DB_POOL --> T_FG
+DB_POOL --> T_FGP
+
+%% ─────────────────────────────────────────────
+%%  TABLE RELATIONSHIPS
+%% ─────────────────────────────────────────────
+T_USERS -->|"1 : 1"| T_BIZ
+T_USERS -->|"1 : many"| T_PERSONAS
+T_USERS -->|"1 : many"| T_SESSIONS
+T_USERS -->|"1 : many"| T_SIM_SESSIONS
+T_USERS -->|"1 : many"| T_FG
+T_PERSONAS -->|"1 : many"| T_FILES
+T_SESSIONS -->|"junction"| T_SES_P
+T_PERSONAS -->|"junction"| T_SES_P
+T_SESSIONS -->|"1 : many"| T_MSGS
+T_PERSONAS -->|"FK"| T_MSGS
+T_FG -->|"junction"| T_FGP
+T_PERSONAS -->|"junction"| T_FGP
+
+%% ─────────────────────────────────────────────
+%%  STYLES
+%% ─────────────────────────────────────────────
+classDef external    fill:#f5a623,stroke:#c47d0e,color:#000
+classDef feEntry     fill:#4a90d9,stroke:#2c6fad,color:#fff
+classDef feCtx       fill:#6b8cce,stroke:#4a6aad,color:#fff
+classDef feView      fill:#5ba85b,stroke:#3d7a3d,color:#fff
+classDef feComp      fill:#7ab87a,stroke:#5a9a5a,color:#fff
+classDef feHook      fill:#9ecf9e,stroke:#6aad6a,color:#000
+classDef feSvc       fill:#b8e0b8,stroke:#7abf7a,color:#000
+classDef feUtil      fill:#d5e8d4,stroke:#82b366,color:#000
+classDef beEntry     fill:#c0392b,stroke:#922b21,color:#fff
+classDef beMw        fill:#e74c3c,stroke:#c0392b,color:#fff
+classDef beRoute     fill:#e8a09a,stroke:#c0392b,color:#000
+classDef bePrompt    fill:#fff2cc,stroke:#d6b656,color:#000
+classDef beSvc       fill:#f1c0bb,stroke:#e74c3c,color:#000
+classDef dbCfg       fill:#8e44ad,stroke:#6c3483,color:#fff
+classDef dbTable     fill:#d7bde2,stroke:#8e44ad,color:#000
+
+class GEMINI external
+class INDEX,APP feEntry
+class AUTH_CTX feCtx
+class V_HOME,V_BUILD,V_CHAT,V_SIM,V_GALLERY,V_LIB,V_BIZ,V_ADMIN,V_LOGIN feView
+class C_BTN,C_BANNER,C_ICON,C_AGENT,C_SIMFORM feComp
+class H_CHAT,H_PERSONA feHook
+class SVC_BASE,SVC_AUTH,SVC_PERSONA,SVC_CHAT,SVC_SIM,SVC_AGENT,SVC_BIZ,SVC_FG,SVC_ADMIN,SVC_GEMINI_FE feSvc
+class U_DATE,U_NORM,U_BIZ,U_NAMES,U_PERSUADE,U_SIMDISP feUtil
+class BE_IDX beEntry
+class MW_AUTH,MW_CORS,MW_BODY,MW_ERR beMw
+class R_AUTH,R_PERSONA,R_CHAT,R_AGENT,R_SIM,R_BIZ,R_FG,R_ADMIN,R_HEALTH beRoute
+class P_AGENT,P_SIM,P_TMPL bePrompt
+class S_AUTH,S_PERSONA,S_CHAT,S_AGENT,S_EMBED,S_SIM,S_SIMMSG,S_BIZ,S_FG,S_ADMIN,S_SIMTMPL beSvc
+class DB_POOL dbCfg
+class T_USERS,T_PERSONAS,T_FILES,T_BIZ,T_SESSIONS,T_SES_P,T_MSGS,T_SIM_SESSIONS,T_SIM_TMPL,T_FG,T_FGP dbTable

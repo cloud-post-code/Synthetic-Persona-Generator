@@ -1,6 +1,17 @@
 import pool from '../config/database.js';
-import { SimulationTemplate, CreateSimulationRequest, UpdateSimulationRequest } from '../types/index.js';
+import {
+  SimulationTemplate,
+  CreateSimulationRequest,
+  UpdateSimulationRequest,
+  SimulationVisibility,
+} from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
+
+export type SimulationTemplateAuth = { userId: string; isAdmin: boolean };
+
+function normalizeStarred(val: unknown): boolean {
+  return val === true || val === 't' || val === 'true' || val === 1;
+}
 
 /** Per-type description of expected output and behavior; used when generating the system prompt. */
 const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
@@ -29,6 +40,7 @@ function mapRowToTemplate(row: any): SimulationTemplate {
   const requiredInputFields = parseJsonField(row.required_input_fields) ?? [];
   const allowedPersonaTypes = parseJsonField(row.allowed_persona_types);
   const typeSpecificConfig = parseJsonField(row.type_specific_config);
+  const vis = (row.visibility as SimulationVisibility) || 'private';
   return {
     id: row.id,
     title: row.title,
@@ -42,25 +54,41 @@ function mapRowToTemplate(row: any): SimulationTemplate {
     persona_count_min: row.persona_count_min != null ? Number(row.persona_count_min) : undefined,
     persona_count_max: row.persona_count_max != null ? Number(row.persona_count_max) : undefined,
     type_specific_config: typeSpecificConfig && typeof typeSpecificConfig === 'object' && !Array.isArray(typeSpecificConfig) ? typeSpecificConfig : undefined,
+    user_id: row.user_id ?? undefined,
+    visibility: vis,
+    creator_username: row.creator_username || undefined,
+    is_starred: row.is_starred !== undefined && row.is_starred !== null ? normalizeStarred(row.is_starred) : undefined,
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
 }
 
+const SQL_CREATOR_AND_STAR = (starUserParam: number) => `
+  s.*,
+  u.username AS creator_username,
+  EXISTS (
+    SELECT 1 FROM simulation_stars ss
+    WHERE ss.simulation_id = s.id AND ss.user_id = $${starUserParam}
+  ) AS is_starred
+`;
+
 export async function getAllSimulations(includeInactive: boolean = false): Promise<SimulationTemplate[]> {
   try {
-    let query = 'SELECT * FROM simulations';
+    let query = `
+      SELECT s.*, u.username AS creator_username, FALSE AS is_starred
+      FROM simulations s
+      LEFT JOIN users u ON u.id = s.user_id`;
     const params: any[] = [];
 
     if (!includeInactive) {
-      query += ' WHERE is_active = TRUE';
+      query += ' WHERE s.is_active = TRUE';
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY s.created_at DESC';
 
     const result = await pool.query(query, params);
 
-    return result.rows.map(row => mapRowToTemplate(row));
+    return result.rows.map((row) => mapRowToTemplate(row));
   } catch (error: any) {
     console.error('Error in getAllSimulations:', error);
     console.error('Error details:', {
@@ -73,9 +101,80 @@ export async function getAllSimulations(includeInactive: boolean = false): Promi
   }
 }
 
+/** Templates the user can run: own (any visibility) + others' public + global (admin). Global first. */
+export async function getAccessibleTemplatesForUser(userId: string): Promise<SimulationTemplate[]> {
+  const q = `
+    SELECT ${SQL_CREATOR_AND_STAR(1)}
+    FROM simulations s
+    LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.is_active = TRUE
+      AND (s.user_id = $1 OR s.visibility IN ('public', 'global'))
+    ORDER BY CASE WHEN s.visibility = 'global' THEN 0 WHEN s.visibility = 'public' THEN 1 ELSE 2 END,
+      s.created_at DESC
+  `;
+  const result = await pool.query(q, [userId]);
+  return result.rows.map((row) => mapRowToTemplate(row));
+}
+
+export async function getMine(userId: string): Promise<SimulationTemplate[]> {
+  const q = `
+    SELECT ${SQL_CREATOR_AND_STAR(1)}
+    FROM simulations s
+    LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.user_id = $1
+    ORDER BY s.created_at DESC
+  `;
+  const result = await pool.query(q, [userId]);
+  return result.rows.map((row) => mapRowToTemplate(row));
+}
+
+/** Public + global templates from other users (explore). Global (admin) first. */
+export async function getLibrary(userId: string): Promise<SimulationTemplate[]> {
+  const q = `
+    SELECT ${SQL_CREATOR_AND_STAR(1)}
+    FROM simulations s
+    LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.is_active = TRUE
+      AND s.visibility IN ('public', 'global')
+      AND (s.user_id IS DISTINCT FROM $1 OR s.user_id IS NULL)
+    ORDER BY CASE WHEN s.visibility = 'global' THEN 0 ELSE 1 END,
+      s.created_at DESC
+  `;
+  const result = await pool.query(q, [userId]);
+  return result.rows.map((row) => mapRowToTemplate(row));
+}
+
+export async function getStarred(userId: string): Promise<SimulationTemplate[]> {
+  const q = `
+    SELECT ${SQL_CREATOR_AND_STAR(1)}
+    FROM simulations s
+    INNER JOIN simulation_stars ss ON ss.simulation_id = s.id AND ss.user_id = $1
+    LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.is_active = TRUE
+      AND (s.user_id = $1 OR s.visibility IN ('public', 'global'))
+    ORDER BY ss.created_at DESC
+  `;
+  const result = await pool.query(q, [userId]);
+  return result.rows.map((row) => mapRowToTemplate(row));
+}
+
+export async function userCanAccessTemplate(userId: string, simulationId: string): Promise<boolean> {
+  const r = await pool.query(
+    `SELECT 1 FROM simulations s
+     WHERE s.id = $1 AND s.is_active = TRUE
+       AND (s.user_id = $2 OR s.visibility IN ('public', 'global'))
+     LIMIT 1`,
+    [simulationId, userId]
+  );
+  return r.rows.length > 0;
+}
+
 export async function getSimulationById(id: string): Promise<SimulationTemplate | null> {
   const result = await pool.query(
-    'SELECT * FROM simulations WHERE id = $1',
+    `SELECT s.*, u.username AS creator_username, FALSE AS is_starred
+     FROM simulations s
+     LEFT JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1`,
     [id]
   );
 
@@ -83,21 +182,45 @@ export async function getSimulationById(id: string): Promise<SimulationTemplate 
     return null;
   }
 
-  const sim = result.rows[0];
-  return mapRowToTemplate(sim);
+  return mapRowToTemplate(result.rows[0]);
 }
 
-export async function createSimulation(data: CreateSimulationRequest): Promise<SimulationTemplate> {
+export async function getSimulationByIdForUser(
+  id: string,
+  userId: string
+): Promise<SimulationTemplate | null> {
+  const result = await pool.query(
+    `SELECT ${SQL_CREATOR_AND_STAR(2)}
+     FROM simulations s
+     LEFT JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1
+       AND (s.user_id = $2 OR s.visibility IN ('public', 'global'))`,
+    [id, userId]
+  );
+  if (result.rows.length === 0) return null;
+  return mapRowToTemplate(result.rows[0]);
+}
+
+async function insertSimulationRow(params: {
+  ownerUserId: string;
+  visibility: SimulationVisibility;
+  data: CreateSimulationRequest;
+}): Promise<SimulationTemplate> {
+  const { ownerUserId, visibility, data } = params;
   const id = uuidv4();
   const systemPrompt = data.system_prompt?.trim()
     ? data.system_prompt.trim()
     : buildSystemPromptFromConfig(data);
   const result = await pool.query(
-    `INSERT INTO simulations (id, title, description, icon, required_input_fields, system_prompt, is_active, simulation_type, allowed_persona_types, persona_count_min, persona_count_max, type_specific_config)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO simulations (
+      id, user_id, title, description, icon, required_input_fields, system_prompt, is_active,
+      simulation_type, allowed_persona_types, persona_count_min, persona_count_max, type_specific_config, visibility
+    )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [
       id,
+      ownerUserId,
       data.title,
       data.description || null,
       data.icon || null,
@@ -109,12 +232,37 @@ export async function createSimulation(data: CreateSimulationRequest): Promise<S
       data.persona_count_min ?? 1,
       data.persona_count_max ?? 1,
       JSON.stringify(data.type_specific_config ?? {}),
+      visibility,
     ]
   );
-
-  const sim = result.rows[0];
-  return mapRowToTemplate(sim);
+  const row = result.rows[0];
+  const enriched = await pool.query(
+    `SELECT ${SQL_CREATOR_AND_STAR(1)}
+     FROM simulations s
+     LEFT JOIN users u ON u.id = s.user_id
+     WHERE s.id = $2`,
+    [ownerUserId, row.id]
+  );
+  return mapRowToTemplate(enriched.rows[0]);
 }
+
+export async function createSimulationForUser(
+  userId: string,
+  data: CreateSimulationRequest
+): Promise<SimulationTemplate> {
+  let visibility: SimulationVisibility = 'private';
+  if (data.visibility === 'public') visibility = 'public';
+  if (data.visibility === 'global') visibility = 'private';
+  return insertSimulationRow({ ownerUserId: userId, visibility, data });
+}
+
+export async function createSimulationForAdmin(
+  adminUserId: string,
+  data: CreateSimulationRequest
+): Promise<SimulationTemplate> {
+  return insertSimulationRow({ ownerUserId: adminUserId, visibility: 'global', data });
+}
+
 
 export function buildSystemPromptFromConfig(data: CreateSimulationRequest): string {
   const desc = data.description?.trim() || 'No description provided.';
@@ -273,68 +421,59 @@ export function buildSystemPromptFromConfig(data: CreateSimulationRequest): stri
   return lines.join('\n');
 }
 
-export async function updateSimulation(id: string, data: UpdateSimulationRequest): Promise<SimulationTemplate | null> {
-  const fields: string[] = [];
-  const values: any[] = [];
-  let paramCount = 1;
+export async function updateSimulation(
+  id: string,
+  data: UpdateSimulationRequest,
+  auth: SimulationTemplateAuth
+): Promise<SimulationTemplate | null> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  const add = (col: string, val: unknown) => {
+    values.push(val);
+    sets.push(`${col} = $${values.length}`);
+  };
 
-  if (data.title !== undefined) {
-    fields.push(`title = $${paramCount++}`);
-    values.push(data.title);
-  }
-  if (data.description !== undefined) {
-    fields.push(`description = $${paramCount++}`);
-    values.push(data.description);
-  }
-  if (data.icon !== undefined) {
-    fields.push(`icon = $${paramCount++}`);
-    values.push(data.icon);
-  }
+  if (data.title !== undefined) add('title', data.title);
+  if (data.description !== undefined) add('description', data.description);
+  if (data.icon !== undefined) add('icon', data.icon);
   if (data.required_input_fields !== undefined) {
-    fields.push(`required_input_fields = $${paramCount++}`);
-    values.push(JSON.stringify(data.required_input_fields));
+    add('required_input_fields', JSON.stringify(data.required_input_fields));
   }
-  if (data.system_prompt !== undefined) {
-    fields.push(`system_prompt = $${paramCount++}`);
-    values.push(data.system_prompt);
-  }
-  if (data.is_active !== undefined) {
-    fields.push(`is_active = $${paramCount++}`);
-    values.push(data.is_active);
-  }
-  if (data.simulation_type !== undefined) {
-    fields.push(`simulation_type = $${paramCount++}`);
-    values.push(data.simulation_type);
-  }
+  if (data.system_prompt !== undefined) add('system_prompt', data.system_prompt);
+  if (data.is_active !== undefined) add('is_active', data.is_active);
+  if (data.simulation_type !== undefined) add('simulation_type', data.simulation_type);
   if (data.allowed_persona_types !== undefined) {
-    fields.push(`allowed_persona_types = $${paramCount++}`);
-    values.push(JSON.stringify(data.allowed_persona_types));
+    add('allowed_persona_types', JSON.stringify(data.allowed_persona_types));
   }
-  if (data.persona_count_min !== undefined) {
-    fields.push(`persona_count_min = $${paramCount++}`);
-    values.push(data.persona_count_min);
-  }
-  if (data.persona_count_max !== undefined) {
-    fields.push(`persona_count_max = $${paramCount++}`);
-    values.push(data.persona_count_max);
-  }
+  if (data.persona_count_min !== undefined) add('persona_count_min', data.persona_count_min);
+  if (data.persona_count_max !== undefined) add('persona_count_max', data.persona_count_max);
   if (data.type_specific_config !== undefined) {
-    fields.push(`type_specific_config = $${paramCount++}`);
-    values.push(JSON.stringify(data.type_specific_config));
+    add('type_specific_config', JSON.stringify(data.type_specific_config));
+  }
+  if (data.visibility !== undefined) {
+    let v: SimulationVisibility = data.visibility;
+    if (!auth.isAdmin && v === 'global') {
+      v = 'public';
+    }
+    if (v === 'private' || v === 'public' || v === 'global') {
+      add('visibility', v);
+    }
   }
 
-  if (fields.length === 0) {
-    return getSimulationById(id);
+  if (sets.length === 0) {
+    return getSimulationByIdForUser(id, auth.userId);
   }
 
-  fields.push(`updated_at = CURRENT_TIMESTAMP`);
+  sets.push('updated_at = CURRENT_TIMESTAMP');
   values.push(id);
+  let where = `WHERE id = $${values.length}`;
+  if (!auth.isAdmin) {
+    values.push(auth.userId);
+    where += ` AND user_id = $${values.length}`;
+  }
 
   const result = await pool.query(
-    `UPDATE simulations
-     SET ${fields.join(', ')}
-     WHERE id = $${paramCount}
-     RETURNING *`,
+    `UPDATE simulations SET ${sets.join(', ')} ${where} RETURNING id`,
     values
   );
 
@@ -342,16 +481,35 @@ export async function updateSimulation(id: string, data: UpdateSimulationRequest
     return null;
   }
 
-  const sim = result.rows[0];
-  return mapRowToTemplate(sim);
+  return getSimulationByIdForUser(id, auth.userId);
 }
 
-export async function deleteSimulation(id: string): Promise<boolean> {
+export async function deleteSimulation(id: string, auth: SimulationTemplateAuth): Promise<boolean> {
+  const ownerClause = auth.isAdmin ? '' : ' AND user_id = $2';
+  const params = auth.isAdmin ? [id] : [id, auth.userId];
   const result = await pool.query(
-    'DELETE FROM simulations WHERE id = $1',
-    [id]
+    `DELETE FROM simulations WHERE id = $1${ownerClause}`,
+    params
   );
 
   return result.rowCount !== null && result.rowCount > 0;
+}
+
+export async function starSimulation(userId: string, simulationId: string): Promise<void> {
+  const ok = await userCanAccessTemplate(userId, simulationId);
+  if (!ok) {
+    throw Object.assign(new Error('Simulation not found or not accessible'), { statusCode: 404 });
+  }
+  await pool.query(
+    `INSERT INTO simulation_stars (user_id, simulation_id) VALUES ($1, $2) ON CONFLICT (user_id, simulation_id) DO NOTHING`,
+    [userId, simulationId]
+  );
+}
+
+export async function unstarSimulation(userId: string, simulationId: string): Promise<void> {
+  await pool.query(`DELETE FROM simulation_stars WHERE user_id = $1 AND simulation_id = $2`, [
+    userId,
+    simulationId,
+  ]);
 }
 

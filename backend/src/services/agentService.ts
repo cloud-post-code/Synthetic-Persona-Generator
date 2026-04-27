@@ -370,11 +370,18 @@ export async function runAgentTurnStreaming(
   const write = emit || (() => {});
   const ai = getAI();
   const persona = await getPersonaIdentity(personaId);
-  const effectivePersonaIds = personaIds && personaIds.length > 0 ? personaIds : [personaId];
+  // Only load the speaking persona's documents. Even when the simulation has
+  // multiple personas selected (params.personaIds), each persona must reason
+  // strictly from its own knowledge base — never another persona's profile or
+  // blueprint files. Session context (by sessionId) and the runner's business
+  // profile (by userId) remain shared because those describe the simulation
+  // itself, not persona knowledge.
+  void personaIds;
+  const knowledgePersonaIds = [personaId];
 
   let fullDocuments: RetrievedChunk[] = [];
   try {
-    fullDocuments = await loadFullKnowledgeDocuments(effectivePersonaIds, sessionId, userId);
+    fullDocuments = await loadFullKnowledgeDocuments(knowledgePersonaIds, sessionId, userId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Knowledge] loadFullKnowledgeDocuments failed:', msg);
