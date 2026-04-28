@@ -24,7 +24,7 @@ const Sidebar: React.FC = () => {
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { label: 'Simulations', path: '/simulations', icon: Boxes },
+    { label: 'Build', path: '/simulations', icon: Boxes },
     { label: 'Run simulation', path: '/simulate', icon: PlayCircle },
     { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'My Personas', path: '/gallery', icon: User },

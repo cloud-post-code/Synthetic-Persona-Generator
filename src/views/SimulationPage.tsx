@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ChevronRight, 
   ChevronDown,
@@ -40,16 +40,10 @@ import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../servi
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
-import {
-  simulationTemplateApi,
-  SimulationTemplate,
-  CreateSimulationRequest,
-  UpdateSimulationRequest,
-} from '../services/simulationTemplateApi.js';
+import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
-import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
 import { useAuth } from '../context/AuthContext.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
@@ -118,7 +112,7 @@ function truncateDescriptionToWords(text: string, maxWords: number = 25): string
 }
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
 
-type HubTab = 'find' | 'yours' | 'saved' | 'build';
+type HubTab = 'find' | 'yours' | 'saved';
 
 function creatorLabel(sim: SimulationTemplate): string {
   if (sim.visibility === 'global') return 'Admin';
@@ -339,7 +333,6 @@ const SimulationPage: React.FC = () => {
   const [simulationsError, setSimulationsError] = useState<string | null>(null);
   const [hubTab, setHubTab] = useState<HubTab>('find');
   const [hubSearch, setHubSearch] = useState('');
-  const [editingSimulation, setEditingSimulation] = useState<SimulationTemplate | null>(null);
   const [togglingStarId, setTogglingStarId] = useState<string | null>(null);
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
@@ -362,6 +355,7 @@ const SimulationPage: React.FC = () => {
   const [simulationRunSummaryLoading, setSimulationRunSummaryLoading] = useState(false);
   const [adminClearingSimulationLogs, setAdminClearingSimulationLogs] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   /** When true, the running simulation should stop at next opportunity */
   const simulationCancelledRef = useRef(false);
@@ -474,11 +468,6 @@ const SimulationPage: React.FC = () => {
   }, []);
 
   const loadSimulationListForHub = useCallback(async () => {
-    if (hubTab === 'build') {
-      setIsLoadingSimulations(false);
-      setSimulations([]);
-      return;
-    }
     setIsLoadingSimulations(true);
     setSimulationsError(null);
     try {
@@ -574,17 +563,6 @@ const SimulationPage: React.FC = () => {
     } finally {
       setTogglingStarId(null);
     }
-  };
-
-  const handleTemplateSubmit = async (data: CreateSimulationRequest | UpdateSimulationRequest) => {
-    if (editingSimulation) {
-      await simulationTemplateApi.updateMine(editingSimulation.id, data);
-    } else {
-      await simulationTemplateApi.createMine(data as CreateSimulationRequest);
-    }
-    setEditingSimulation(null);
-    setHubTab('yours');
-    await loadSimulationListForHub();
   };
 
   const handleDeleteTemplateFromHub = async (id: string) => {
@@ -1837,19 +1815,18 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
               <div>
                 <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-2">Run simulation</h1>
                 <p className="text-gray-600 max-w-2xl">
-                  Browse templates, manage what you built and saved, or switch to Build to create a new template—then open Configure test to run.
+                  Browse templates (including saved favorites), pick one, then open Configure test to run. Create or edit
+                  templates under{' '}
+                  <span className="font-semibold text-gray-800">Simulations</span> in the sidebar.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingSimulation(null);
-                  setHubTab('build');
-                }}
+                onClick={() => navigate('/simulations')}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
               >
                 <Plus className="w-4 h-4" />
-                New template
+                Simulations hub
               </button>
             </div>
 
@@ -1860,7 +1837,6 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                     { id: 'find' as const, label: 'Find' },
                     { id: 'yours' as const, label: 'Your simulations' },
                     { id: 'saved' as const, label: 'Saved' },
-                    { id: 'build' as const, label: 'Build' },
                   ] as const
                 ).map((tab) => (
                   <button
@@ -1868,7 +1844,6 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                     type="button"
                     onClick={() => {
                       setHubTab(tab.id);
-                      setEditingSimulation(null);
                     }}
                     className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                       hubTab === tab.id
@@ -1882,33 +1857,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
               </nav>
             </div>
 
-            {hubTab === 'build' ? (
-              <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 sm:p-8">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {editingSimulation ? 'Edit simulation template' : 'Build simulation template'}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingSimulation(null);
-                      setHubTab('yours');
-                    }}
-                    className="text-sm text-gray-600 hover:text-indigo-600 font-medium"
-                  >
-                    Back to your simulations
-                  </button>
-                </div>
-                <SimulationTemplateForm
-                  simulation={editingSimulation}
-                  onSubmit={handleTemplateSubmit}
-                  onCancel={() => {
-                    setEditingSimulation(null);
-                    setHubTab('yours');
-                  }}
-                />
-              </div>
-            ) : isLoadingSimulations ? (
+            {isLoadingSimulations ? (
               <div className="text-center py-20">
                 <Loader2 className="w-10 h-10 animate-spin text-indigo-600 mx-auto mb-4" />
                 <p className="text-gray-500">Loading simulations...</p>
@@ -1945,7 +1894,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                   <div className="text-center py-16 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
                     <p className="text-gray-600 font-medium">
                       {hubTab === 'find' && 'No public simulations to explore yet.'}
-                      {hubTab === 'yours' && "You haven't created any simulations yet. Use the Build tab."}
+                      {hubTab === 'yours' &&
+                        "You haven't created any simulations yet. Use Simulations → Build in the sidebar."}
                       {hubTab === 'saved' && 'Nothing saved yet. Star templates from Find or Your simulations.'}
                     </p>
                   </div>
@@ -2036,12 +1986,9 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setEditingSimulation(sim);
-                                    setHubTab('build');
-                                  }}
+                                  onClick={() => navigate('/simulations')}
                                   className="p-3 border border-gray-200 rounded-xl text-indigo-600 hover:bg-gray-50"
-                                  title="Edit template"
+                                  title="Edit template on Simulations page"
                                 >
                                   <Edit className="w-5 h-5" />
                                 </button>

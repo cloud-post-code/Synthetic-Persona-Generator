@@ -45,8 +45,6 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
-  const [isActive, setIsActive] = useState(true);
   const [simulationType, setSimulationType] = useState<SimulationType | ''>('');
   const [allowedPersonaTypes, setAllowedPersonaTypes] = useState<string[]>([]);
   const [personaCountMin, setPersonaCountMin] = useState(1);
@@ -62,16 +60,20 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
   const [templateVisibility, setTemplateVisibility] = useState<'private' | 'public'>('private');
+  /** New templates: step 1 = type only; step 2 = full form. Editing always uses the full form. */
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
 
   const setConfig = (key: string, value: unknown) =>
     setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
 
+  /** Not editable in this form: new templates are active; updates keep the server value. */
+  const isActiveForPayload = simulation?.is_active ?? true;
+
   useEffect(() => {
     if (simulation) {
+      setCreateStep(2);
       setTitle(simulation.title);
       setDescription(simulation.description || '');
-      setSystemPrompt(simulation.system_prompt);
-      setIsActive(simulation.is_active);
       setSimulationType(simulation.simulation_type || '');
       setAllowedPersonaTypes(simulation.allowed_persona_types?.length ? simulation.allowed_persona_types : []);
       setPersonaCountMin(simulation.persona_count_min ?? 1);
@@ -82,6 +84,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setReviewedSystemPrompt('');
       setTemplateVisibility(simulation.visibility === 'public' ? 'public' : 'private');
     } else {
+      setCreateStep(1);
       setTemplateVisibility('private');
     }
   }, [simulation]);
@@ -166,15 +169,15 @@ ${description.trim() || '(empty - please create an initial description based on 
       alert('Title is required');
       return;
     }
-    if (simulationType && !description.trim()) {
+    if (!simulationType) {
+      alert('Select a simulation type');
+      return;
+    }
+    if (!description.trim()) {
       alert('What is this simulation about? is required');
       return;
     }
-    if (!simulationType && !systemPrompt.trim()) {
-      alert('System prompt is required for legacy simulations');
-      return;
-    }
-    if (simulationType && !allowedPersonaTypes.length) {
+    if (!allowedPersonaTypes.length) {
       alert('Select at least one persona type');
       return;
     }
@@ -227,7 +230,7 @@ ${description.trim() || '(empty - please create an initial description based on 
           description: description.trim() || undefined,
           icon: resolvedIcon,
           required_input_fields: inputFields,
-          is_active: isActive,
+          is_active: isActiveForPayload,
           system_prompt: reviewedSystemPrompt.trim(),
         };
         if (!isAdminContext) {
@@ -256,61 +259,37 @@ ${description.trim() || '(empty - please create an initial description based on 
       return;
     }
 
-    // With a type selected: generate prompt and show review step
-    if (simulationType) {
-      setIsSubmitting(true);
-      try {
-        if (simulation) {
-          setReviewedSystemPrompt(simulation.system_prompt || '');
-          setShowPromptReview(true);
-        } else {
-          const payload: CreateSimulationRequest = {
-            title: title.trim(),
-            description: description.trim() || undefined,
-            icon: resolvedIcon,
-            required_input_fields: inputFields,
-            is_active: isActive,
-            simulation_type: simulationType as SimulationType,
-            allowed_persona_types: allowedPersonaTypes,
-            persona_count_min: personaCountMin,
-            persona_count_max: personaCountMax,
-            type_specific_config: Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined,
-          };
-          let systemPromptText: string;
-          try {
-            systemPromptText = await geminiService.generateSystemPromptFromConfig(payload);
-          } catch (aiError: any) {
-            const fallback = await simulationTemplateApi.previewPrompt(payload);
-            systemPromptText = fallback.system_prompt;
-          }
-          setReviewedSystemPrompt(systemPromptText);
-          setShowPromptReview(true);
-        }
-      } catch (error: any) {
-        alert(`Failed to generate prompt: ${error.message || 'Unknown error'}`);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    // Legacy: no type, submit with raw system prompt
+    // Generate / open review step (simulation type is required)
     setIsSubmitting(true);
     try {
-      const data: CreateSimulationRequest | UpdateSimulationRequest = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        icon: resolvedIcon,
-        required_input_fields: inputFields,
-        is_active: isActive,
-        system_prompt: systemPrompt.trim(),
-      };
-      if (!isAdminContext) {
-        (data as CreateSimulationRequest).visibility = templateVisibility as SimulationVisibility;
+      if (simulation) {
+        setReviewedSystemPrompt(simulation.system_prompt || '');
+        setShowPromptReview(true);
+      } else {
+        const payload: CreateSimulationRequest = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          icon: resolvedIcon,
+          required_input_fields: inputFields,
+          is_active: isActiveForPayload,
+          simulation_type: simulationType as SimulationType,
+          allowed_persona_types: allowedPersonaTypes,
+          persona_count_min: personaCountMin,
+          persona_count_max: personaCountMax,
+          type_specific_config: Object.keys(typeSpecificConfig).length ? typeSpecificConfig : undefined,
+        };
+        let systemPromptText: string;
+        try {
+          systemPromptText = await geminiService.generateSystemPromptFromConfig(payload);
+        } catch (aiError: any) {
+          const fallback = await simulationTemplateApi.previewPrompt(payload);
+          systemPromptText = fallback.system_prompt;
+        }
+        setReviewedSystemPrompt(systemPromptText);
+        setShowPromptReview(true);
       }
-      await onSubmit(data);
     } catch (error: any) {
-      alert(`Failed to save: ${error.message || 'Unknown error'}`);
+      alert(`Failed to generate prompt: ${error.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -318,7 +297,42 @@ ${description.trim() || '(empty - please create an initial description based on 
 
   const surveyMode = (typeSpecificConfig.survey_mode as SurveyMode) || 'generated';
 
-  // Icon is always the default for the selected simulation type (or default for legacy)
+  const simulationTypeSection = (
+    <section className="space-y-3" aria-labelledby="simulation-type-heading">
+      <h2 id="simulation-type-heading" className="text-lg font-semibold text-gray-900">
+        Simulation type
+      </h2>
+      <p className="text-sm text-gray-600">
+        Choose the type of simulation. This determines how it runs and what outputs users see.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {SIMULATION_TYPES.map(({ id, label, description, icon: iconName }) => {
+          const TypeIcon = getSimulationIcon(iconName);
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSimulationType(id)}
+              className={`text-left px-4 py-3 rounded-lg border-2 transition-colors flex gap-3 ${
+                simulationType === id
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
+              }`}
+            >
+              <div className="shrink-0 w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                <TypeIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <span className="block text-sm font-medium">{label}</span>
+                <span className="block mt-1 text-xs text-gray-500">{description}</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+
   const resolvedIcon = simulationType
     ? (SIMULATION_TYPES.find((t) => t.id === simulationType)?.icon ?? '').trim() || undefined
     : SIMULATION_ICON_DEFAULT;
@@ -338,7 +352,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         description: description.trim() || undefined,
         icon: resolvedIcon,
         required_input_fields: inputFields,
-        is_active: isActive,
+        is_active: isActiveForPayload,
         simulation_type: simulationType as SimulationType,
         allowed_persona_types: allowedPersonaTypes,
         persona_count_min: personaCountMin,
@@ -421,38 +435,52 @@ ${description.trim() || '(empty - please create an initial description based on 
     );
   }
 
+  if (!simulation && createStep === 1) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-8">
+        {simulationTypeSection}
+        <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 pt-6">
+          <button
+            type="button"
+            disabled={!simulationType}
+            onClick={() => setCreateStep(2)}
+            className="min-h-[44px] rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Continue
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
-      {/* 1. Simulation type */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-900">Simulation type</h2>
-        <p className="text-sm text-gray-600">Choose the type of simulation. This determines how it runs and what outputs users see.</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {SIMULATION_TYPES.map(({ id, label, description, icon: iconName }) => {
-            const TypeIcon = getSimulationIcon(iconName);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSimulationType(id)}
-                className={`text-left px-4 py-3 rounded-lg border-2 transition-colors flex gap-3 ${
-                  simulationType === id
-                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
-                }`}
-              >
-                <div className="shrink-0 w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                  <TypeIcon className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <span className="block text-sm font-medium">{label}</span>
-                  <span className="block mt-1 text-xs text-gray-500">{description}</span>
-                </div>
-              </button>
-            );
-          })}
+      {simulation && simulationTypeSection}
+
+      {!simulation && createStep === 2 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Simulation type</p>
+            <p className="text-sm font-medium text-gray-900">
+              {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label ?? simulationType}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCreateStep(1)}
+            className="shrink-0 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            Change
+          </button>
         </div>
-      </section>
+      )}
 
       {/* 2. Title */}
       <section className="space-y-2">
@@ -496,7 +524,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          required={!!simulationType}
+          required
           rows={4}
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           placeholder="e.g., The persona advises the user on a go-to-market strategy for their product. Tone: direct and data-driven. Audience: a founder or product lead. Success: concrete next steps and clear prioritization, no generic advice."
@@ -508,20 +536,27 @@ ${description.trim() || '(empty - please create an initial description based on 
         <h2 className="text-lg font-semibold text-gray-900">Who can run this simulation</h2>
         <p className="text-sm text-gray-600">Select which persona types are allowed to run this simulation, and how many personas the user must select.</p>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Persona types *</label>
-          <p className="text-xs text-gray-500 mb-2">At least one is required.</p>
-          <div className="flex flex-wrap gap-4">
-            {PERSONA_TYPE_OPTIONS.map(({ value, label }) => (
-              <label key={value} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={allowedPersonaTypes.includes(value)}
-                  onChange={() => togglePersonaType(value)}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                />
-                <span className="text-sm">{label}</span>
-              </label>
-            ))}
+          <span className="mb-2 block text-sm font-medium text-gray-700">Persona types *</span>
+          <p className="mb-3 text-xs text-gray-500">Select at least one. Tap to toggle on or off.</p>
+          <div className="grid max-w-xl gap-3 sm:grid-cols-2" role="group" aria-label="Persona types">
+            {PERSONA_TYPE_OPTIONS.map(({ value, label }) => {
+              const selected = allowedPersonaTypes.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => togglePersonaType(value)}
+                  className={`min-h-[44px] rounded-lg border-2 px-4 py-3 text-left text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+                    selected
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4 max-w-xs">
@@ -989,23 +1024,6 @@ ${description.trim() || '(empty - please create an initial description based on 
                 <span className="text-sm font-medium text-gray-800">Public</span>
               </label>
             </div>
-          </div>
-        )}
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-gray-300 text-indigo-600 w-4 h-4" />
-          <span className="text-sm text-gray-700">Active (visible to users)</span>
-        </label>
-        {!simulationType && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">System prompt * (legacy)</label>
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              required={!simulationType}
-              rows={6}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-              placeholder="Use {{SELECTED_PROFILE}}, {{SELECTED_PROFILE_FULL}}, {{BACKGROUND_INFO}}, and required input field names as {{FIELD_NAME}}"
-            />
           </div>
         )}
         <div className="flex gap-3">
