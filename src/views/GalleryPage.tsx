@@ -7,14 +7,14 @@ import { focusGroupApi } from '../services/focusGroupApi.js';
 import { Persona, PersonaFile, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
 
-type GalleryTab = 'my' | 'saved' | 'focusGroups';
+type GalleryTab = 'my' | 'saved' | 'library' | 'focusGroups';
 
 const GalleryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const { personas, loading, fetchPersonas } = useAvailablePersonas();
   const [activeTab, setActiveTab] = useState<GalleryTab>(() => {
-    if (tabParam === 'saved' || tabParam === 'focusGroups') return tabParam;
+    if (tabParam === 'saved' || tabParam === 'library' || tabParam === 'focusGroups') return tabParam;
     return 'my';
   });
 
@@ -47,6 +47,8 @@ const GalleryPage: React.FC = () => {
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<FocusGroup | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [libraryPersonas, setLibraryPersonas] = useState<Persona[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
 
   useEffect(() => {
     // Load files when viewing a persona
@@ -70,6 +72,19 @@ const GalleryPage: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'focusGroups') {
       loadFocusGroups();
+    }
+    if (activeTab === 'library') {
+      setLibraryLoading(true);
+      personaApi.getLibrary()
+        .then((data) => {
+          setLibraryPersonas(data.map((p) => ({
+            ...p,
+            avatarUrl: p.avatarUrl || p.avatar_url,
+            createdAt: p.created_at || p.createdAt,
+          })));
+        })
+        .catch((err) => console.error('Failed to load persona library:', err))
+        .finally(() => setLibraryLoading(false));
     }
   }, [activeTab]);
 
@@ -170,10 +185,12 @@ const GalleryPage: React.FC = () => {
     }
   };
 
-  const filteredPersonas = personas.filter(p => {
+  const basePersonas = activeTab === 'library' ? libraryPersonas : personas;
+  const filteredPersonas = basePersonas.filter(p => {
     const matchesTab =
       activeTab === 'my' ? p.source === 'owned' :
       activeTab === 'saved' ? (p.source === 'starred' || (p.source === 'owned' && p.starred)) :
+      activeTab === 'library' ? true :
       true;
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                           p.description.toLowerCase().includes(search.toLowerCase());
@@ -196,6 +213,7 @@ const GalleryPage: React.FC = () => {
           <p className="text-gray-500">
             {activeTab === 'my' && 'Personas you created.'}
             {activeTab === 'saved' && 'Personas you saved from the Persona Library.'}
+            {activeTab === 'library' && 'Discover public personas. Star any persona to add it to Saved Personas.'}
             {activeTab === 'focusGroups' && 'Groups you can add all at once in Chat or Simulation.'}
           </p>
         </div>
@@ -218,7 +236,7 @@ const GalleryPage: React.FC = () => {
       </div>
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
-        {(['my', 'saved', 'focusGroups'] as const).map((tab) => (
+        {(['my', 'saved', 'library', 'focusGroups'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -227,12 +245,13 @@ const GalleryPage: React.FC = () => {
           >
             {tab === 'my' && 'My Personas'}
             {tab === 'saved' && 'Saved Personas'}
+            {tab === 'library' && 'Persona Library'}
             {tab === 'focusGroups' && 'Focus Groups'}
           </button>
         ))}
       </div>
 
-      {(activeTab === 'my' || activeTab === 'saved') && (
+      {(activeTab === 'my' || activeTab === 'saved' || activeTab === 'library') && (
       <>
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-8 flex flex-col md:flex-row gap-4">
         <div className="flex-grow relative">
@@ -259,7 +278,7 @@ const GalleryPage: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
+      {(loading || libraryLoading) ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
         </div>
@@ -273,17 +292,21 @@ const GalleryPage: React.FC = () => {
               isStarring={starringId === persona.id}
               isUnstarring={unstarringId === persona.id}
               isUpdatingVisibility={updatingVisibilityId === persona.id}
-              isEditingName={editingNameId === persona.id}
-              editingNameValue={editingNameId === persona.id ? editingNameValue : ''}
-              isSavingName={savingNameId === persona.id}
-              onDelete={() => handleDelete(persona.id)}
-              onStar={persona.source === 'owned' ? () => handleStar(persona.id) : undefined}
-              onUnstar={(persona.source === 'starred' || (persona.source === 'owned' && persona.starred)) ? () => handleUnstar(persona.id) : undefined}
-              onVisibilityChange={persona.source === 'owned' ? (visibility) => handleVisibilityChange(persona.id, visibility) : undefined}
-              onStartEditName={persona.source === 'owned' ? () => handleStartEditName(persona) : undefined}
-              onSaveName={persona.source === 'owned' ? () => handleSaveName(persona.id) : undefined}
+              isEditingName={activeTab === 'my' && editingNameId === persona.id}
+              editingNameValue={activeTab === 'my' && editingNameId === persona.id ? editingNameValue : ''}
+              isSavingName={activeTab === 'my' ? savingNameId === persona.id : false}
+              onDelete={() => activeTab === 'my' && handleDelete(persona.id)}
+              onStar={activeTab === 'library' || persona.source === 'owned' ? () => handleStar(persona.id) : undefined}
+              onUnstar={
+                activeTab === 'library'
+                  ? (starredIds.has(persona.id) ? () => handleUnstar(persona.id) : undefined)
+                  : ((persona.source === 'starred' || (persona.source === 'owned' && persona.starred)) ? () => handleUnstar(persona.id) : undefined)
+              }
+              onVisibilityChange={activeTab === 'my' && persona.source === 'owned' ? (visibility) => handleVisibilityChange(persona.id, visibility) : undefined}
+              onStartEditName={activeTab === 'my' && persona.source === 'owned' ? () => handleStartEditName(persona) : undefined}
+              onSaveName={activeTab === 'my' && persona.source === 'owned' ? () => handleSaveName(persona.id) : undefined}
               onCancelEditName={handleCancelEditName}
-              onEditingNameChange={editingNameId === persona.id ? setEditingNameValue : undefined}
+              onEditingNameChange={activeTab === 'my' && editingNameId === persona.id ? setEditingNameValue : undefined}
               onViewFiles={() => setViewingFilesPersona(persona)}
             />
           ))}
@@ -295,7 +318,19 @@ const GalleryPage: React.FC = () => {
               <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900">No saved personas yet</h3>
               <p className="text-gray-500">Star personas from the Persona Library to add them here.</p>
-              <Link to="/library" className="mt-4 inline-block text-indigo-600 font-semibold hover:underline">Browse Persona Library</Link>
+              <button
+                type="button"
+                onClick={() => setActiveTab('library')}
+                className="mt-4 inline-block text-indigo-600 font-semibold hover:underline"
+              >
+                Browse Persona Library
+              </button>
+            </>
+          ) : activeTab === 'library' ? (
+            <>
+              <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900">No public personas yet</h3>
+              <p className="text-gray-500">Public and admin-created personas will appear here.</p>
             </>
           ) : (
             <>

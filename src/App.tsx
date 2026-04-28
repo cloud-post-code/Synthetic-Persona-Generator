@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, BookOpen, Briefcase, Boxes } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
@@ -8,7 +8,6 @@ import ChatPage from './views/ChatPage.js';
 import SimulationPage from './views/SimulationPage.js';
 import SimulationsHubPage from './views/SimulationsHubPage.js';
 import GalleryPage from './views/GalleryPage.js';
-import PersonaLibraryPage from './views/PersonaLibraryPage.js';
 import LoginPage from './views/LoginPage.js';
 import SettingsPage from './views/SettingsPage.js';
 import BusinessProfilePage from './views/BusinessProfilePage.js';
@@ -24,11 +23,10 @@ const Sidebar: React.FC = () => {
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { label: 'Build', path: '/simulations', icon: Boxes },
+    { label: 'Build simulation', path: '/simulations', icon: Boxes },
     { label: 'Run simulation', path: '/simulate', icon: PlayCircle },
     { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'My Personas', path: '/gallery', icon: User },
-    { label: 'Persona Library', path: '/library', icon: BookOpen },
     { label: 'Business Profile', path: '/business-profile', icon: Briefcase },
     { label: 'Settings', path: '/settings', icon: Settings },
     ...(isAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield }] : []),
@@ -246,7 +244,7 @@ const AppRoutes: React.FC = () => {
         path="/library"
         element={
           <ProtectedRoute>
-            <PersonaLibraryPage />
+            <Navigate to="/gallery?tab=library" replace />
           </ProtectedRoute>
         }
       />

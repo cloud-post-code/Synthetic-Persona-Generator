@@ -1826,7 +1826,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
               >
                 <Plus className="w-4 h-4" />
-                Simulations hub
+                Build simulation
               </button>
             </div>
 

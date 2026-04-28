@@ -5,7 +5,6 @@ import {
   Shield, 
   Bell, 
   Database, 
-  Globe, 
   Lock, 
   Mail, 
   Trash2, 
@@ -16,13 +15,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   LogOut,
-  Monitor,
   Plus
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
 import { useAuth } from '../context/AuthContext.js';
 
-type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'language';
+type SettingsTab = 'profile' | 'security' | 'notifications' | 'data';
 
 const SettingsLink: React.FC<{ icon: any; label: string; active: boolean; onClick: () => void }> = ({ icon: Icon, label, active, onClick }) => (
   <button
@@ -149,13 +147,6 @@ const SettingsPage: React.FC = () => {
             active={activeTab === 'data'} 
             onClick={() => setActiveTab('data')} 
           />
-          <SettingsLink 
-            icon={Globe} 
-            label="Language" 
-            active={activeTab === 'language'} 
-            onClick={() => setActiveTab('language')} 
-          />
-          
           <div className="pt-8 border-t border-gray-100 mt-4">
             <button 
               onClick={logout}
@@ -315,22 +306,6 @@ const SettingsPage: React.FC = () => {
                 </div>
               </Section>
             </div>
-          )}
-
-          {activeTab === 'language' && (
-            <Section title="Regional Settings">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Interface Language</label>
-                  <select className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-bold outline-none">
-                    <option>English (US)</option>
-                    <option>Spanish (Latin America)</option>
-                    <option>French (France)</option>
-                    <option>German (Germany)</option>
-                  </select>
-                </div>
-              </div>
-            </Section>
           )}
 
         </div>
