@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, 
   Shield, 
@@ -19,6 +19,13 @@ import {
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
 import { useAuth } from '../context/AuthContext.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
+import {
+  isVoiceAgentEnabled,
+  isVoiceTtsEnabled,
+  setVoiceAgentEnabled,
+  setVoiceTtsEnabled,
+} from '../voice/voiceSettings.js';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data';
 
@@ -83,6 +90,17 @@ const SettingsPage: React.FC = () => {
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
   const [bio, setBio] = useState('');
+  const [voiceAgentOn, setVoiceAgentOn] = useState(() => isVoiceAgentEnabled());
+  const [voiceTtsOn, setVoiceTtsOn] = useState(() => isVoiceTtsEnabled());
+  const saveProfileRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'settings.save_profile',
+    label: 'Save profile changes',
+    action: 'click',
+    ref: saveProfileRef,
+    enabled: activeTab === 'profile',
+  });
 
   // Update form when user changes
   useEffect(() => {
@@ -210,8 +228,46 @@ const SettingsPage: React.FC = () => {
                   </div>
                 </div>
               </Section>
+              <Section title="Voice assistant">
+                <p className="text-sm text-gray-600 mb-4">
+                  Control the app hands-free. Hold the mic button (or Space outside text fields) to speak. Requires a supported browser (e.g. Chrome) and microphone permission.
+                </p>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-indigo-600 w-5 h-5"
+                      checked={voiceAgentOn}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setVoiceAgentOn(on);
+                        setVoiceAgentEnabled(on);
+                      }}
+                    />
+                    <span className="text-sm font-medium text-gray-800">Enable voice agent (floating mic)</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-indigo-600 w-5 h-5"
+                      checked={voiceTtsOn}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setVoiceTtsOn(on);
+                        setVoiceTtsEnabled(on);
+                      }}
+                    />
+                    <span className="text-sm font-medium text-gray-800">Speak confirmations (text-to-speech)</span>
+                  </label>
+                </div>
+              </Section>
               <div className="flex justify-end">
-                <button onClick={handleSave} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
+                <button
+                  ref={saveProfileRef}
+                  type="button"
+                  onClick={handleSave}
+                  className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                >
                   Save Changes
                 </button>
               </div>

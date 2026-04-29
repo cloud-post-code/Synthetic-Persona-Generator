@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
@@ -15,6 +15,39 @@ import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
 import { ApiErrorBanner } from './components/ApiErrorBanner.js';
+import { VoiceAgentProvider } from './voice/VoiceAgentProvider.js';
+import { VoiceAgentDock } from './voice/VoiceAgentDock.js';
+import { useVoiceTarget } from './voice/useVoiceTarget.js';
+
+const SidebarNavLink: React.FC<{
+  to: string;
+  label: string;
+  icon: React.ElementType;
+  isActive: boolean;
+  voiceId: string;
+  onNavigate: () => void;
+}> = ({ to, label, icon: Icon, isActive, voiceId, onNavigate }) => {
+  const linkRef = useRef<HTMLAnchorElement>(null);
+  useVoiceTarget({
+    id: voiceId,
+    label: `Go to ${label}`,
+    action: 'click',
+    ref: linkRef,
+  });
+  return (
+    <Link
+      ref={linkRef}
+      to={to}
+      onClick={onNavigate}
+      className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+        isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600'
+      }`}
+    >
+      <Icon className="w-5 h-5 mr-3" />
+      {label}
+    </Link>
+  );
+};
 
 const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -75,20 +108,17 @@ const Sidebar: React.FC = () => {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
+            const voiceId = item.path === '/' ? 'nav.home' : `nav.${item.path.slice(1).replace(/\//g, '.')}`;
             return (
-              <Link
+              <SidebarNavLink
                 key={item.path}
                 to={item.path}
-                onClick={() => setIsMobileOpen(false)}
-                className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600'
-                }`}
-              >
-                <Icon className="w-5 h-5 mr-3" />
-                {item.label}
-              </Link>
+                label={item.label}
+                icon={Icon}
+                isActive={isActive}
+                voiceId={voiceId}
+                onNavigate={() => setIsMobileOpen(false)}
+              />
             );
           })}
         </nav>
@@ -289,13 +319,16 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen flex">
-          <Sidebar />
-          <main className="flex-1 lg:ml-64 flex flex-col">
-            <AppRoutes />
-          </main>
-        </div>
-        <ApiErrorBanner />
+        <VoiceAgentProvider>
+          <div className="min-h-screen flex">
+            <Sidebar />
+            <main className="flex-1 lg:ml-64 flex flex-col">
+              <AppRoutes />
+            </main>
+          </div>
+          <VoiceAgentDock />
+          <ApiErrorBanner />
+        </VoiceAgentProvider>
       </Router>
     </AuthProvider>
   );

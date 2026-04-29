@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Filter, MessageSquare, Trash2, Calendar, User, FileText, X, ChevronRight, Download, Loader2, Star, Lock, Globe, Pencil, Check, Users, Plus, BookOpen } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
@@ -6,8 +6,31 @@ import { personaApi } from '../services/personaApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import { Persona, PersonaFile, FocusGroup } from '../models/types.js';
 import { getPersonaDisplayName } from '../utils/humanNames.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 
 type GalleryTab = 'my' | 'saved' | 'library' | 'focusGroups';
+
+const GalleryTabButton: React.FC<{
+  tab: GalleryTab;
+  voiceId: string;
+  voiceLabel: string;
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}> = ({ voiceId, voiceLabel, active, children, onClick, tab: _tab }) => {
+  const ref = useRef<HTMLButtonElement>(null);
+  useVoiceTarget({ id: voiceId, label: voiceLabel, action: 'click', ref });
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${active ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+    >
+      {children}
+    </button>
+  );
+};
 
 const GalleryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,6 +72,23 @@ const GalleryPage: React.FC = () => {
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [libraryPersonas, setLibraryPersonas] = useState<Persona[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const gallerySearchRef = useRef<HTMLInputElement>(null);
+  const newPersonaLinkRef = useRef<HTMLAnchorElement>(null);
+
+  useVoiceTarget({
+    id: 'gallery.search_personas',
+    label: 'Search personas',
+    action: 'fill',
+    ref: gallerySearchRef,
+    enabled: activeTab === 'my' || activeTab === 'saved' || activeTab === 'library',
+  });
+  useVoiceTarget({
+    id: 'gallery.new_persona',
+    label: 'New Persona',
+    action: 'click',
+    ref: newPersonaLinkRef,
+    enabled: activeTab === 'my',
+  });
 
   useEffect(() => {
     // Load files when viewing a persona
@@ -219,6 +259,7 @@ const GalleryPage: React.FC = () => {
         </div>
         {activeTab === 'my' ? (
           <Link
+            ref={newPersonaLinkRef}
             to="/build"
             className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
           >
@@ -237,17 +278,27 @@ const GalleryPage: React.FC = () => {
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
         {(['my', 'saved', 'library', 'focusGroups'] as const).map((tab) => (
-          <button
+          <GalleryTabButton
             key={tab}
-            type="button"
+            tab={tab}
+            voiceId={`gallery.tab.${tab}`}
+            voiceLabel={
+              tab === 'my'
+                ? 'My Personas tab'
+                : tab === 'saved'
+                  ? 'Saved Personas tab'
+                  : tab === 'library'
+                    ? 'Persona Library tab'
+                    : 'Focus Groups tab'
+            }
+            active={activeTab === tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
           >
             {tab === 'my' && 'My Personas'}
             {tab === 'saved' && 'Saved Personas'}
             {tab === 'library' && 'Persona Library'}
             {tab === 'focusGroups' && 'Focus Groups'}
-          </button>
+          </GalleryTabButton>
         ))}
       </div>
 
@@ -257,6 +308,7 @@ const GalleryPage: React.FC = () => {
         <div className="flex-grow relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
+            ref={gallerySearchRef}
             type="text"
             placeholder="Search personas..."
             value={search}
@@ -670,6 +722,13 @@ const PersonaCard: React.FC<{
   onViewFiles: () => void;
 }> = ({ persona, isDeleting, isStarring, isUnstarring, isUpdatingVisibility, isEditingName, editingNameValue, isSavingName, onDelete, onStar, onUnstar, onVisibilityChange, onStartEditName, onSaveName, onCancelEditName, onEditingNameChange, onViewFiles }) => {
   const navigate = useNavigate();
+  const chatBtnRef = useRef<HTMLButtonElement>(null);
+  useVoiceTarget({
+    id: `gallery.open_chat.${persona.id}`,
+    label: `Open chat with ${getPersonaDisplayName(persona)}`,
+    action: 'click',
+    ref: chatBtnRef,
+  });
   const isOwned = persona.source === 'owned';
   const isStarred = persona.source === 'starred' || persona.starred;
   const isPublic = (persona.visibility || 'private') === 'public';
@@ -829,6 +888,8 @@ const PersonaCard: React.FC<{
             <FileText className="w-4 h-4" /> Files
           </button>
           <button
+            ref={chatBtnRef}
+            type="button"
             onClick={() => navigate(`/chat?personaId=${persona.id}`)}
             className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
           >

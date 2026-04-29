@@ -12,6 +12,7 @@ import {
 import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getSimulationIcon, SIMULATION_ICON_DEFAULT } from '../utils/simulationIcons.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -60,8 +61,17 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [showPromptReview, setShowPromptReview] = useState(false);
   const [reviewedSystemPrompt, setReviewedSystemPrompt] = useState('');
   const [templateVisibility, setTemplateVisibility] = useState<'private' | 'public'>('private');
-  /** New templates: step 1 = type only; step 2 = full form. Editing always uses the full form. */
+  /** New templates: step 1 = type only; step 2 = full form. Editing opens on the main form with type collapsed until "Change type". */
   const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const [editTypePickerOpen, setEditTypePickerOpen] = useState(false);
+  const simulationSaveRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'simulations.save_template',
+    label: 'Save simulation template',
+    action: 'click',
+    ref: simulationSaveRef,
+  });
 
   const setConfig = (key: string, value: unknown) =>
     setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
@@ -72,6 +82,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   useEffect(() => {
     if (simulation) {
       setCreateStep(2);
+      setEditTypePickerOpen(false);
       setTitle(simulation.title);
       setDescription(simulation.description || '');
       setSimulationType(simulation.simulation_type || '');
@@ -85,6 +96,7 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
       setTemplateVisibility(simulation.visibility === 'public' ? 'public' : 'private');
     } else {
       setCreateStep(1);
+      setEditTypePickerOpen(false);
       setTemplateVisibility('private');
     }
   }, [simulation]);
@@ -423,6 +435,7 @@ ${description.trim() || '(empty - please create an initial description based on 
             Back
           </button>
           <button
+            ref={simulationSaveRef}
             type="button"
             onClick={(e) => { e.preventDefault(); handleSubmit(e as unknown as React.FormEvent); }}
             disabled={isSubmitting}
@@ -462,7 +475,34 @@ ${description.trim() || '(empty - please create an initial description based on 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
-      {simulation && simulationTypeSection}
+      {simulation && (editTypePickerOpen ? (
+        <div className="space-y-4">
+          {simulationTypeSection}
+          <button
+            type="button"
+            onClick={() => setEditTypePickerOpen(false)}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Done choosing type
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Simulation type</p>
+            <p className="text-sm font-medium text-gray-900">
+              {SIMULATION_TYPES.find((t) => t.id === simulationType)?.label ?? (simulationType || 'Not set')}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditTypePickerOpen(true)}
+            className="shrink-0 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            Change type
+          </button>
+        </div>
+      ))}
 
       {!simulation && createStep === 2 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
@@ -1028,6 +1068,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         )}
         <div className="flex gap-3">
           <button
+            ref={simulationSaveRef}
             type="submit"
             disabled={isSubmitting}
             className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"

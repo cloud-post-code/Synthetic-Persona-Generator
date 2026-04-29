@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Send, Plus, User, Bot, Loader2, ArrowLeft, MoreVertical, Trash2, History, Users, X, MessageSquare, XCircle } from 'lucide-react';
 import { useAvailablePersonas } from '../hooks/usePersonas.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { useChatSessions } from '../hooks/useChatSessions.js';
 import { chatApi } from '../services/chatApi.js';
 import { personaApi } from '../services/personaApi.js';
@@ -153,6 +154,22 @@ const ChatPage: React.FC = () => {
   const { sessions: pastSessions, fetchSessions } = useChatSessions();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendBtnRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'chat.message_input',
+    label: 'Message input',
+    action: 'fill',
+    ref: textareaRef,
+    enabled: !!session && selectedPersonas.length > 0,
+  });
+  useVoiceTarget({
+    id: 'chat.send',
+    label: 'Send message',
+    action: 'click',
+    ref: sendBtnRef,
+    enabled: !!session && selectedPersonas.length > 0,
+  });
 
   // Save session to localStorage when it changes
   useEffect(() => {
@@ -744,6 +761,7 @@ const ChatPage: React.FC = () => {
                     className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-[2rem] font-medium focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white transition-all pr-20 shadow-inner disabled:opacity-50 resize-none overflow-hidden min-h-[64px]"
                   />
                   <button
+                    ref={sendBtnRef}
                     type="submit"
                     disabled={!input.trim() || isLoading}
                     className="absolute right-3 bottom-3 p-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all disabled:bg-gray-200 disabled:text-gray-400 shadow-xl shadow-indigo-100"

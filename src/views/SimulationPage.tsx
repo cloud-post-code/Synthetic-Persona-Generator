@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ChevronRight, 
   ChevronDown,
@@ -23,6 +23,8 @@ import {
   Edit,
   PlayCircle,
   Users,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { Persona, SimulationMode, Message, SimulationSession, FocusGroup } from '../models/types.js';
 import type { BusinessProfile } from '../models/types.js';
@@ -39,12 +41,14 @@ import {
 import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../services/agentApi.js';
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
+import { BusinessProfileInlineGenerate } from '../components/BusinessProfileInlineGenerate.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
 import {
@@ -299,6 +303,31 @@ const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean 
   );
 };
 
+const ConfigureSimulationTemplateButton: React.FC<{
+  templateId: string;
+  templateTitle: string;
+  onPick: () => void;
+}> = ({ templateId, templateTitle, onPick }) => {
+  const ref = useRef<HTMLButtonElement>(null);
+  useVoiceTarget({
+    id: `simulate.configure.${templateId}`,
+    label: `Configure test: ${templateTitle}`,
+    action: 'click',
+    ref,
+  });
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onPick}
+      className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-black uppercase tracking-wider hover:bg-indigo-700"
+    >
+      <PlayCircle className="w-4 h-4" />
+      Configure test
+    </button>
+  );
+};
+
 const SimulationPage: React.FC = () => {
   const [stage, setStage] = useState<'selection' | 'inputs' | 'result'>('selection');
   const [selectedSimulation, setSelectedSimulation] = useState<SimulationTemplate | null>(null);
@@ -334,6 +363,7 @@ const SimulationPage: React.FC = () => {
   const [hubTab, setHubTab] = useState<HubTab>('find');
   const [hubSearch, setHubSearch] = useState('');
   const [togglingStarId, setTogglingStarId] = useState<string | null>(null);
+  const [updatingTemplateVisibilityId, setUpdatingTemplateVisibilityId] = useState<string | null>(null);
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -356,6 +386,40 @@ const SimulationPage: React.FC = () => {
   const [adminClearingSimulationLogs, setAdminClearingSimulationLogs] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const simNewSessionRef = useRef<HTMLButtonElement>(null);
+  const simGotoHubRef = useRef<HTMLButtonElement>(null);
+  const simHubSearchRef = useRef<HTMLInputElement>(null);
+  const simStartRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'simulate.new_session',
+    label: 'New simulation',
+    action: 'click',
+    ref: simNewSessionRef,
+    enabled: stage === 'selection',
+  });
+  useVoiceTarget({
+    id: 'simulate.goto_hub',
+    label: 'Build simulation',
+    action: 'click',
+    ref: simGotoHubRef,
+    enabled: stage === 'selection',
+  });
+  useVoiceTarget({
+    id: 'simulate.search_templates',
+    label: 'Search templates',
+    action: 'fill',
+    ref: simHubSearchRef,
+    enabled: stage === 'selection',
+  });
+  useVoiceTarget({
+    id: 'simulate.start',
+    label: 'Start simulation',
+    action: 'click',
+    ref: simStartRef,
+    enabled: stage === 'inputs',
+  });
 
   /** When true, the running simulation should stop at next opportunity */
   const simulationCancelledRef = useRef(false);
@@ -573,6 +637,19 @@ const SimulationPage: React.FC = () => {
       await loadStarredIds();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const handleHubTemplateVisibility = async (sim: SimulationTemplate, visibility: 'public' | 'private') => {
+    setUpdatingTemplateVisibilityId(sim.id);
+    try {
+      await simulationTemplateApi.updateMine(sim.id, { visibility });
+      setSimulations((prev) => prev.map((s) => (s.id === sim.id ? { ...s, visibility } : s)));
+      setSelectedSimulation((prev) => (prev?.id === sim.id ? { ...prev, visibility } : prev));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Could not update visibility');
+    } finally {
+      setUpdatingTemplateVisibilityId(null);
     }
   };
 
@@ -1751,6 +1828,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       >
         <div className="p-4 border-b border-gray-100 bg-white">
           <button
+            ref={simNewSessionRef}
+            type="button"
             onClick={startNewSim}
             className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
           >
@@ -1821,6 +1900,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                 </p>
               </div>
               <button
+                ref={simGotoHubRef}
                 type="button"
                 onClick={() => navigate('/simulations')}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
@@ -1881,6 +1961,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                   <div className="relative max-w-xl">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
+                      ref={simHubSearchRef}
                       type="search"
                       placeholder="Search by title, description, or creator..."
                       value={hubSearch}
@@ -1968,27 +2049,60 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                               {minP === maxP ? `${minP} persona${minP !== 1 ? 's' : ''}` : `${minP}–${maxP} personas`}
                             </span>
                           </div>
-                          <div className="flex flex-wrap gap-2 mt-auto">
-                            <button
-                              type="button"
-                              onClick={() => {
+                          <div className="flex flex-col gap-2 mt-auto">
+                            {hubTab === 'yours' && (sim.visibility === 'private' || sim.visibility === 'public') && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleHubTemplateVisibility(
+                                    sim,
+                                    sim.visibility === 'public' ? 'private' : 'public'
+                                  )
+                                }
+                                disabled={updatingTemplateVisibilityId === sim.id}
+                                className={`w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-xs font-bold transition-all ${
+                                  sim.visibility === 'public'
+                                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                } ${updatingTemplateVisibilityId === sim.id ? 'opacity-70 cursor-wait' : ''}`}
+                                title={
+                                  sim.visibility === 'public'
+                                    ? 'Make private (only you see this template in Your simulations)'
+                                    : 'Make public (others can discover it under Find)'
+                                }
+                              >
+                                {updatingTemplateVisibilityId === sim.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                ) : sim.visibility === 'public' ? (
+                                  <Lock className="w-3.5 h-3.5 shrink-0" />
+                                ) : (
+                                  <Globe className="w-3.5 h-3.5 shrink-0" />
+                                )}
+                                {updatingTemplateVisibilityId === sim.id
+                                  ? 'Updating…'
+                                  : sim.visibility === 'public'
+                                    ? 'Make private'
+                                    : 'Make public'}
+                              </button>
+                            )}
+                            <div className="flex flex-wrap gap-2">
+                            <ConfigureSimulationTemplateButton
+                              templateTitle={sim.title}
+                              templateId={sim.id}
+                              onPick={() => {
                                 setSelectedSimulation(sim);
                                 setStage('inputs');
                                 setInputFields({});
                                 setSurveyGeneratedAnswers({});
                               }}
-                              className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-black uppercase tracking-wider hover:bg-indigo-700"
-                            >
-                              <PlayCircle className="w-4 h-4" />
-                              Configure test
-                            </button>
+                            />
                             {hubTab === 'yours' && (
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => navigate('/simulations')}
+                                  onClick={() => navigate(`/simulations?edit=${encodeURIComponent(sim.id)}`)}
                                   className="p-3 border border-gray-200 rounded-xl text-indigo-600 hover:bg-gray-50"
-                                  title="Edit template on Simulations page"
+                                  title="Edit template (opens full editor, skips new-template type step)"
                                 >
                                   <Edit className="w-5 h-5" />
                                 </button>
@@ -2002,6 +2116,7 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                                 </button>
                               </>
                             )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -2148,6 +2263,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                           </ul>
                         </div>
                         <button
+                          ref={simStartRef}
+                          type="button"
                           disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
                           onClick={startSimulation}
                           className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"
@@ -2180,10 +2297,22 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                           ) : savedBusinessProfile ? (
                             <div>
                               <p className="text-sm font-bold text-indigo-700 mb-1">Using your saved business background</p>
-                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from Settings are included as context.</p>
+                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from your Business Profile are included as context.</p>
                             </div>
                           ) : (
-                            <p className="text-amber-800 font-medium">No business background saved. Add it in Settings → Business background to use here.</p>
+                            <div className="space-y-4">
+                              <p className="text-sm text-amber-900 font-medium">
+                                No business background saved yet. Generate one with AI below, or add it on the{' '}
+                                <Link to="/business-profile" className="text-indigo-700 font-bold underline">
+                                  Business Profile
+                                </Link>{' '}
+                                page.
+                              </p>
+                              <BusinessProfileInlineGenerate
+                                variant="compact"
+                                onSaved={(p) => setSavedBusinessProfile(p)}
+                              />
+                            </div>
                           )}
                         </div>
                       </div>
@@ -2476,6 +2605,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                 })}
 
                 <button
+                  ref={simStartRef}
+                  type="button"
                   disabled={isLoading || selectedPersonas.length < personaCountMin || selectedPersonas.length > personaCountMax || !selectedSimulation || requiredBusinessProfileMissing}
                   onClick={startSimulation}
                   className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 transition-all flex items-center justify-center gap-4 group"

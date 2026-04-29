@@ -4,8 +4,11 @@ import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, 
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
+import { BusinessProfileInlineGenerate } from '../components/BusinessProfileInlineGenerate.js';
 import type { BusinessProfile } from '../models/types.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
+import { commandBus } from '../voice/commandBus.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 
 // Import split templates
 import { marketCanvasTemplate } from '../../templates/marketCanvasTemplate.js';
@@ -28,7 +31,14 @@ const FormItem: React.FC<{ label: string; value: string; onChange: (v: string) =
   </div>
 );
 
-const TypeCard: React.FC<{ title: string; description: string; icon: any; onClick: () => void; theme: string }> = ({ title, description, icon: Icon, onClick, theme }) => {
+const TypeCard: React.FC<{
+  title: string;
+  description: string;
+  icon: any;
+  onClick: () => void;
+  theme: string;
+  buttonRef?: React.RefObject<HTMLButtonElement | null>;
+}> = ({ title, description, icon: Icon, onClick, theme, buttonRef }) => {
   const themes: Record<string, string> = {
     indigo: 'hover:border-indigo-600 shadow-indigo-100/50 bg-indigo-50 text-indigo-600',
     violet: 'hover:border-violet-600 shadow-violet-100/50 bg-violet-50 text-violet-600',
@@ -40,6 +50,8 @@ const TypeCard: React.FC<{ title: string; description: string; icon: any; onClic
 
   return (
     <button
+      ref={buttonRef}
+      type="button"
       onClick={onClick}
       className={`group relative bg-white border border-gray-100 p-10 rounded-[2.5rem] transition-all hover:shadow-2xl hover:-translate-y-2 text-left flex flex-col h-full border-b-8 ${themes[theme].split(' ')[0]}`}
     >
@@ -154,6 +166,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const cancelledRef = useRef(false);
+  const buildSaveRef = useRef<HTMLButtonElement>(null);
   const [q6FileName, setQ6FileName] = useState('');
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
   const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
@@ -173,6 +186,14 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
         .finally(() => setBusinessProfileLoading(false));
     }
   }, [method]);
+
+  useVoiceTarget({
+    id: 'build.save',
+    label: 'Save and go to My Personas',
+    action: 'click',
+    ref: buildSaveRef,
+    enabled: !!(createdPersonaIds && createdPersonaIds.length > 0),
+  });
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -340,6 +361,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
             {visibilityChoice === 'public' ? 'Everyone can discover and use these personas in My Personas.' : 'Only you can see and use these personas.'}
           </p>
           <button
+            ref={buildSaveRef}
             type="button"
             disabled={savingVisibility}
             onClick={async () => {
@@ -348,6 +370,7 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
                 for (const id of createdPersonaIds) {
                   await personaApi.update(id, { visibility: visibilityChoice });
                 }
+                commandBus.emit({ type: 'persona:saved' });
                 onComplete();
               } catch (err: any) {
                 alert(err?.message || 'Failed to save visibility');
@@ -481,8 +504,14 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
                 <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Business Profile will be included in generation.</p>
               </div>
             ) : (
-              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-6">
-                <p className="text-amber-800 font-medium">No business background saved. Add it in Business Profile, then return here.</p>
+              <div className="space-y-4">
+                <p className="text-sm text-amber-900 font-medium">
+                  No business background saved yet. Use Generate with AI below, or fill your profile on the Business Profile page first.
+                </p>
+                <BusinessProfileInlineGenerate
+                  variant="compact"
+                  onSaved={(p) => setSavedBusinessProfile(p)}
+                />
               </div>
             )}
             <FormItem
@@ -545,6 +574,15 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
   const [fileName, setFileName] = useState('');
   const [fileBase64, setFileBase64] = useState<string>('');
   const [fileMimeType, setFileMimeType] = useState<string>('');
+  const buildSaveRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'build.save',
+    label: 'Save and go to My Personas',
+    action: 'click',
+    ref: buildSaveRef,
+    enabled: !!(createdPersonaIds && createdPersonaIds.length > 0),
+  });
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -891,6 +929,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             {visibilityChoice === 'public' ? 'Everyone can discover and use this persona in My Personas.' : 'Only you can see and use this persona.'}
           </p>
           <button
+            ref={buildSaveRef}
             type="button"
             disabled={savingVisibility}
             onClick={async () => {
@@ -899,6 +938,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
                 for (const id of createdPersonaIds) {
                   await personaApi.update(id, { visibility: visibilityChoice });
                 }
+                commandBus.emit({ type: 'persona:saved' });
                 onComplete();
               } catch (err: any) {
                 alert(err?.message || 'Failed to save visibility');
@@ -1063,6 +1103,31 @@ const BuildPersonaPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultPublic = searchParams.get('visibility') === 'public';
+  const syntheticPickRef = useRef<HTMLButtonElement>(null);
+  const advisorPickRef = useRef<HTMLButtonElement>(null);
+  const buildBackRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'build.choose_synthetic',
+    label: 'Open Synthetic User builder',
+    action: 'click',
+    ref: syntheticPickRef,
+    enabled: !selectedBuildMode,
+  });
+  useVoiceTarget({
+    id: 'build.choose_advisor',
+    label: 'Open Advisor builder',
+    action: 'click',
+    ref: advisorPickRef,
+    enabled: !selectedBuildMode,
+  });
+  useVoiceTarget({
+    id: 'build.back',
+    label: 'Back to selection',
+    action: 'click',
+    ref: buildBackRef,
+    enabled: !!selectedBuildMode,
+  });
 
   // When arriving via /build?type=advisor or /build?type=synthetic_user, open that form directly
   useEffect(() => {
@@ -1092,6 +1157,7 @@ const BuildPersonaPage: React.FC = () => {
             icon={Target}
             onClick={() => setSelectedBuildMode('synthetic_user')}
             theme="indigo"
+            buttonRef={syntheticPickRef}
           />
           <TypeCard
             title="Advisor"
@@ -1099,6 +1165,7 @@ const BuildPersonaPage: React.FC = () => {
             icon={Sparkles}
             onClick={() => setSelectedBuildMode('advisor')}
             theme="violet"
+            buttonRef={advisorPickRef}
           />
         </div>
       </div>
@@ -1108,6 +1175,8 @@ const BuildPersonaPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 w-full">
       <button
+        ref={buildBackRef}
+        type="button"
         onClick={handleBack}
         className="flex items-center text-sm font-bold text-gray-400 hover:text-indigo-600 mb-8 transition-colors uppercase tracking-widest"
       >

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { commandBus } from '../voice/commandBus.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { CheckCircle2, AlertTriangle, Sparkles, Upload, Loader2, X } from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
@@ -10,13 +12,23 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </div>
 );
 
-const InputField: React.FC<{ label: string; type?: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; icon?: any; prefix?: string; placeholder?: string }> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, placeholder }) => (
+const InputField: React.FC<{
+  label: string;
+  type?: string;
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  icon?: any;
+  prefix?: string;
+  placeholder?: string;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+}> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, placeholder, inputRef }) => (
   <div className="space-y-2">
     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
     <div className="relative">
       {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
       {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
       <input
+        ref={inputRef}
         type={type}
         value={value}
         onChange={onChange}
@@ -71,6 +83,23 @@ const BusinessProfilePage: React.FC = () => {
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
   const [companyHint, setCompanyHint] = useState('');
   const generateCancelledRef = useRef(false);
+  const businessNameInputRef = useRef<HTMLInputElement>(null);
+  const businessSaveRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'business.business_name',
+    label: 'Business name',
+    action: 'fill',
+    ref: businessNameInputRef,
+    enabled: !businessProfileLoading,
+  });
+  useVoiceTarget({
+    id: 'business.save',
+    label: 'Save business profile',
+    action: 'click',
+    ref: businessSaveRef,
+    enabled: !businessProfileLoading,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +161,7 @@ const BusinessProfilePage: React.FC = () => {
     };
     try {
       await saveBusinessProfile(payload);
+      commandBus.emit({ type: 'business_profile:saved' });
       setSaveStatus('Business Profile saved successfully!');
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
@@ -321,7 +351,12 @@ const BusinessProfilePage: React.FC = () => {
             </Section>
             <Section title="Company Overview">
               <div className="space-y-4">
-                <InputField label="Business Name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+                <InputField
+                  label="Business Name"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  inputRef={businessNameInputRef}
+                />
                 <TextAreaField label="Mission Statement" value={missionStatement} onChange={(e) => setMissionStatement(e.target.value)} placeholder="What is your company's mission?" />
                 <TextAreaField label="Vision Statement" value={visionStatement} onChange={(e) => setVisionStatement(e.target.value)} placeholder="Where is your company headed?" />
                 <TextAreaField label="Description of Main Offerings" value={descriptionMainOfferings} onChange={(e) => setDescriptionMainOfferings(e.target.value)} placeholder="Describe your main products or services" />
@@ -358,7 +393,12 @@ const BusinessProfilePage: React.FC = () => {
                   {saveStatus}
                 </div>
               )}
-              <button onClick={handleSaveBusiness} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
+              <button
+                ref={businessSaveRef}
+                type="button"
+                onClick={handleSaveBusiness}
+                className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+              >
                 Save Business Profile
               </button>
             </div>
