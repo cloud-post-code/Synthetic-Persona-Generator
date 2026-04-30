@@ -5,11 +5,18 @@ import { commandBus } from './commandBus.js';
 import { buildUiMapForPrompt, findNodeId } from './uiMap.js';
 import { initTaskTrackerBus, taskTracker } from './taskTracker.js';
 import { voiceTargetRegistry } from './voiceTargetRegistry.js';
-import type { VoiceIntent, VoiceTargetAction } from './intents.js';
+import type { VoiceIntent, VoiceIntentResult, VoiceTargetAction } from './intents.js';
+import { isVoiceIntentBatch } from './intents.js';
 import { postVoiceIntentForUser } from './voiceApi.js';
 import { inferActionForElement, mergeVisibleVoiceTargets } from './scanVisibleVoiceTargets.js';
 import { cancelSpeech, speak as speakTts } from './tts.js';
 import { isVoiceAgentEnabled, isVoiceTtsEnabled } from './voiceSettings.js';
+import {
+  buildUndoBeforeIntent,
+  matchesVoiceUndoCommand,
+  voiceUndoStack,
+  type UndoFn,
+} from './voiceUndoStack.js';
 
 export type VoiceAgentState = 'idle' | 'listening' | 'thinking' | 'acting' | 'speaking';
 
@@ -77,9 +84,19 @@ function executeDomAction(targetId: string, action: VoiceTargetAction, value?: s
   return false;
 }
 
+function waitForDomTick(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
 export function VoiceAgentProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const { user, loading, isAdmin } = useAuth();
   const [agentState, setAgentState] = useState<VoiceAgentState>('idle');
   const [lastTranscript, setLastTranscript] = useState('');
@@ -104,9 +121,8 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
     (!!user || location.pathname === '/login') && !loading && isVoiceAgentEnabled();
 
   const runIntent = useCallback(
-    async (intent: VoiceIntent) => {
-      setAgentState('acting');
-      setLastIntentSummary(intent.type);
+    async (intent: VoiceIntent): Promise<UndoFn | null> => {
+      const undo = buildUndoBeforeIntent(intent, locationRef.current, navigate);
 
       const speakReason = (reason?: string) => {
         if (reason && isVoiceTtsEnabled()) maybeSpeak(reason);
@@ -127,10 +143,13 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
           if (!ok) {
             maybeSpeak('That would take us off the current task. Say cancel to stop the task.');
             setAgentState('idle');
-            return;
+            return null;
           }
         }
       }
+
+      setAgentState('acting');
+      setLastIntentSummary(intent.type);
 
       switch (intent.type) {
         case 'navigate': {
@@ -141,16 +160,18 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
           break;
         }
         case 'set_query': {
-          const sp = new URLSearchParams(location.search.replace(/^\?/, ''));
+          const loc = locationRef.current;
+          const sp = new URLSearchParams(loc.search.replace(/^\?/, ''));
           for (const [k, v] of Object.entries(intent.query)) {
             sp.set(k, v);
           }
-          navigate({ pathname: location.pathname, search: sp.toString() ? `?${sp.toString()}` : '' });
+          navigate({ pathname: loc.pathname, search: sp.toString() ? `?${sp.toString()}` : '' });
           taskTracker.recordStep();
           speakReason(intent.reason);
           break;
         }
         case 'action': {
+          mergeVisibleVoiceTargets();
           const entry = voiceTargetRegistry.get(intent.target_id);
           const safe = intent.target_id.replace(/"/g, '\\"');
           const el = document.querySelector<HTMLElement>(`[data-voice-target="${safe}"]`);
@@ -181,13 +202,14 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
           break;
       }
 
-      let pathAfter = location.pathname;
-      let searchAfter = location.search;
+      const locAfter = locationRef.current;
+      let pathAfter = locAfter.pathname;
+      let searchAfter = locAfter.search;
       if (intent.type === 'navigate') {
         pathAfter = intent.path;
         searchAfter = intent.query ? `?${new URLSearchParams(intent.query).toString()}` : '';
       } else if (intent.type === 'set_query') {
-        const sp = new URLSearchParams(location.search.replace(/^\?/, ''));
+        const sp = new URLSearchParams(locAfter.search.replace(/^\?/, ''));
         for (const [k, v] of Object.entries(intent.query)) {
           sp.set(k, v);
         }
@@ -215,8 +237,10 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
       } else {
         setAgentState('idle');
       }
+
+      return undo;
     },
-    [navigate, location.pathname, location.search]
+    [navigate]
   );
 
   const processFinalTranscript = useCallback(
@@ -232,6 +256,16 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
         return;
       }
 
+      if (matchesVoiceUndoCommand(trimmed)) {
+        if (voiceUndoStack.undoLast()) {
+          maybeSpeak('Undid that.');
+        } else {
+          maybeSpeak('Nothing to undo.');
+        }
+        setAgentState('idle');
+        return;
+      }
+
       processingRef.current = true;
       setAgentState('thinking');
       setLastError(null);
@@ -243,7 +277,7 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
           isAuthenticated: !!user,
           isAdmin,
         });
-        const intent = await postVoiceIntentForUser(
+        const intentResult: VoiceIntentResult = await postVoiceIntentForUser(
           {
             transcript: trimmed,
             context: {
@@ -260,7 +294,27 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
           !!user
         );
 
-        await runIntent(intent);
+        const steps: VoiceIntent[] = isVoiceIntentBatch(intentResult)
+          ? intentResult.steps
+          : [intentResult];
+
+        const undoOps: UndoFn[] = [];
+        for (let i = 0; i < steps.length; i++) {
+          const op = await runIntent(steps[i]!);
+          if (op) undoOps.push(op);
+          if (i < steps.length - 1) {
+            await waitForDomTick();
+            const prev = steps[i]!;
+            if (prev.type === 'navigate' || prev.type === 'set_query') {
+              await new Promise<void>((r) => setTimeout(r, 60));
+            }
+          }
+        }
+        voiceUndoStack.pushGroup(undoOps);
+
+        if (isVoiceIntentBatch(intentResult)) {
+          setLastIntentSummary('batch');
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Request failed.';
         setLastError(msg);

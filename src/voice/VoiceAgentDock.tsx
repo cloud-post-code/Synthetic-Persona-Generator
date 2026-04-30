@@ -65,29 +65,11 @@ export const VoiceAgentDock: React.FC = () => {
         taskTracker.cancel();
         cancelSpeech();
         stopRec();
-        return;
-      }
-      if (e.code === 'Space' && !holdingRef.current) {
-        const t = e.target as HTMLElement;
-        if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
-        e.preventDefault();
-        holdingRef.current = true;
-        startRec();
-      }
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        holdingRef.current = false;
-        recRef.current?.stop();
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  }, [startRec, stopRec]);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [stopRec]);
 
   if (!isDockVisible) return null;
 
@@ -107,7 +89,7 @@ export const VoiceAgentDock: React.FC = () => {
       )}
       <div className="flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-2 py-2 shadow-lg">
         <span className="hidden sm:inline pl-2 text-xs text-gray-500 max-w-[140px]">
-          {busy ? 'Working…' : 'Hold mic or Space'}
+          {busy ? 'Working…' : 'Hold mic · say undo'}
         </span>
         <button
           type="button"

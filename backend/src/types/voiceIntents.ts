@@ -67,6 +67,10 @@ export type VoiceIntent =
   | { type: 'goal_complete'; goalId: string; summary: string }
   | { type: 'unsupported'; reason: string };
 
+export type VoiceIntentBatch = { type: 'batch'; steps: VoiceIntent[] };
+
+export type VoiceIntentResult = VoiceIntent | VoiceIntentBatch;
+
 export type ActiveGoalContext = {
   goalId: string;
   description: string;
@@ -98,4 +102,12 @@ export function isVoiceIntent(value: unknown): value is VoiceIntent {
     default:
       return false;
   }
+}
+
+export function isVoiceIntentBatch(value: unknown): value is VoiceIntentBatch {
+  if (!value || typeof value !== 'object') return false;
+  const o = value as Record<string, unknown>;
+  if (o.type !== 'batch') return false;
+  if (!Array.isArray(o.steps)) return false;
+  return (o.steps as unknown[]).every((s) => isVoiceIntent(s));
 }
