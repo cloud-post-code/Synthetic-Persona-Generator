@@ -1,3 +1,7 @@
+/**
+ * Global mic dock (bottom-right, Hold ⌘). Not mounted — see src/App.tsx (VoiceAgentProvider + VoiceAgentDock commented out).
+ * To restore: uncomment those lines in App.tsx.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { createSpeechRecognition, isSpeechRecognitionSupported, isSecureContextForMic } from './speechRecognition.js';

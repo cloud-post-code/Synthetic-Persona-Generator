@@ -15,8 +15,9 @@ import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
 import { ApiErrorBanner } from './components/ApiErrorBanner.js';
-import { VoiceAgentProvider } from './voice/VoiceAgentProvider.js';
-import { VoiceAgentDock } from './voice/VoiceAgentDock.js';
+// --- Global voice agent (⌘ mic dock + /voice/plan) — disabled; restore by uncommenting imports + wrapper below ---
+// import { VoiceAgentProvider } from './voice/VoiceAgentProvider.js';
+// import { VoiceAgentDock } from './voice/VoiceAgentDock.js';
 import { useVoiceTarget } from './voice/useVoiceTarget.js';
 
 const SidebarNavLink: React.FC<{
@@ -319,16 +320,15 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <Router>
-        <VoiceAgentProvider>
-          <div className="min-h-screen flex">
-            <Sidebar />
-            <main className="flex-1 lg:ml-64 flex flex-col">
-              <AppRoutes />
-            </main>
-          </div>
-          <VoiceAgentDock />
-          <ApiErrorBanner />
-        </VoiceAgentProvider>
+        {/* VoiceAgentProvider: wraps app for global navigator agent + task tracker. Re-enable with VoiceAgentDock. */}
+        <div className="min-h-screen flex">
+          <Sidebar />
+          <main className="flex-1 lg:ml-64 flex flex-col">
+            <AppRoutes />
+          </main>
+        </div>
+        {/* <VoiceAgentDock /> */}
+        <ApiErrorBanner />
       </Router>
     </AuthProvider>
   );

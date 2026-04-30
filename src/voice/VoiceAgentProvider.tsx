@@ -1,3 +1,7 @@
+/**
+ * Global voice navigator (context + /voice/plan). Not mounted — see src/App.tsx (VoiceAgentProvider commented out).
+ * To restore: uncomment VoiceAgentProvider import and wrap the Router tree; render VoiceAgentDock inside the provider.
+ */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
