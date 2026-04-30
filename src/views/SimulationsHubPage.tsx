@@ -7,7 +7,8 @@ import {
   UpdateSimulationRequest,
   SimulationTemplate,
 } from '../services/simulationTemplateApi.js';
-import { SimulationTemplateForm } from '../components/SimulationTemplateForm.js';
+import { SimulationTemplateForm, type SimulationTemplateFormHandle } from '../components/SimulationTemplateForm.js';
+import { DescribeSimulationBar } from '../components/DescribeSimulationBar.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 
 const SimulationsHubPage: React.FC = () => {
@@ -27,6 +28,7 @@ const SimulationsHubPage: React.FC = () => {
   const [formKey, setFormKey] = useState(0);
   const [savedBanner, setSavedBanner] = useState(false);
   const [savedBannerWasUpdate, setSavedBannerWasUpdate] = useState(false);
+  const templateFormRef = useRef<SimulationTemplateFormHandle | null>(null);
 
   useEffect(() => {
     if (!editId) {
@@ -178,12 +180,16 @@ const SimulationsHubPage: React.FC = () => {
             </div>
           )}
           {!(editId && (editLoading || editLoadError)) && (
-            <SimulationTemplateForm
-              key={editingSimulation ? `${formKey}-edit-${editingSimulation.id}` : formKey}
-              simulation={editingSimulation}
-              onSubmit={handleSubmit}
-              onCancel={handleCancel}
-            />
+            <>
+              <DescribeSimulationBar formRef={templateFormRef} disabled={Boolean(editingSimulation)} />
+              <SimulationTemplateForm
+                ref={templateFormRef}
+                key={editingSimulation ? `${formKey}-edit-${editingSimulation.id}` : formKey}
+                simulation={editingSimulation}
+                onSubmit={handleSubmit}
+                onCancel={handleCancel}
+              />
+            </>
           )}
         </section>
       </div>

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
+import { sanitizeDraft, type SimulationDraft } from "./simulationDraft.js";
 import { customerSegmentTemplate } from "../../templates/customerSegmentTemplate.js";
 import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
 
@@ -596,6 +597,82 @@ where N is an integer from 1 to 100. No other text.`;
     const parsed = parseLastPersuasionPercentFromText(text);
     if (parsed != null) return parsed;
     return 50; // fallback if parsing fails
+  },
+
+  /**
+   * Turn a natural-language description into a complete simulation template draft (JSON),
+   * then sanitize so the Build form is always valid. Uses the same API key as generateBasic.
+   */
+  draftSimulationFromDescription: async (description: string): Promise<SimulationDraft> => {
+    const trimmed = (description || "").trim();
+    if (!trimmed) {
+      throw new Error("Describe what you want to simulate (text or voice) before building.");
+    }
+    const prompt = `You are an expert simulation designer for a product that builds "simulation templates" for AI personas.
+
+## User description (primary source of truth)
+${truncate(trimmed, 12000)}
+
+## Your task
+Return ONE JSON object only (no markdown fences, no preamble). Every top-level key below MUST be present and non-empty where applicable. If the user omits details, invent sensible, specific defaults that match the scenario—never leave strings blank or arrays empty where the schema requires content.
+
+## JSON shape (exact keys)
+{
+  "title": string,
+  "description": string,
+  "simulation_type": one of: "report" | "persuasion_simulation" | "response_simulation" | "survey" | "persona_conversation" | "idea_generation",
+  "allowed_persona_types": array of one or both of: "synthetic_user", "advisor",
+  "persona_count_min": integer 1-5,
+  "persona_count_max": integer 1-5, must be >= persona_count_min,
+  "type_specific_config": object — keys depend on simulation_type (see below),
+  "required_input_fields": array of at least one object: { "name": string (snakeCase or camelCase), "type": string, "required": boolean, "options"?: string[] },
+  "visibility": "private" or "public",
+  "icon": optional string — Lucide-style icon name matching the simulation type when possible: FileText, MessageSquare, Target, BarChart3, Users, Lightbulb
+}
+
+## Runner input field types (required_input_fields[].type)
+One of: "text" | "image" | "table" | "pdf" | "multiple_choice" | "business_profile" | "survey_questions"
+- For "multiple_choice", include "options" with at least two non-empty strings.
+- For "business_profile", set name to "businessProfile".
+
+## type_specific_config by simulation_type
+
+**report**
+- "report_structure": string (section headings, newline-separated)
+- optional "report_example_file_name", "report_example_content_base64" only if the user explicitly provided a file; otherwise omit both
+
+**persuasion_simulation**
+- "context_label": string (short label for optional user context, can be empty string "")
+- "decision_point": string (what the user is trying to persuade the persona of)
+- "decision_criteria": string (how to interpret the final Persuasion: N% line)
+
+**response_simulation**
+- "decision_type": "numeric" | "action" | "text"
+- If numeric: "unit" string (required), e.g. "minutes", "%", "dollars"
+- If action: "action_options" string, comma-separated possible actions
+- If text: no extra keys required beyond decision_type
+
+**survey**
+- "survey_mode": "generated" | "custom"
+- If "generated": include "survey_purpose" string and "survey_questions" array of { "type": "text"|"numeric"|"multiple_choice", "question": string, "options"?: string[] } with at least one question; for multiple_choice include options
+- If "custom": only survey_mode is needed (runner will supply survey_questions field)
+
+**persona_conversation**
+- "max_persona_turns": one of 5,8,10,12,15,20,25,30,40,50
+
+**idea_generation**
+- "num_ideas": one of 3,4,5,6,7,8,9,10,12,15,20
+
+## Rules
+- Choose simulation_type that best fits the user description.
+- For persona_conversation, use persona_count_min at least 2 and persona_count_max at least 2.
+- description should be a rich internal spec (purpose, tone, audience, success criteria)—not a single vague sentence unless the user only gave one sentence.
+- required_input_fields must reflect what the runner would realistically provide (e.g. bgInfo text for context, stimulus image for creative review, businessProfile if company context needed).
+
+Output valid JSON only.`;
+
+    const parsed = await geminiService.generateBasic(prompt, true);
+    return sanitizeDraft(parsed);
   },
 
   /**

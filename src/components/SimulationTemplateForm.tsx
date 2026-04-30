@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Plus, Trash2, Sparkles, Loader2, X } from 'lucide-react';
 import {
   SimulationTemplate,
@@ -15,6 +15,7 @@ import { getSimulationIcon, SIMULATION_ICON_DEFAULT } from '../utils/simulationI
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { simulationTemplateFormSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
+import { sanitizeDraft, type SimulationDraft } from '../services/simulationDraft.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -40,12 +41,12 @@ interface SimulationTemplateFormProps {
   isAdminContext?: boolean;
 }
 
-export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
-  simulation,
-  onSubmit,
-  onCancel,
-  isAdminContext = false,
-}) => {
+export type SimulationTemplateFormHandle = {
+  applyDraft: (draft: SimulationDraft, opts?: { advanceToReview?: boolean }) => Promise<void>;
+};
+
+export const SimulationTemplateForm = forwardRef<SimulationTemplateFormHandle, SimulationTemplateFormProps>(
+  function SimulationTemplateForm({ simulation, onSubmit, onCancel, isAdminContext = false }, ref) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [simulationType, setSimulationType] = useState<SimulationType | ''>('');
@@ -127,6 +128,77 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
     action: 'click',
     ref: simulationReviewBackRef as React.RefObject<HTMLElement | null>,
   });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      applyDraft: async (draft: SimulationDraft, opts?: { advanceToReview?: boolean }) => {
+        const d = sanitizeDraft(draft);
+        if (!simulation) {
+          setCreateStep(2);
+        }
+        setEditTypePickerOpen(false);
+        setTitle(d.title);
+        setDescription(d.description);
+        setSimulationType(d.simulation_type as SimulationType);
+        setAllowedPersonaTypes([...(d.allowed_persona_types ?? [])]);
+        setPersonaCountMin(d.persona_count_min ?? 1);
+        setPersonaCountMax(d.persona_count_max ?? 1);
+        setTypeSpecificConfig(
+          d.type_specific_config && Object.keys(d.type_specific_config).length ? d.type_specific_config : {}
+        );
+        setInputFields(
+          d.required_input_fields?.length
+            ? d.required_input_fields
+            : [{ name: 'bgInfo', type: 'text', required: false }]
+        );
+        setTemplateVisibility(d.visibility === 'public' ? 'public' : 'private');
+        setShowPromptReview(false);
+        setReviewedSystemPrompt('');
+
+        await Promise.resolve();
+
+        if (opts?.advanceToReview) {
+          const iconFromType = d.simulation_type
+            ? (SIMULATION_TYPES.find((t) => t.id === d.simulation_type)?.icon ?? '').trim()
+            : '';
+          const resolvedIconDraft =
+            (typeof d.icon === 'string' && d.icon.trim()) || iconFromType || SIMULATION_ICON_DEFAULT;
+
+          if (simulation) {
+            setReviewedSystemPrompt(simulation.system_prompt || '');
+            setShowPromptReview(true);
+          } else {
+            const payload: CreateSimulationRequest = {
+              title: d.title.trim(),
+              description: d.description.trim() || undefined,
+              icon: resolvedIconDraft,
+              required_input_fields: d.required_input_fields,
+              is_active: simulation?.is_active ?? true,
+              simulation_type: d.simulation_type as SimulationType,
+              allowed_persona_types: d.allowed_persona_types,
+              persona_count_min: d.persona_count_min,
+              persona_count_max: d.persona_count_max,
+              type_specific_config:
+                d.type_specific_config && Object.keys(d.type_specific_config).length
+                  ? d.type_specific_config
+                  : undefined,
+            };
+            let systemPromptText: string;
+            try {
+              systemPromptText = await geminiService.generateSystemPromptFromConfig(payload);
+            } catch {
+              const fallback = await simulationTemplateApi.previewPrompt(payload);
+              systemPromptText = fallback.system_prompt;
+            }
+            setReviewedSystemPrompt(systemPromptText);
+            setShowPromptReview(true);
+          }
+        }
+      },
+    }),
+    [simulation]
+  );
 
   const setConfig = (key: string, value: unknown) =>
     setTypeSpecificConfig((prev) => ({ ...prev, [key]: value }));
@@ -1143,4 +1215,6 @@ ${description.trim() || '(empty - please create an initial description based on 
       </section>
     </form>
   );
-};
+});
+
+SimulationTemplateForm.displayName = 'SimulationTemplateForm';

@@ -28,6 +28,25 @@ export const simulationTemplateFormSchema: FormSchema = {
       ],
     },
     {
+      key: 'describe',
+      label: 'Describe your simulation',
+      type: 'textarea',
+      description:
+        'Natural-language brief for the AI builder: type or dictate what you want, then use Build it for me to fill the whole template.',
+    },
+    {
+      key: 'mic_toggle',
+      label: 'Voice describe simulation',
+      type: 'button',
+      action: 'click',
+    },
+    {
+      key: 'generate',
+      label: 'Build simulation from description',
+      type: 'button',
+      action: 'click',
+    },
+    {
       key: 'continue_to_form',
       label: 'Continue to template details',
       type: 'button',
