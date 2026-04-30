@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User as UserIcon, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
+import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -12,6 +13,23 @@ const LoginPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: 'login.username',
+    label: 'Username',
+    action: 'fill',
+    ref: usernameInputRef,
+    enabled: true,
+  });
+  useVoiceTarget({
+    id: 'login.submit',
+    label: 'Sign in',
+    action: 'click',
+    ref: submitButtonRef,
+    enabled: !isSignUp,
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +104,7 @@ const LoginPage: React.FC = () => {
                   <UserIcon className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
+                  ref={usernameInputRef}
                   id="username"
                   name="username"
                   type="text"
@@ -147,6 +166,7 @@ const LoginPage: React.FC = () => {
 
             <div>
               <button
+                ref={submitButtonRef}
                 type="submit"
                 disabled={loading}
                 className="group relative w-full flex justify-center items-center py-3 px-4 border border-transparent text-sm font-semibold rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"

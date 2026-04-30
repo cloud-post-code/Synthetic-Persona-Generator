@@ -1,7 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
-import type { VoiceIntent, VoiceIntentResult, VoiceTargetEntry, ActiveGoalContext } from '../types/voiceIntents.js';
+import type { VoiceIntent, VoiceIntentResult } from '../types/voiceIntents.js';
+import type { VoiceIntentRequest } from '../types/voiceIntentRequest.js';
 import { isVoiceIntent, isVoiceIntentBatch } from '../types/voiceIntents.js';
 import { UI_NODES, findNodeId, getNodeById } from '../voice/uiMapData.js';
+import { classifyIntent } from './intentClassifier.js';
+import { expandTemplate } from './templateExpander.js';
+import { topKIntentsByKeyword } from '../voice/intentTemplates.js';
+import type { Domain } from './userDataContext.js';
+import { getDigest, type DigestViewer } from './userDataContext.js';
 
 const MODEL = 'gemini-2.5-flash';
 /** Enough for navigate + several fills + Save/Continue on wizards */
@@ -15,19 +21,7 @@ function getAI(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
 }
 
-export type VoiceIntentRequest = {
-  transcript: string;
-  context: {
-    pathname: string;
-    search: string;
-    isAuthenticated: boolean;
-    isAdmin: boolean;
-    visibleTargets: VoiceTargetEntry[];
-    currentNodeId: string | null;
-    activeGoal: ActiveGoalContext | null;
-  };
-  uiMapPrompt: string;
-};
+export type { VoiceIntentRequest };
 
 function nodeAllowed(nodeId: string | null, isAuthenticated: boolean, isAdmin: boolean): boolean {
   if (!nodeId) return true;
@@ -282,4 +276,78 @@ export function ruleBasedIntent(transcript: string, ctx: VoiceIntentRequest['con
   }
 
   return { type: 'clarify', question: 'What would you like to open?', options: ['Dashboard', 'Build persona', 'Simulations', 'Settings'] };
+}
+
+export function hintedDomainsFromTranscript(transcript: string): Domain[] {
+  const t = transcript.toLowerCase();
+  const out = new Set<Domain>();
+  if (/\b(persona|character|synthetic)\b/.test(t)) out.add('persona');
+  if (/\bfocus\s*group\b|\bcohort\b/.test(t)) out.add('focusGroup');
+  if (/\bsimulation\b|\btemplate\b|\brun\s+(the\s+)?sim/.test(t)) out.add('simulationTemplate');
+  if (/\bbusiness\b|\bcompany\b/.test(t)) out.add('businessProfile');
+  if (/\bchat\b|\bconversation\b|\bmessage\b/.test(t)) out.add('chat');
+  if (/\bsettings\b|\bpreferences\b|\baccount\b/.test(t)) out.add('settings');
+  if (/\bprofile\b|\bwho am i\b/.test(t)) out.add('profile');
+  return [...out];
+}
+
+async function buildDigestBlock(userId: string, domains: Domain[], viewer?: DigestViewer): Promise<string> {
+  if (domains.length === 0) return '';
+  const lines: string[] = ['', '### USER_DATA (live, scoped to you)'];
+  for (const d of domains) {
+    const hits = await getDigest(userId, d, 20, viewer);
+    console.info('[voice.userdata]', { userId, domain: d, hits: hits.length });
+    lines.push(`${String(d).toUpperCase()}:`);
+    if (hits.length === 0) lines.push('  (none)');
+    else {
+      for (const h of hits) {
+        const meta = h.meta ? ` | meta:${JSON.stringify(h.meta)}` : '';
+        lines.push(`  - id:${h.id} | name:${JSON.stringify(h.name)}${meta}`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+export async function resolveVoiceIntent(
+  body: VoiceIntentRequest,
+  auth: { userId: string | null },
+  viewer?: DigestViewer
+): Promise<VoiceIntentResult> {
+  const cls = await classifyIntent(body, auth);
+  if (cls.kind === 'matched') {
+    if (cls.missing.length > 0) {
+      const slot = cls.template.slots.find((s) => s.name === cls.missing[0]);
+      if (slot) {
+        return { type: 'clarify', question: slot.promptIfMissing };
+      }
+    }
+    const expanded = await expandTemplate(cls.template, cls.slots, body.context, auth.userId);
+    if (expanded.kind === 'clarify') return expanded.intent;
+    if (expanded.kind === 'unsupported') return { type: 'unsupported', reason: expanded.reason };
+    console.info('[voice.classifier]', { matched: cls.template.name });
+    return validateBatchSteps(expanded.steps as unknown[], body.context);
+  }
+
+  const hinted = hintedDomainsFromTranscript(body.transcript);
+  let digestBlock = '';
+  if (auth.userId && hinted.length > 0) {
+    digestBlock = await buildDigestBlock(auth.userId, hinted, viewer);
+  }
+
+  const planned = await parseVoiceIntent({
+    ...body,
+    uiMapPrompt: body.uiMapPrompt + digestBlock,
+  });
+
+  if (planned.type === 'unsupported') {
+    const closest = topKIntentsByKeyword(body.transcript, 3);
+    if (closest.length === 0) return planned;
+    return {
+      type: 'clarify',
+      question: 'I am not sure what to do. Did you mean one of these?',
+      options: closest.map((t) => t.description),
+    };
+  }
+  return planned;
 }

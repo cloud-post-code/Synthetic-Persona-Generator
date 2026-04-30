@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
-import { parseVoiceIntent, ruleBasedIntent, type VoiceIntentRequest } from '../services/voiceIntentService.js';
+import {
+  resolveVoiceIntent,
+  ruleBasedIntent,
+  type VoiceIntentRequest,
+} from '../services/voiceIntentService.js';
 
 function parseIntentBody(body: Partial<VoiceIntentRequest>): VoiceIntentRequest | null {
   if (!body.transcript || typeof body.transcript !== 'string') return null;
@@ -37,7 +41,7 @@ export async function intentPublic(req: Request, res: Response, next: NextFuncti
       },
     };
     try {
-      const intent = await parseVoiceIntent(payload);
+      const intent = await resolveVoiceIntent(payload, { userId: null });
       return res.json(intent);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -61,7 +65,11 @@ export async function intent(req: AuthRequest, res: Response, next: NextFunction
     const payload = parsed;
 
     try {
-      const intent = await parseVoiceIntent(payload);
+      const intent = await resolveVoiceIntent(
+        payload,
+        { userId: req.userId ?? null },
+        { username: req.username, isAdmin: payload.context.isAdmin }
+      );
       return res.json(intent);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
