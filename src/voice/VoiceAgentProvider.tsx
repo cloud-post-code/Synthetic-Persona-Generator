@@ -5,8 +5,9 @@ import { commandBus } from './commandBus.js';
 import { buildUiMapForPrompt, findNodeId } from './uiMap.js';
 import { initTaskTrackerBus, taskTracker } from './taskTracker.js';
 import { voiceTargetRegistry } from './voiceTargetRegistry.js';
-import type { VoiceIntent } from './intents.js';
-import { postVoiceIntent } from './voiceApi.js';
+import type { VoiceIntent, VoiceTargetAction } from './intents.js';
+import { postVoiceIntentForUser } from './voiceApi.js';
+import { inferActionForElement, mergeVisibleVoiceTargets } from './scanVisibleVoiceTargets.js';
 import { cancelSpeech, speak as speakTts } from './tts.js';
 import { isVoiceAgentEnabled, isVoiceTtsEnabled } from './voiceSettings.js';
 
@@ -32,7 +33,7 @@ function maybeSpeak(text: string) {
   if (isVoiceTtsEnabled()) speakTts(text);
 }
 
-function executeDomAction(targetId: string, action: 'click' | 'focus' | 'fill', value?: string) {
+function executeDomAction(targetId: string, action: VoiceTargetAction, value?: string) {
   const safe = targetId.replace(/"/g, '\\"');
   const el = document.querySelector<HTMLElement>(`[data-voice-target="${safe}"]`);
   if (!el) return false;
@@ -51,6 +52,19 @@ function executeDomAction(targetId: string, action: 'click' | 'focus' | 'fill', 
   }
   if (action === 'focus') {
     el.focus();
+    return true;
+  }
+  if (action === 'fill' && el instanceof HTMLSelectElement) {
+    el.focus();
+    el.value = value ?? '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  if (action === 'fill' && el.isContentEditable) {
+    el.focus();
+    el.textContent = value ?? '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   }
   if (action === 'fill' && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
@@ -86,7 +100,8 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   void settingsTick;
-  const isDockVisible = !!user && !loading && isVoiceAgentEnabled();
+  const isDockVisible =
+    (!!user || location.pathname === '/login') && !loading && isVoiceAgentEnabled();
 
   const runIntent = useCallback(
     async (intent: VoiceIntent) => {
@@ -137,7 +152,12 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
         }
         case 'action': {
           const entry = voiceTargetRegistry.get(intent.target_id);
-          const action = entry?.action || 'click';
+          const safe = intent.target_id.replace(/"/g, '\\"');
+          const el = document.querySelector<HTMLElement>(`[data-voice-target="${safe}"]`);
+          const inferred = el ? inferActionForElement(el) : 'click';
+          let action: VoiceTargetAction = entry?.action ?? inferred;
+          const hasValue = intent.value != null && String(intent.value).length > 0;
+          if (hasValue && inferred === 'fill') action = 'fill';
           const ok = executeDomAction(intent.target_id, action, intent.value);
           if (!ok) maybeSpeak('Could not run that action.');
           taskTracker.recordStep();
@@ -174,7 +194,7 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
         searchAfter = sp.toString() ? `?${sp.toString()}` : '';
       }
 
-      const visibleIds = new Set(voiceTargetRegistry.list().map((t) => t.id));
+      const visibleIds = new Set(mergeVisibleVoiceTargets().map((t) => t.id));
       const done = taskTracker.checkCompletion({
         pathname: pathAfter,
         search: searchAfter,
@@ -217,24 +237,28 @@ export function VoiceAgentProvider({ children }: { children: React.ReactNode }) 
       setLastError(null);
 
       try {
+        const visibleTargets = mergeVisibleVoiceTargets();
         const currentNodeId = findNodeId(location.pathname, location.search);
         const uiMapPrompt = buildUiMapForPrompt(currentNodeId, {
           isAuthenticated: !!user,
           isAdmin,
         });
-        const intent = await postVoiceIntent({
-          transcript: trimmed,
-          context: {
-            pathname: location.pathname,
-            search: location.search,
-            isAuthenticated: !!user,
-            isAdmin,
-            visibleTargets: voiceTargetRegistry.list(),
-            currentNodeId,
-            activeGoal: taskTracker.getActiveGoalContext(),
+        const intent = await postVoiceIntentForUser(
+          {
+            transcript: trimmed,
+            context: {
+              pathname: location.pathname,
+              search: location.search,
+              isAuthenticated: !!user,
+              isAdmin,
+              visibleTargets,
+              currentNodeId,
+              activeGoal: taskTracker.getActiveGoalContext(),
+            },
+            uiMapPrompt,
           },
-          uiMapPrompt,
-        });
+          !!user
+        );
 
         await runIntent(intent);
       } catch (e) {

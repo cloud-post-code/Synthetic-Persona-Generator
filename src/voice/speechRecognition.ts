@@ -1,4 +1,4 @@
-/** Web Speech API wrapper — requires secure context (HTTPS or localhost) */
+/** Web Speech API wrapper — requires secure context (HTTPS or localhost). Safari often has no SpeechRecognition; mic UI may be disabled. */
 
 export type RecognitionCallbacks = {
   onResult: (transcript: string, isFinal: boolean) => void;

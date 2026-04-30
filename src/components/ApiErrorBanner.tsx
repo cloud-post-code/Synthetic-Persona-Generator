@@ -29,6 +29,7 @@ export const ApiErrorBanner: React.FC = () => {
 
   return (
     <div
+      data-voice-exclude
       className="fixed bottom-4 right-4 z-[9999] max-w-md animate-in slide-in-from-bottom-4 fade-in"
       role="alert"
     >

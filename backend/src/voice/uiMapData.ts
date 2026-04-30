@@ -19,7 +19,7 @@ export const UI_NODES: UiNode[] = [
     title: 'Dashboard',
     path: '/',
     purpose: 'Overview and entry point to all major workflows.',
-    whenToUse: ['home', 'dashboard', 'main page'],
+    whenToUse: ['home', 'dashboard', 'main page', 'landing', 'overview', 'start here'],
     prerequisites: { auth: 'user' },
     transitions: [
       { to: 'build.persona', via: 'navigate', label: 'Build persona' },
@@ -85,17 +85,54 @@ export const UI_NODES: UiNode[] = [
     id: 'gallery.personas',
     title: 'My personas',
     path: '/gallery',
-    query: { tab: 'personas' },
     purpose: 'Browse and open personas you created.',
     whenToUse: ['my personas', 'gallery', 'persona list'],
     prerequisites: { auth: 'user' },
     transitions: [
       { to: 'gallery.library', via: 'set_query', label: 'Library tab' },
+      { to: 'gallery.saved', via: 'set_query', label: 'Saved tab' },
+      { to: 'gallery.focus', via: 'set_query', label: 'Focus groups tab' },
       { to: 'chat.thread', via: 'navigate', label: 'Open persona chat' },
       { to: 'build.persona', via: 'navigate', label: 'Create new persona' },
     ],
     goals: [],
     speakOnArrival: 'You are on My personas.',
+  },
+  {
+    id: 'gallery.saved',
+    title: 'Saved personas',
+    path: '/gallery',
+    query: { tab: 'saved' },
+    purpose: 'Personas you saved from the library.',
+    whenToUse: ['saved personas', 'saved tab', 'saved'],
+    prerequisites: { auth: 'user' },
+    transitions: [
+      { to: 'gallery.personas', via: 'set_query', label: 'My personas tab' },
+      { to: 'gallery.library', via: 'set_query', label: 'Library tab' },
+      { to: 'gallery.focus', via: 'set_query', label: 'Focus groups tab' },
+      { to: 'chat.thread', via: 'navigate', label: 'Open persona chat' },
+      { to: 'build.persona', via: 'navigate', label: 'Create new persona' },
+    ],
+    goals: [],
+    speakOnArrival: 'You are on Saved personas.',
+  },
+  {
+    id: 'gallery.focus',
+    title: 'Focus groups',
+    path: '/gallery',
+    query: { tab: 'focusGroups' },
+    purpose: 'Manage focus groups for simulations.',
+    whenToUse: ['focus groups', 'focus group tab', 'cohorts'],
+    prerequisites: { auth: 'user' },
+    transitions: [
+      { to: 'gallery.personas', via: 'set_query', label: 'My personas tab' },
+      { to: 'gallery.library', via: 'set_query', label: 'Library tab' },
+      { to: 'gallery.saved', via: 'set_query', label: 'Saved tab' },
+      { to: 'chat.thread', via: 'navigate', label: 'Open chat' },
+      { to: 'build.persona', via: 'navigate', label: 'Create new persona' },
+    ],
+    goals: [],
+    speakOnArrival: 'You are on Focus groups.',
   },
   {
     id: 'gallery.library',
@@ -105,7 +142,11 @@ export const UI_NODES: UiNode[] = [
     purpose: 'Browse shared or library personas to add to your collection.',
     whenToUse: ['library', 'persona library', 'browse library'],
     prerequisites: { auth: 'user' },
-    transitions: [{ to: 'gallery.personas', via: 'set_query', label: 'My personas tab' }],
+    transitions: [
+      { to: 'gallery.personas', via: 'set_query', label: 'My personas tab' },
+      { to: 'gallery.saved', via: 'set_query', label: 'Saved tab' },
+      { to: 'gallery.focus', via: 'set_query', label: 'Focus groups tab' },
+    ],
     goals: [],
     speakOnArrival: 'You are on the persona library tab.',
   },
@@ -156,7 +197,7 @@ export const UI_NODES: UiNode[] = [
     title: 'Admin',
     path: '/admin',
     purpose: 'Administrative tools (admin users only).',
-    whenToUse: ['admin', 'administration'],
+    whenToUse: ['admin', 'administration', 'admin panel', 'moderator'],
     prerequisites: { auth: 'admin' },
     transitions: [{ to: 'home.dashboard', via: 'navigate', label: 'Home' }],
     goals: [],
@@ -167,7 +208,7 @@ export const UI_NODES: UiNode[] = [
     title: 'Synthetic user detail',
     path: '/info/synthetic-user',
     purpose: 'Read-only detail for a synthetic user record.',
-    whenToUse: ['synthetic user info', 'user detail'],
+    whenToUse: ['synthetic user info', 'user detail', 'synthetic user page'],
     prerequisites: { auth: 'user' },
     transitions: [{ to: 'home.dashboard', via: 'navigate', label: 'Home' }],
     goals: [],
@@ -177,7 +218,7 @@ export const UI_NODES: UiNode[] = [
     title: 'Advisor detail',
     path: '/info/advisor',
     purpose: 'Read-only advisor information.',
-    whenToUse: ['advisor info', 'advisor detail'],
+    whenToUse: ['advisor info', 'advisor detail', 'advisor page'],
     prerequisites: { auth: 'user' },
     transitions: [{ to: 'home.dashboard', via: 'navigate', label: 'Home' }],
     goals: [],
@@ -199,8 +240,11 @@ export function findNodeId(pathname: string, search: string): string | null {
   if (pathname === '/info/advisor') return 'info.advisor';
 
   if (pathname === '/gallery') {
-    const tab = sp.get('tab') || 'personas';
+    const tab = sp.get('tab');
+    if (!tab || tab === 'my' || tab === 'personas') return 'gallery.personas';
     if (tab === 'library') return 'gallery.library';
+    if (tab === 'saved') return 'gallery.saved';
+    if (tab === 'focusGroups') return 'gallery.focus';
     return 'gallery.personas';
   }
 

@@ -95,7 +95,10 @@ export const VoiceAgentDock: React.FC = () => {
   const busy = agentState === 'thinking' || agentState === 'acting' || agentState === 'speaking';
 
   return (
-    <div className="fixed bottom-6 right-6 z-[60] flex flex-col items-end gap-2 max-w-sm">
+    <div
+      data-voice-exclude
+      className="fixed bottom-6 right-6 z-[60] flex flex-col items-end gap-2 max-w-sm"
+    >
       {(interim || lastError) && (
         <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-sm text-gray-700 shadow-lg backdrop-blur">
           {lastError && <p className="text-red-600">{lastError}</p>}
