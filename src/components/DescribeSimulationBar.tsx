@@ -126,8 +126,10 @@ export const DescribeSimulationBar: React.FC<DescribeSimulationBarProps> = ({ fo
       const draft = await geminiService.draftSimulationFromDescription(trimmed);
       const d = sanitizeDraft(draft);
       const n = countFilledFields(d);
-      await formRef.current?.applyDraft(d, { advanceToReview: true });
-      setSuccessSummary(`Filled ${n} fields and opened system prompt review.`);
+      await formRef.current?.applyDraft(d, { advanceToReview: false });
+      setSuccessSummary(
+        `Filled ${n} fields. Review the form below, then click Create Simulation when you are ready.`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -144,7 +146,8 @@ export const DescribeSimulationBar: React.FC<DescribeSimulationBarProps> = ({ fo
           <h3 className="text-lg font-bold text-slate-900">Describe your simulation</h3>
           <p className="mt-1 text-sm text-slate-600">
             Type or use the mic, then <span className="font-semibold text-indigo-700">Build it for me</span> to fill
-            every field and open the system prompt review.
+            every field on the form. It does not save or open review—you choose{' '}
+            <span className="font-semibold text-slate-800">Create Simulation</span> when ready.
           </p>
         </div>
       </div>
