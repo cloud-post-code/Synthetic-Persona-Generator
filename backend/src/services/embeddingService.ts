@@ -1,6 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 import { createHash } from 'crypto';
 import pool from '../config/database.js';
+import type { UiSemanticDoc, UiSemanticType, UiSemanticsCorpus } from '../voice/uiSemantics.js';
+
+export const UI_SEMANTIC_SOURCE_TYPES: UiSemanticType[] = [
+  'ui_node',
+  'form_schema',
+  'api_route',
+  'db_table',
+  'workflow',
+];
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 const CHUNK_MAX_WORDS = 400;
@@ -496,5 +505,135 @@ export async function retrieve(
     .filter(Boolean) as { text: string; source_type: string; source_name: string; score: number }[];
 
   scored.sort((a: RetrievedChunk, b: RetrievedChunk) => b.score - a.score);
+  return scored.slice(0, topK);
+}
+
+/**
+ * Index the UI semantics corpus (UI nodes, form schemas, API routes, DB tables,
+ * hand-authored workflow docs) into knowledge_chunks with NULL persona/user/session
+ * scope. Idempotent on the corpus hash: if the latest stored hash matches, returns
+ * `{ status: 'skipped' }` without re-embedding.
+ */
+export async function indexUiSemantics(
+  corpus: UiSemanticsCorpus,
+  options: { force?: boolean } = {}
+): Promise<{ status: 'indexed' | 'skipped'; chunks: number; hash: string }> {
+  if (!options.force) {
+    try {
+      const r = await pool.query(
+        `SELECT source_name FROM knowledge_chunks
+         WHERE source_type = 'ui_semantics_meta' AND persona_id IS NULL AND user_id IS NULL AND session_id IS NULL
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      const existing = r.rows[0]?.source_name as string | undefined;
+      if (existing === corpus.hash) {
+        console.log(`[UI_SEMANTICS] Hash ${corpus.hash.slice(0, 12)} unchanged — skipping reindex.`);
+        return { status: 'skipped', chunks: 0, hash: corpus.hash };
+      }
+    } catch (err) {
+      console.warn('[UI_SEMANTICS] Hash lookup failed; proceeding with reindex.', err);
+    }
+  }
+
+  type Row = { doc: UiSemanticDoc; chunk: string; index: number };
+  const rows: Row[] = [];
+  for (const doc of corpus.docs) {
+    const chunks = chunkText(doc.body);
+    chunks.forEach((chunk, index) => rows.push({ doc, chunk, index }));
+  }
+  if (rows.length === 0) {
+    console.warn('[UI_SEMANTICS] Corpus is empty.');
+    return { status: 'indexed', chunks: 0, hash: corpus.hash };
+  }
+
+  const embeddings = await embedTexts(rows.map((r) => `${r.doc.title}\n\n${r.chunk}`));
+
+  await pool.query(
+    `DELETE FROM knowledge_chunks
+     WHERE persona_id IS NULL AND user_id IS NULL AND session_id IS NULL
+       AND source_type = ANY($1)`,
+    [[...UI_SEMANTIC_SOURCE_TYPES, 'ui_semantics_meta']]
+  );
+
+  const insertValues: string[] = [];
+  const insertParams: unknown[] = [];
+  let paramIdx = 1;
+  for (let i = 0; i < rows.length; i++) {
+    const { doc, chunk, index } = rows[i]!;
+    const embeddingPgArray = `{${embeddings[i].join(',')}}`;
+    const hash = sha256(`${doc.id}:${index}:${chunk}`);
+    insertValues.push(
+      `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::float8[], $${paramIdx + 5})`
+    );
+    insertParams.push(doc.type, `${doc.id}::${doc.title}`, chunk, index, embeddingPgArray, hash);
+    paramIdx += 6;
+  }
+
+  if (insertValues.length > 0) {
+    await pool.query(
+      `INSERT INTO knowledge_chunks (source_type, source_name, chunk_text, chunk_index, embedding, content_hash)
+       VALUES ${insertValues.join(', ')}`,
+      insertParams
+    );
+  }
+
+  await pool.query(
+    `INSERT INTO knowledge_chunks (source_type, source_name, chunk_text, chunk_index, content_hash)
+     VALUES ('ui_semantics_meta', $1, $2, 0, $3)`,
+    [
+      corpus.hash,
+      `Generated ${corpus.generatedAt} — ${corpus.docs.length} docs / ${rows.length} chunks`,
+      sha256(corpus.hash),
+    ]
+  );
+
+  console.log(
+    `[UI_SEMANTICS] Indexed ${rows.length} chunks across ${corpus.docs.length} docs (hash=${corpus.hash.slice(0, 12)})`
+  );
+  return { status: 'indexed', chunks: rows.length, hash: corpus.hash };
+}
+
+/**
+ * Vector retrieval restricted to the UI semantics corpus. Mirrors `retrieve` but
+ * scoped to NULL persona/user/session and the new source types.
+ */
+export async function retrieveUiSemantics(
+  query: string,
+  topK = 8,
+  types: UiSemanticType[] = UI_SEMANTIC_SOURCE_TYPES
+): Promise<RetrievedChunk[]> {
+  if (!query.trim()) return [];
+  const allowed = (types?.length ? types : UI_SEMANTIC_SOURCE_TYPES) as string[];
+  const [queryEmbedding] = await embedTexts([query]);
+
+  const result = await pool.query(
+    `SELECT chunk_text, source_type, source_name, embedding FROM knowledge_chunks
+     WHERE persona_id IS NULL AND user_id IS NULL AND session_id IS NULL
+       AND source_type = ANY($1)`,
+    [allowed]
+  );
+
+  const scored = result.rows
+    .filter((row: any) => row.embedding && (Array.isArray(row.embedding) ? row.embedding.length > 0 : typeof row.embedding === 'string' && row.embedding.length > 2))
+    .map((row: any) => {
+      let embedding: number[];
+      if (Array.isArray(row.embedding)) {
+        embedding = row.embedding.map(Number);
+      } else if (typeof row.embedding === 'string') {
+        const cleaned = row.embedding.replace(/^\{/, '[').replace(/\}$/, ']');
+        embedding = JSON.parse(cleaned);
+      } else {
+        return null;
+      }
+      return {
+        text: row.chunk_text,
+        source_type: row.source_type,
+        source_name: row.source_name,
+        score: cosineSimilarity(queryEmbedding, embedding),
+      };
+    })
+    .filter(Boolean) as RetrievedChunk[];
+
+  scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
 }

@@ -523,6 +523,28 @@ const CreateFocusGroupModal: React.FC<{
   const [name, setName] = useState('');
   const [allowedRole, setAllowedRole] = useState('');
   const [saving, setSaving] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useVoiceTarget({
+    id: 'focus_groups.create.name',
+    label: 'Focus group name',
+    action: 'fill',
+    ref: nameRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: 'focus_groups.create.submit',
+    label: 'Create focus group',
+    action: 'click',
+    ref: submitRef as React.RefObject<HTMLElement | null>,
+    enabled: !!name.trim() && !saving,
+  });
+  useVoiceTarget({
+    id: 'focus_groups.create.cancel',
+    label: 'Cancel focus group creation',
+    action: 'click',
+    ref: cancelRef as React.RefObject<HTMLElement | null>,
+  });
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
@@ -549,6 +571,7 @@ const CreateFocusGroupModal: React.FC<{
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
             <input
+              ref={nameRef}
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
@@ -560,6 +583,8 @@ const CreateFocusGroupModal: React.FC<{
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Role (optional)</label>
             <select
+              data-voice-target="focus_groups.create.allowed_role"
+              aria-label="Allowed persona role"
               value={allowedRole}
               onChange={e => setAllowedRole(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -571,10 +596,10 @@ const CreateFocusGroupModal: React.FC<{
             <p className="mt-1.5 text-xs text-gray-500">Restrict this group to personas with this role. You can change it when editing the group.</p>
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
+            <button ref={cancelRef} type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
               Cancel
             </button>
-            <button type="submit" disabled={saving || !name.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+            <button ref={submitRef} type="submit" disabled={saving || !name.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Create
             </button>

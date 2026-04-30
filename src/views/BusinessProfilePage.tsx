@@ -4,6 +4,10 @@ import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { CheckCircle2, AlertTriangle, Sparkles, Upload, Loader2, X } from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
+import { businessProfileFormSchema } from '../forms/index.js';
+import { fieldTargetId } from '../forms/types.js';
+
+type VoiceFieldRef = { id: string; label: string };
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
@@ -21,36 +25,71 @@ const InputField: React.FC<{
   prefix?: string;
   placeholder?: string;
   inputRef?: React.RefObject<HTMLInputElement | null>;
-}> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, placeholder, inputRef }) => (
-  <div className="space-y-2">
-    <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-    <div className="relative">
-      {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
-      {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
-      <input
-        ref={inputRef}
-        type={type}
-        value={value}
+  voiceTarget?: VoiceFieldRef;
+}> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, placeholder, inputRef, voiceTarget }) => {
+  const internalRef = useRef<HTMLInputElement | null>(null);
+  const ref = (inputRef ?? internalRef) as React.RefObject<HTMLInputElement | null>;
+  useVoiceTarget({
+    id: voiceTarget?.id ?? '',
+    label: voiceTarget?.label ?? label,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: !!voiceTarget?.id,
+  });
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
+      <div className="relative">
+        {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
+        {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
+        <input
+          ref={ref}
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
+        />
+      </div>
+    </div>
+  );
+};
+
+const TextAreaField: React.FC<{
+  label: string;
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  rows?: number;
+  voiceTarget?: VoiceFieldRef;
+}> = ({ label, value, onChange, placeholder, rows = 3, voiceTarget }) => {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useVoiceTarget({
+    id: voiceTarget?.id ?? '',
+    label: voiceTarget?.label ?? label,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: !!voiceTarget?.id,
+  });
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
+      <textarea
+        ref={ref}
+        value={value ?? ''}
         onChange={onChange}
         placeholder={placeholder}
-        className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
+        rows={rows}
+        className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none"
       />
     </div>
-  </div>
-);
+  );
+};
 
-const TextAreaField: React.FC<{ label: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number }> = ({ label, value, onChange, placeholder, rows = 3 }) => (
-  <div className="space-y-2">
-    <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-    <textarea
-      value={value ?? ''}
-      onChange={onChange}
-      placeholder={placeholder}
-      rows={rows}
-      className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none"
-    />
-  </div>
-);
+const bp = (key: string): VoiceFieldRef => ({
+  id: fieldTargetId(businessProfileFormSchema.formKey, key),
+  label: businessProfileFormSchema.fields.find((f) => f.key === key)?.label ?? key,
+});
 
 const BusinessProfilePage: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -83,21 +122,21 @@ const BusinessProfilePage: React.FC = () => {
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
   const [companyHint, setCompanyHint] = useState('');
   const generateCancelledRef = useRef(false);
-  const businessNameInputRef = useRef<HTMLInputElement>(null);
   const businessSaveRef = useRef<HTMLButtonElement>(null);
 
+  // Legacy aliases keep prior voice phrases working alongside the new schema-driven IDs.
   useVoiceTarget({
-    id: 'business.business_name',
-    label: 'Business name',
-    action: 'fill',
-    ref: businessNameInputRef,
+    id: 'business.save',
+    label: 'Save business profile (legacy alias)',
+    action: 'click',
+    ref: businessSaveRef as React.RefObject<HTMLElement | null>,
     enabled: !businessProfileLoading,
   });
   useVoiceTarget({
-    id: 'business.save',
+    id: fieldTargetId(businessProfileFormSchema.formKey, 'save'),
     label: 'Save business profile',
     action: 'click',
-    ref: businessSaveRef,
+    ref: businessSaveRef as React.RefObject<HTMLElement | null>,
     enabled: !businessProfileLoading,
   });
 
@@ -355,35 +394,35 @@ const BusinessProfilePage: React.FC = () => {
                   label="Business Name"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
-                  inputRef={businessNameInputRef}
+                  voiceTarget={bp('business_name')}
                 />
-                <TextAreaField label="Mission Statement" value={missionStatement} onChange={(e) => setMissionStatement(e.target.value)} placeholder="What is your company's mission?" />
-                <TextAreaField label="Vision Statement" value={visionStatement} onChange={(e) => setVisionStatement(e.target.value)} placeholder="Where is your company headed?" />
-                <TextAreaField label="Description of Main Offerings" value={descriptionMainOfferings} onChange={(e) => setDescriptionMainOfferings(e.target.value)} placeholder="Describe your main products or services" />
-                <TextAreaField label="Key Features or Benefits" value={keyFeaturesOrBenefits} onChange={(e) => setKeyFeaturesOrBenefits(e.target.value)} placeholder="List key features or benefits" />
-                <TextAreaField label="Unique Selling Proposition (USP)" value={uniqueSellingProposition} onChange={(e) => setUniqueSellingProposition(e.target.value)} placeholder="What makes you unique?" />
-                <TextAreaField label="Pricing Model (if relevant)" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)} placeholder="e.g. subscription, one-time, tiered" />
-                <InputField label="Website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
+                <TextAreaField label="Mission Statement" value={missionStatement} onChange={(e) => setMissionStatement(e.target.value)} placeholder="What is your company's mission?" voiceTarget={bp('mission_statement')} />
+                <TextAreaField label="Vision Statement" value={visionStatement} onChange={(e) => setVisionStatement(e.target.value)} placeholder="Where is your company headed?" voiceTarget={bp('vision_statement')} />
+                <TextAreaField label="Description of Main Offerings" value={descriptionMainOfferings} onChange={(e) => setDescriptionMainOfferings(e.target.value)} placeholder="Describe your main products or services" voiceTarget={bp('description_main_offerings')} />
+                <TextAreaField label="Key Features or Benefits" value={keyFeaturesOrBenefits} onChange={(e) => setKeyFeaturesOrBenefits(e.target.value)} placeholder="List key features or benefits" voiceTarget={bp('key_features_or_benefits')} />
+                <TextAreaField label="Unique Selling Proposition (USP)" value={uniqueSellingProposition} onChange={(e) => setUniqueSellingProposition(e.target.value)} placeholder="What makes you unique?" voiceTarget={bp('unique_selling_proposition')} />
+                <TextAreaField label="Pricing Model (if relevant)" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)} placeholder="e.g. subscription, one-time, tiered" voiceTarget={bp('pricing_model')} />
+                <InputField label="Website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." voiceTarget={bp('website')} />
               </div>
             </Section>
             <Section title="Market & Positioning">
               <div className="space-y-4">
-                <TextAreaField label="Customer Segments" value={customerSegments} onChange={(e) => setCustomerSegments(e.target.value)} placeholder="Who are your target customers?" />
-                <TextAreaField label="Geographic Focus" value={geographicFocus} onChange={(e) => setGeographicFocus(e.target.value)} placeholder="Regions or markets you serve" />
-                <InputField label="Industry Served (B2B or B2C)" value={industryServed} onChange={(e) => setIndustryServed(e.target.value)} placeholder="e.g. B2B, B2C, both" />
-                <TextAreaField label="What Differentiates the Company" value={whatDifferentiates} onChange={(e) => setWhatDifferentiates(e.target.value)} placeholder="What sets you apart from competitors?" />
-                <TextAreaField label="Market Niche" value={marketNiche} onChange={(e) => setMarketNiche(e.target.value)} placeholder="Your specific market niche" />
-                <TextAreaField label="Distribution Channels" value={distributionChannels} onChange={(e) => setDistributionChannels(e.target.value)} placeholder="How you reach customers" />
+                <TextAreaField label="Customer Segments" value={customerSegments} onChange={(e) => setCustomerSegments(e.target.value)} placeholder="Who are your target customers?" voiceTarget={bp('customer_segments')} />
+                <TextAreaField label="Geographic Focus" value={geographicFocus} onChange={(e) => setGeographicFocus(e.target.value)} placeholder="Regions or markets you serve" voiceTarget={bp('geographic_focus')} />
+                <InputField label="Industry Served (B2B or B2C)" value={industryServed} onChange={(e) => setIndustryServed(e.target.value)} placeholder="e.g. B2B, B2C, both" voiceTarget={bp('industry_served')} />
+                <TextAreaField label="What Differentiates the Company" value={whatDifferentiates} onChange={(e) => setWhatDifferentiates(e.target.value)} placeholder="What sets you apart from competitors?" voiceTarget={bp('what_differentiates')} />
+                <TextAreaField label="Market Niche" value={marketNiche} onChange={(e) => setMarketNiche(e.target.value)} placeholder="Your specific market niche" voiceTarget={bp('market_niche')} />
+                <TextAreaField label="Distribution Channels" value={distributionChannels} onChange={(e) => setDistributionChannels(e.target.value)} placeholder="How you reach customers" voiceTarget={bp('distribution_channels')} />
               </div>
             </Section>
             <Section title="Performance & Funding">
               <div className="space-y-4">
-                <TextAreaField label="Key Personnel" value={keyPersonnel} onChange={(e) => setKeyPersonnel(e.target.value)} placeholder="Key team members or roles" />
-                <TextAreaField label="Major Achievements" value={majorAchievements} onChange={(e) => setMajorAchievements(e.target.value)} placeholder="Notable milestones or wins" />
-                <TextAreaField label="Revenue" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="Revenue or revenue range (if relevant)" />
-                <TextAreaField label="Key Performance Indicators" value={keyPerformanceIndicators} onChange={(e) => setKeyPerformanceIndicators(e.target.value)} placeholder="KPIs you track" />
-                <TextAreaField label="Funding Rounds" value={fundingRounds} onChange={(e) => setFundingRounds(e.target.value)} placeholder="e.g. Seed, Series A" />
-                <TextAreaField label="Revenue Streams" value={revenueStreams} onChange={(e) => setRevenueStreams(e.target.value)} placeholder="How you generate revenue" />
+                <TextAreaField label="Key Personnel" value={keyPersonnel} onChange={(e) => setKeyPersonnel(e.target.value)} placeholder="Key team members or roles" voiceTarget={bp('key_personnel')} />
+                <TextAreaField label="Major Achievements" value={majorAchievements} onChange={(e) => setMajorAchievements(e.target.value)} placeholder="Notable milestones or wins" voiceTarget={bp('major_achievements')} />
+                <TextAreaField label="Revenue" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="Revenue or revenue range (if relevant)" voiceTarget={bp('revenue')} />
+                <TextAreaField label="Key Performance Indicators" value={keyPerformanceIndicators} onChange={(e) => setKeyPerformanceIndicators(e.target.value)} placeholder="KPIs you track" voiceTarget={bp('key_performance_indicators')} />
+                <TextAreaField label="Funding Rounds" value={fundingRounds} onChange={(e) => setFundingRounds(e.target.value)} placeholder="e.g. Seed, Series A" voiceTarget={bp('funding_rounds')} />
+                <TextAreaField label="Revenue Streams" value={revenueStreams} onChange={(e) => setRevenueStreams(e.target.value)} placeholder="How you generate revenue" voiceTarget={bp('revenue_streams')} />
               </div>
             </Section>
             <div className="flex justify-end items-center gap-4">

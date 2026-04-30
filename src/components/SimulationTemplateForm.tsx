@@ -13,6 +13,8 @@ import { simulationTemplateApi } from '../services/simulationTemplateApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getSimulationIcon, SIMULATION_ICON_DEFAULT } from '../utils/simulationIcons.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
+import { simulationTemplateFormSchema } from '../forms/index.js';
+import { fieldTargetId } from '../forms/types.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -65,12 +67,65 @@ export const SimulationTemplateForm: React.FC<SimulationTemplateFormProps> = ({
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [editTypePickerOpen, setEditTypePickerOpen] = useState(false);
   const simulationSaveRef = useRef<HTMLButtonElement>(null);
+  const simulationTitleRef = useRef<HTMLInputElement>(null);
+  const simulationDescriptionRef = useRef<HTMLTextAreaElement>(null);
+  const simulationContinueRef = useRef<HTMLButtonElement>(null);
+  const simulationCancelRef = useRef<HTMLButtonElement>(null);
+  const simulationReviewSystemPromptRef = useRef<HTMLTextAreaElement>(null);
+  const simulationReviewBackRef = useRef<HTMLButtonElement>(null);
+  const tplKey = simulationTemplateFormSchema.formKey;
 
+  // Legacy alias.
   useVoiceTarget({
     id: 'simulations.save_template',
+    label: 'Save simulation template (legacy alias)',
+    action: 'click',
+    ref: simulationSaveRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'save'),
     label: 'Save simulation template',
     action: 'click',
-    ref: simulationSaveRef,
+    ref: simulationSaveRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'title'),
+    label: 'Simulation title',
+    action: 'fill',
+    ref: simulationTitleRef as React.RefObject<HTMLElement | null>,
+    enabled: createStep === 2 || !!simulation,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'description'),
+    label: 'What is this simulation about?',
+    action: 'fill',
+    ref: simulationDescriptionRef as React.RefObject<HTMLElement | null>,
+    enabled: createStep === 2 || !!simulation,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'continue_to_form'),
+    label: 'Continue to template details',
+    action: 'click',
+    ref: simulationContinueRef as React.RefObject<HTMLElement | null>,
+    enabled: !simulation && createStep === 1,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'cancel'),
+    label: 'Cancel template editor',
+    action: 'click',
+    ref: simulationCancelRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'system_prompt'),
+    label: 'System prompt review',
+    action: 'fill',
+    ref: simulationReviewSystemPromptRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(tplKey, 'review_back'),
+    label: 'Back to form from review',
+    action: 'click',
+    ref: simulationReviewBackRef as React.RefObject<HTMLElement | null>,
   });
 
   const setConfig = (key: string, value: unknown) =>
@@ -420,6 +475,7 @@ ${description.trim() || '(empty - please create an initial description based on 
           </div>
         </div>
         <textarea
+          ref={simulationReviewSystemPromptRef}
           value={reviewedSystemPrompt}
           onChange={(e) => setReviewedSystemPrompt(e.target.value)}
           rows={14}
@@ -428,6 +484,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         />
         <div className="flex flex-wrap items-center gap-3">
           <button
+            ref={simulationReviewBackRef}
             type="button"
             onClick={() => setShowPromptReview(false)}
             className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
@@ -454,6 +511,7 @@ ${description.trim() || '(empty - please create an initial description based on 
         {simulationTypeSection}
         <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 pt-6">
           <button
+            ref={simulationContinueRef}
             type="button"
             disabled={!simulationType}
             onClick={() => setCreateStep(2)}
@@ -462,6 +520,7 @@ ${description.trim() || '(empty - please create an initial description based on 
             Continue
           </button>
           <button
+            ref={simulationCancelRef}
             type="button"
             onClick={onCancel}
             className="min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900"
@@ -526,6 +585,7 @@ ${description.trim() || '(empty - please create an initial description based on 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-gray-900">Title</h2>
         <input
+          ref={simulationTitleRef}
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -562,6 +622,7 @@ ${description.trim() || '(empty - please create an initial description based on 
           </button>
         </div>
         <textarea
+          ref={simulationDescriptionRef}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           required

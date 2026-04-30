@@ -12,6 +12,8 @@ import focusGroupRoutes from './routes/focusGroupRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
 import voiceRoutes from './routes/voiceRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { indexUiSemantics } from './services/embeddingService.js';
+import { buildUiSemanticsCorpus } from './voice/uiSemantics.js';
 
 dotenv.config();
 
@@ -113,9 +115,23 @@ async function ensureEmbeddingColumns() {
   } catch (_) { /* column may already exist */ }
 }
 
+async function maybeAutoIndexUiSemantics() {
+  if (process.env.VOICE_SEMANTICS_AUTOINDEX !== '1') return;
+  try {
+    const corpus = buildUiSemanticsCorpus();
+    const result = await indexUiSemantics(corpus);
+    console.log(
+      `🧭 UI semantics ${result.status} (${result.chunks} chunks, hash=${result.hash.slice(0, 12)})`
+    );
+  } catch (err) {
+    console.error('UI semantics auto-index failed:', err);
+  }
+}
+
 // Start server - bind to 0.0.0.0 to accept external connections (required for Railway)
 ensureBusinessProfilesTable()
   .then(() => ensureEmbeddingColumns())
+  .then(() => maybeAutoIndexUiSemantics())
   .then(() => {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);

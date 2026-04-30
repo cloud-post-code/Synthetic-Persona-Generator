@@ -5,10 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "node node_modules/typescript/bin/tsc && mkdir -p dist/migrations && cp src/migrations/schema.sql dist/migrations/schema.sql",
+    "build": "tsx scripts/generateUiSemantics.ts && node node_modules/typescript/bin/tsc && mkdir -p dist/migrations && cp src/migrations/schema.sql dist/migrations/schema.sql",
     "start": "node dist/index.js",
     "migrate": "node dist/migrations/migrate.js",
-    "migrate:dev": "tsx src/migrations/migrate.ts"
+    "migrate:dev": "tsx src/migrations/migrate.ts",
+    "generate-ui-semantics": "tsx scripts/generateUiSemantics.ts"
   },
   "dependencies": {
     "@google/genai": "^1.45.0",

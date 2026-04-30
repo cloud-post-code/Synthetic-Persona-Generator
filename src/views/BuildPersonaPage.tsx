@@ -9,6 +9,18 @@ import type { BusinessProfile } from '../models/types.js';
 import { businessProfileToPromptString } from '../utils/businessProfile.js';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
+import {
+  buildAdvisorLinkedinSchema,
+  buildAdvisorPdfSchema,
+  buildPersonaPickerSchema,
+  buildPersonaVisibilitySchema,
+  buildSyntheticBusinessProfileSchema,
+  buildSyntheticProblemSolutionSchema,
+  buildSyntheticSupportingDocsSchema,
+} from '../forms/index.js';
+import { fieldTargetId } from '../forms/types.js';
+
+type VoiceFieldRef = { id: string; label: string };
 
 // Import split templates
 import { marketCanvasTemplate } from '../../templates/marketCanvasTemplate.js';
@@ -20,16 +32,40 @@ import { highFidelityPersonaTemplate } from '../../templates/highFidelityPersona
 
 // --- HELPER COMPONENTS ---
 
-const FormItem: React.FC<{ label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string }> = ({ label, value, onChange, textarea, placeholder }) => (
-  <div className="space-y-4">
-    <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-    {textarea ? (
-      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-gray-50 border border-gray-100 rounded-3xl p-6 h-40 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none" />
-    ) : (
-      <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-6 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none" />
-    )}
-  </div>
-);
+const FormItem: React.FC<{ label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string; voiceTarget?: VoiceFieldRef }> = ({ label, value, onChange, textarea, placeholder, voiceTarget }) => {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const textRef = useRef<HTMLTextAreaElement | null>(null);
+  useVoiceTarget({
+    id: voiceTarget?.id ?? '',
+    label: voiceTarget?.label ?? label,
+    action: 'fill',
+    ref: (textarea ? textRef : inputRef) as React.RefObject<HTMLElement | null>,
+    enabled: !!voiceTarget?.id,
+  });
+  return (
+    <div className="space-y-4">
+      <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
+      {textarea ? (
+        <textarea ref={textRef} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-gray-50 border border-gray-100 rounded-3xl p-6 h-40 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none" />
+      ) : (
+        <input ref={inputRef} type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-6 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none" />
+      )}
+    </div>
+  );
+};
+
+const ps = (key: string): VoiceFieldRef => ({
+  id: fieldTargetId(buildSyntheticProblemSolutionSchema.formKey, key),
+  label: buildSyntheticProblemSolutionSchema.fields.find((f) => f.key === key)?.label ?? key,
+});
+const bpFlow = (key: string): VoiceFieldRef => ({
+  id: fieldTargetId(buildSyntheticBusinessProfileSchema.formKey, key),
+  label: buildSyntheticBusinessProfileSchema.fields.find((f) => f.key === key)?.label ?? key,
+});
+const adv = (key: string): VoiceFieldRef => ({
+  id: fieldTargetId(buildAdvisorLinkedinSchema.formKey, key),
+  label: buildAdvisorLinkedinSchema.fields.find((f) => f.key === key)?.label ?? key,
+});
 
 const TypeCard: React.FC<{
   title: string;
@@ -454,20 +490,20 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
 
         {method === 'problem_solution' && (
           <>
-            <FormItem label="Problem / question" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="What problem or question are you exploring?" />
-            <FormItem label="Solution / hypothesis" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Proposed solution or direction..." />
-            <FormItem label="Differentiation" value={formData.q3} onChange={v => setFormData({ ...formData, q3: v })} textarea placeholder="What makes this different?" />
-            <FormItem label="Existing alternatives" value={formData.q4} onChange={v => setFormData({ ...formData, q4: v })} textarea placeholder="What exists today?" />
+            <FormItem label="Problem / question" value={formData.q1} onChange={v => setFormData({ ...formData, q1: v })} textarea placeholder="What problem or question are you exploring?" voiceTarget={ps('problem')} />
+            <FormItem label="Solution / hypothesis" value={formData.q2} onChange={v => setFormData({ ...formData, q2: v })} textarea placeholder="Proposed solution or direction..." voiceTarget={ps('solution')} />
+            <FormItem label="Differentiation" value={formData.q3} onChange={v => setFormData({ ...formData, q3: v })} textarea placeholder="What makes this different?" voiceTarget={ps('differentiation')} />
+            <FormItem label="Existing alternatives" value={formData.q4} onChange={v => setFormData({ ...formData, q4: v })} textarea placeholder="What exists today?" voiceTarget={ps('alternatives')} />
             <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Context</label>
-              <select value={formData.q5} onChange={e => setFormData({ ...formData, q5: e.target.value as 'B2B' | 'B2C' })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+              <select data-voice-target={fieldTargetId(buildSyntheticProblemSolutionSchema.formKey, 'context')} aria-label="Context (B2B or B2C)" value={formData.q5} onChange={e => setFormData({ ...formData, q5: e.target.value as 'B2B' | 'B2C' })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
                 <option value="B2B">B2B</option>
                 <option value="B2C">B2C</option>
               </select>
             </div>
             <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
-              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+              <select data-voice-target={fieldTargetId(buildSyntheticProblemSolutionSchema.formKey, 'count')} aria-label="Number of personas to generate" value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
               </select>
             </div>
@@ -482,12 +518,12 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
                 <Upload className="w-12 h-12 text-gray-300 mb-4 group-hover:text-sky-500" />
                 <p className="text-lg font-bold text-gray-600 mb-4">Upload business plan, market research, or other strategy docs</p>
                 <input type="file" id="sd-file" className="hidden" onChange={handleFile} />
-                <label htmlFor="sd-file" className="cursor-pointer px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg hover:bg-sky-700 transition-colors">{q6FileName || 'Select Document'}</label>
+                <label htmlFor="sd-file" data-voice-target={fieldTargetId(buildSyntheticSupportingDocsSchema.formKey, 'file')} aria-label="Supporting docs file" className="cursor-pointer px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg hover:bg-sky-700 transition-colors">{q6FileName || 'Select Document'}</label>
               </div>
             </div>
             <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
-              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+              <select data-voice-target={fieldTargetId(buildSyntheticSupportingDocsSchema.formKey, 'count')} aria-label="Number of personas to generate" value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
               </select>
             </div>
@@ -519,10 +555,11 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
               value={formData.specificUserType}
               onChange={v => setFormData({ ...formData, specificUserType: v })}
               placeholder="e.g. enterprise buyers, SMB decision-makers, end consumers in healthcare"
+              voiceTarget={bpFlow('specific_user_type')}
             />
             <div className="space-y-4">
               <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Generation count</label>
-              <select value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
+              <select data-voice-target={fieldTargetId(buildSyntheticBusinessProfileSchema.formKey, 'count')} aria-label="Number of personas to generate" value={formData.q7} onChange={e => setFormData({ ...formData, q7: parseInt(e.target.value) })} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-5 font-bold">
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Agent{n > 1 ? 's' : ''}</option>)}
               </select>
             </div>
@@ -535,6 +572,15 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       {method != null && (
       <div className="flex flex-wrap items-center gap-4">
         <button
+          data-voice-target={fieldTargetId(
+            method === 'problem_solution'
+              ? buildSyntheticProblemSolutionSchema.formKey
+              : method === 'supporting_docs'
+                ? buildSyntheticSupportingDocsSchema.formKey
+                : buildSyntheticBusinessProfileSchema.formKey,
+            'submit'
+          )}
+          aria-label="Submit Blueprint"
           type="submit"
           disabled={
             loading ||
@@ -1028,6 +1074,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             onChange={setLinkedinText}
             textarea
             placeholder="Select all text on the LinkedIn page and paste here..."
+            voiceTarget={adv('linkedin_text')}
           />
           <div className="space-y-4">
             <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Other docs (CV, portfolio, optional)</label>
@@ -1071,7 +1118,12 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             <Upload className="w-16 h-16 text-gray-300 mb-6 group-hover:text-violet-500" />
             <p className="text-xl font-bold text-gray-600 mb-6">PDF or document (book, article, or other supported file)</p>
             <input type="file" id="advisor-file" className="hidden" accept={GEMINI_FILE_INPUT_ACCEPT} onChange={handleFile} />
-            <label htmlFor="advisor-file" className="cursor-pointer px-10 py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-lg">
+            <label
+              htmlFor="advisor-file"
+              data-voice-target={fieldTargetId(buildAdvisorPdfSchema.formKey, 'file')}
+              aria-label="Expert source document"
+              className="cursor-pointer px-10 py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-lg"
+            >
               {fileName || 'Select Document'}
             </label>
           </div>
@@ -1080,6 +1132,11 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
 
       <div className="flex flex-wrap items-center gap-4">
         <button
+          data-voice-target={fieldTargetId(
+            sourceMode === 'pdf' ? buildAdvisorPdfSchema.formKey : buildAdvisorLinkedinSchema.formKey,
+            'submit'
+          )}
+          aria-label="Submit for Advisor Profiling"
           type="submit"
           disabled={sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
           className="flex-1 min-w-[200px] py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
@@ -1128,6 +1185,30 @@ const BuildPersonaPage: React.FC = () => {
     ref: buildBackRef,
     enabled: !!selectedBuildMode,
   });
+  // Schema-driven aliases mirroring the legacy IDs above so the new RAG corpus
+  // entries point at the same DOM nodes.
+  useVoiceTarget({
+    id: fieldTargetId(buildPersonaPickerSchema.formKey, 'choose_synthetic'),
+    label: 'Open Synthetic User builder',
+    action: 'click',
+    ref: syntheticPickRef as React.RefObject<HTMLElement | null>,
+    enabled: !selectedBuildMode,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(buildPersonaPickerSchema.formKey, 'choose_advisor'),
+    label: 'Open Advisor builder',
+    action: 'click',
+    ref: advisorPickRef as React.RefObject<HTMLElement | null>,
+    enabled: !selectedBuildMode,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(buildPersonaPickerSchema.formKey, 'back'),
+    label: 'Back to selection',
+    action: 'click',
+    ref: buildBackRef as React.RefObject<HTMLElement | null>,
+    enabled: !!selectedBuildMode,
+  });
+  void buildPersonaVisibilitySchema;
 
   // When arriving via /build?type=advisor or /build?type=synthetic_user, open that form directly
   useEffect(() => {

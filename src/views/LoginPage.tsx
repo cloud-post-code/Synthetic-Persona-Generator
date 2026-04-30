@@ -14,20 +14,26 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const usernameInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const submitButtonRef = useRef<HTMLButtonElement>(null);
 
   useVoiceTarget({
     id: 'login.username',
-    label: 'Username',
+    label: 'Username or email',
     action: 'fill',
-    ref: usernameInputRef,
-    enabled: true,
+    ref: usernameInputRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: 'login.password',
+    label: 'Password',
+    action: 'fill',
+    ref: passwordInputRef as React.RefObject<HTMLElement | null>,
   });
   useVoiceTarget({
     id: 'login.submit',
     label: 'Sign in',
     action: 'click',
-    ref: submitButtonRef,
+    ref: submitButtonRef as React.RefObject<HTMLElement | null>,
     enabled: !isSignUp,
   });
 
@@ -127,6 +133,7 @@ const LoginPage: React.FC = () => {
                   <Lock className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
+                  ref={passwordInputRef}
                   id="password"
                   name="password"
                   type="password"

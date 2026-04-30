@@ -74,6 +74,8 @@ export function scanVisibleVoiceTargets(): VoiceTargetEntry[] {
 
   const active = document.activeElement as HTMLElement | null;
   const sortable: Sortable[] = [];
+  const explicit: { el: HTMLElement; id: string }[] = [];
+  const registeredIds = new Set(voiceTargetRegistry.list().map((t) => t.id));
   let order = 0;
   for (const el of all) {
     if (!(el instanceof HTMLElement)) continue;
@@ -83,7 +85,14 @@ export function scanVisibleVoiceTargets(): VoiceTargetEntry[] {
       if (t === 'hidden') continue;
     }
     const existing = el.getAttribute('data-voice-target');
-    if (existing && !existing.startsWith(AUTO_PREFIX)) continue;
+    if (existing && !existing.startsWith(AUTO_PREFIX)) {
+      // Only surface explicit tags that aren't already in the registry, so the
+      // planner can still address them by their schema-driven id.
+      if (!registeredIds.has(existing)) {
+        explicit.push({ el, id: existing });
+      }
+      continue;
+    }
 
     sortable.push({
       el,
@@ -94,12 +103,22 @@ export function scanVisibleVoiceTargets(): VoiceTargetEntry[] {
   sortable.sort((a, b) => a.order - b.order);
 
   const out: VoiceTargetEntry[] = [];
+
+  for (const { el, id } of explicit) {
+    if (out.length >= MAX_VISIBLE_VOICE_TARGETS) break;
+    out.push({
+      id,
+      label: getControlLabel(el),
+      action: inferActionForElement(el),
+    });
+  }
+
   let counter = 0;
   const regCount = voiceTargetRegistry.list().length;
-  const budget = Math.max(0, MAX_VISIBLE_VOICE_TARGETS - regCount);
+  const budget = Math.max(0, MAX_VISIBLE_VOICE_TARGETS - regCount - out.length);
 
   for (const { el } of sortable) {
-    if (out.length >= budget) break;
+    if (out.length - explicit.length >= budget) break;
     const id = `${AUTO_PREFIX}${counter++}`;
     el.setAttribute('data-voice-target', id);
     out.push({

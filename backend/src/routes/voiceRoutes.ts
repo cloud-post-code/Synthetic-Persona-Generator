@@ -29,5 +29,8 @@ const router = Router();
 router.post('/intent-public', rateLimitIntentPublic, voiceController.intentPublic);
 router.use(authenticateToken);
 router.post('/intent', voiceController.intent);
+router.post('/plan', voiceController.plan);
+router.post('/observe', voiceController.observe);
+router.post('/cancel', voiceController.cancel);
 
 export default router;

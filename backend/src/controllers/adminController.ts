@@ -3,7 +3,8 @@ import { AuthRequest } from '../middleware/auth.js';
 import * as adminService from '../services/adminService.js';
 import * as personaService from '../services/personaService.js';
 import pool from '../config/database.js';
-import { indexPersona, embedTexts } from '../services/embeddingService.js';
+import { indexPersona, embedTexts, indexUiSemantics } from '../services/embeddingService.js';
+import { buildUiSemanticsCorpus } from '../voice/uiSemantics.js';
 
 export async function getUsers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -184,4 +185,18 @@ export async function reindexAll(req: AuthRequest, res: Response, next: NextFunc
   }
 }
 
-
+export async function reindexUiSemantics(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const force = String(req.query.force || '').toLowerCase() === '1' || req.body?.force === true;
+    const corpus = buildUiSemanticsCorpus();
+    const result = await indexUiSemantics(corpus, { force });
+    res.json({
+      ok: true,
+      ...result,
+      docs: corpus.docs.length,
+      generatedAt: corpus.generatedAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+}

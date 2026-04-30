@@ -158,16 +158,30 @@ const ChatPage: React.FC = () => {
 
   useVoiceTarget({
     id: 'chat.message_input',
-    label: 'Message input',
+    label: 'Message input (legacy alias)',
     action: 'fill',
     ref: textareaRef,
     enabled: !!session && selectedPersonas.length > 0,
   });
   useVoiceTarget({
     id: 'chat.send',
-    label: 'Send message',
+    label: 'Send message (legacy alias)',
     action: 'click',
     ref: sendBtnRef,
+    enabled: !!session && selectedPersonas.length > 0,
+  });
+  useVoiceTarget({
+    id: 'chat.composer.message_input',
+    label: 'Chat message',
+    action: 'fill',
+    ref: textareaRef as React.RefObject<HTMLElement | null>,
+    enabled: !!session && selectedPersonas.length > 0,
+  });
+  useVoiceTarget({
+    id: 'chat.composer.send',
+    label: 'Send chat message',
+    action: 'click',
+    ref: sendBtnRef as React.RefObject<HTMLElement | null>,
     enabled: !!session && selectedPersonas.length > 0,
   });
 

@@ -3,15 +3,20 @@
  */
 
 import { getPersonasAvailableForUser } from './personaService.js';
-import { getFocusGroups } from './focusGroupService.js';
+import { getFocusGroup, getFocusGroups } from './focusGroupService.js';
 import { getAccessibleTemplatesForUser } from './simulationTemplateService.js';
 import { getByUserId as getBusinessProfileByUserId } from './businessProfileService.js';
 import { getChatSessionsByUserId } from './chatService.js';
+import { getSimulationSessionsByUserId } from './simulationService.js';
+import pool from '../config/database.js';
 
 export type Domain =
   | 'persona'
   | 'focusGroup'
+  | 'focusGroupMember'
   | 'simulationTemplate'
+  | 'simulationSession'
+  | 'personaFile'
   | 'businessProfile'
   | 'chat'
   | 'settings'
@@ -117,6 +122,54 @@ export async function getDigest(
         meta: {},
       }));
     }
+    case 'simulationSession': {
+      const sessions = await getSimulationSessionsByUserId(userId);
+      return sessions.slice(0, limit).map((s) => ({
+        id: s.id,
+        name: s.name || 'Simulation run',
+        meta: {
+          mode: s.mode || '',
+          personaCount: String((s.persona_ids || []).length || (s.persona_id ? 1 : 0)),
+        },
+      }));
+    }
+    case 'personaFile': {
+      const r = await pool.query(
+        `SELECT pf.id, pf.persona_id, pf.name AS file_name, p.name AS persona_name
+         FROM persona_files pf
+         JOIN personas p ON p.id = pf.persona_id
+         WHERE p.user_id = $1
+         ORDER BY pf.created_at DESC
+         LIMIT $2`,
+        [userId, Math.max(1, limit)]
+      );
+      return r.rows.map((row: { id: string; file_name: string; persona_name: string; persona_id: string }) => ({
+        id: row.id,
+        name: row.file_name || 'Untitled file',
+        meta: { persona: row.persona_name || '', personaId: row.persona_id },
+      }));
+    }
+    case 'focusGroupMember': {
+      const r = await pool.query(
+        `SELECT fg.id AS focus_group_id, fg.name AS focus_group_name, p.id AS persona_id, p.name AS persona_name
+         FROM focus_groups fg
+         JOIN focus_group_personas fgp ON fgp.focus_group_id = fg.id
+         JOIN personas p ON p.id = fgp.persona_id
+         WHERE fg.user_id = $1
+         ORDER BY fg.name ASC, p.name ASC
+         LIMIT $2`,
+        [userId, Math.max(1, limit)]
+      );
+      return r.rows.map((row: { focus_group_id: string; focus_group_name: string; persona_id: string; persona_name: string }) => ({
+        id: `${row.focus_group_id}:${row.persona_id}`,
+        name: `${row.persona_name} in ${row.focus_group_name}`,
+        meta: {
+          focusGroupId: row.focus_group_id,
+          focusGroup: row.focus_group_name,
+          personaId: row.persona_id,
+        },
+      }));
+    }
     case 'settings': {
       return [];
     }
@@ -132,4 +185,29 @@ export async function getDigest(
     default:
       return [];
   }
+}
+
+/**
+ * Lightweight lookup helper used by the navigator agent during /observe replans.
+ */
+export async function lookupByDomain(
+  domain: Domain,
+  query: string,
+  viewer: { userId: string }
+): Promise<ResolveResult> {
+  if (domain === 'focusGroupMember') {
+    const groupResult = await resolveByName(viewer.userId, 'focusGroup', query);
+    if (groupResult.kind !== 'unique') return groupResult;
+    const group = await getFocusGroup(groupResult.hit.id, viewer.userId);
+    if (!group) return { kind: 'none' };
+    return {
+      kind: 'unique',
+      hit: {
+        id: group.id,
+        name: group.name,
+        meta: { members: String(group.personaIds?.length ?? 0) },
+      },
+    };
+  }
+  return resolveByName(viewer.userId, domain, query);
 }

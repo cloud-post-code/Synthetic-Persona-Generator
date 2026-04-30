@@ -13,6 +13,19 @@ const MODEL = 'gemini-2.5-flash';
 /** Enough for navigate + several fills + Save/Continue on wizards */
 const MAX_BATCH_STEPS = 12;
 
+/** Utterance clearly asks for more than navigation alone — skip navigate-only named templates so the planner can batch. */
+export function transcriptSuggestsMultiStep(transcript: string): boolean {
+  const s = transcript.toLowerCase();
+  return (
+    /\b(and\s+then|then\s+(open|go|navigate|save|fill|click|run|start|submit|press))/.test(s) ||
+    /\b(and\s+(open|go|save|fill|run|start|submit|click|press))/.test(s) ||
+    /\b(save\s+it|fill\s+(it|in|out)|submit\s+it|run\s+it|run\s+the|start\s+the)\b/.test(s) ||
+    /\b(then\s+save|then\s+fill|then\s+run|then\s+open|then\s+go)\b/.test(s) ||
+    /\b(after\s+that|next\s+step|continue\s+(to|with))\b/.test(s) ||
+    /\b(all\s+the\s+way|end\s+to\s+end|complete\s+(the|my)|finish\s+(it|the))\b/.test(s)
+  );
+}
+
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey.includes('${') || apiKey === 'your-gemini-api-key-here') {
@@ -168,7 +181,16 @@ When the user's next action satisfies completion, emit goal_complete with that g
 
   return `You are a voice UI agent for a React web app. You **plan end-to-end user journeys**, not isolated clicks. Output exactly ONE JSON value (no markdown, no prose outside JSON):
 
-Single intent (one action):
+### DEFAULT OUTPUT SHAPE (read first)
+- **Prefer** a JSON **array** of intents in order, OR \`{"type":"batch","steps":[...]}\`, whenever the user wants something **done** (not only "go to X").
+- **Single-object** output is only for truly **one** atomic step (e.g. only "open settings" with no follow-up, or only **speak** / **clarify** / **goal_complete** / **unsupported**).
+- Max ${MAX_BATCH_STEPS} steps. Order: **navigate** or **set_query** first if the user is not already on the right screen, then **action** fills, then primary **action** clicks (Save, Continue, Next, Run, Sign in, Submit).
+
+Preferred multi-step forms:
+- \`{"type":"batch","steps":[ intent1, intent2, ... ]}\`
+- Or the same as a raw JSON array: \`[ intent1, intent2, ... ]\`
+
+Intent object shapes:
 - {"type":"navigate","path":"/path","query":{},"reason":"..."}
 - {"type":"set_query","query":{"tab":"library"},"reason":"..."}
 - {"type":"action","target_id":"id","value":"optional text for fill","reason":"..."}
@@ -177,15 +199,11 @@ Single intent (one action):
 - {"type":"goal_complete","goalId":"...","summary":"..."}
 - {"type":"unsupported","reason":"..."}
 
-OR a **batch** when completing the user's goal requires **multiple ordered steps** (strongly prefer this for flows that span navigation + typing + confirmation):
-- {"type":"batch","steps":[ intent1, intent2, ... ]}
-- Or a JSON array of intents in order: [ intent1, intent2, ... ]
-- Max ${MAX_BATCH_STEPS} steps per utterance. If the ideal flow is longer, include the **most important** contiguous steps (usually: get to the right screen → fill → Save/Continue/Submit). Order: navigate/tab first, then fills, then primary buttons (Save, Continue, Next, Run simulation, Sign in, Submit).
-
 ### END-TO-END FLOW MINDSET
 - Infer the **whole task** the user wants **done** (e.g. "set up a persona", "log in", "run my simulation", "save business profile"). Map the **likely sequence**: open the right page/section → fill visible fields the user mentioned → press **Continue / Next / Save / Submit / Run / Sign in** when those controls appear in VISIBLE_TARGETS (match by label text).
+- If **CURRENT_NODE** is not the screen where the work happens, **start** with **navigate** or **set_query**, then add the **action** steps that complete the job—even when later targets are not in VISIBLE_TARGETS yet (the app will rescan after each step).
 - **Confirmation steps matter**: wizards and forms often need **Next** or **Continue** between steps before **Save**. Include **action** steps for those buttons when their target_id / label appears in VISIBLE_TARGETS.
-- **Same screen**: you can batch multiple **action** steps (several fills, then click Save) in one response when all targets are listed below.
+- **Same screen**: batch multiple **action** steps (several fills, then click Save) in one response when all targets are listed below.
 - **After navigation in a batch**, later **action** target_ids may appear only on the next screen—the client rescans; you may still emit those steps in order.
 
 ### WHEN TO ASK (clarify)—required
@@ -205,7 +223,7 @@ Rules:
 - For navigate, include query only when the target node requires it (e.g. gallery library tab).
 - target_id for action MUST match a visible target id on the **current** screen in context, except **after** a navigate or set_query inside the same batch (next-screen targets allowed there).
 - Prefer **navigate** over guessing sidebar links when opening a major area.
-- Use a **single** intent only when the ask is truly one atomic step; otherwise prefer a **batch** that completes the likely flow.
+- When in doubt between one step and several, **choose several** in one array/batch (the client runs them in order).
 - Be concise in **reason** strings (often spoken aloud).
 
 ${body.uiMapPrompt}
@@ -219,10 +237,29 @@ ${targetsBlock}
 Return only valid JSON: one intent object, or {"type":"batch","steps":[...]}, or a JSON array of intents.`;
 }
 
+function buildPlannerUserHints(body: VoiceIntentRequest): string {
+  const n = body.context.visibleTargets.length;
+  const lines: string[] = [];
+  if (body.context.currentNodeId) {
+    lines.push(`CURRENT_NODE_ID: ${body.context.currentNodeId}`);
+  }
+  if (n >= 2) {
+    lines.push(
+      `VISIBLE_TARGET_COUNT: ${n} — if the user wants to act on this screen (fill, save, run, etc.), include those action steps in the same batch or array after any navigate/set_query.`
+    );
+  }
+  if (transcriptSuggestsMultiStep(body.transcript)) {
+    lines.push(
+      'MULTI_STEP_UTTERANCE: true — the user implied a sequence; respond with a JSON array or {"type":"batch","steps":[...]} covering the full sequence (navigation first if needed, then actions).'
+    );
+  }
+  return lines.length ? `\n${lines.join('\n')}` : '';
+}
+
 export async function parseVoiceIntent(body: VoiceIntentRequest): Promise<VoiceIntentResult> {
   const ai = getAI();
   const systemInstruction = buildSystemInstruction(body);
-  const userText = `User said: ${body.transcript}\n\nCurrent URL path: ${body.context.pathname}\nSearch: ${body.context.search}`;
+  const userText = `User said: ${body.transcript}\n\nCurrent URL path: ${body.context.pathname}\nSearch: ${body.context.search}${buildPlannerUserHints(body)}`;
 
   const response = await ai.models.generateContent({
     model: MODEL,
@@ -283,7 +320,14 @@ export function hintedDomainsFromTranscript(transcript: string): Domain[] {
   const out = new Set<Domain>();
   if (/\b(persona|character|synthetic)\b/.test(t)) out.add('persona');
   if (/\bfocus\s*group\b|\bcohort\b/.test(t)) out.add('focusGroup');
+  if (/\b(member|participant|in\s+the\s+focus\s*group|who(?:'s|\s+is)\s+in)\b/.test(t)) {
+    out.add('focusGroupMember');
+  }
   if (/\bsimulation\b|\btemplate\b|\brun\s+(the\s+)?sim/.test(t)) out.add('simulationTemplate');
+  if (/\b(simulation\s+(run|session)|past\s+sim|previous\s+sim|recent\s+sim|my\s+sim)\b/.test(t)) {
+    out.add('simulationSession');
+  }
+  if (/\b(file|document|upload|pdf|attachment|blueprint)\b/.test(t)) out.add('personaFile');
   if (/\bbusiness\b|\bcompany\b/.test(t)) out.add('businessProfile');
   if (/\bchat\b|\bconversation\b|\bmessage\b/.test(t)) out.add('chat');
   if (/\bsettings\b|\bpreferences\b|\baccount\b/.test(t)) out.add('settings');
@@ -322,11 +366,20 @@ export async function resolveVoiceIntent(
         return { type: 'clarify', question: slot.promptIfMissing };
       }
     }
-    const expanded = await expandTemplate(cls.template, cls.slots, body.context, auth.userId);
-    if (expanded.kind === 'clarify') return expanded.intent;
-    if (expanded.kind === 'unsupported') return { type: 'unsupported', reason: expanded.reason };
-    console.info('[voice.classifier]', { matched: cls.template.name });
-    return validateBatchSteps(expanded.steps as unknown[], body.context);
+    const stepsOnly = cls.template.steps;
+    const isNavigateOnly =
+      stepsOnly.length === 1 && stepsOnly[0]!.type === 'navigate';
+    if (isNavigateOnly && transcriptSuggestsMultiStep(body.transcript)) {
+      console.info('[voice.resolve] skipping navigate-only template for multi-step utterance', {
+        template: cls.template.name,
+      });
+    } else {
+      const expanded = await expandTemplate(cls.template, cls.slots, body.context, auth.userId);
+      if (expanded.kind === 'clarify') return expanded.intent;
+      if (expanded.kind === 'unsupported') return { type: 'unsupported', reason: expanded.reason };
+      console.info('[voice.classifier]', { matched: cls.template.name });
+      return validateBatchSteps(expanded.steps as unknown[], body.context);
+    }
   }
 
   const hinted = hintedDomainsFromTranscript(body.transcript);

@@ -26,22 +26,28 @@ import {
   setVoiceAgentEnabled,
   setVoiceTtsEnabled,
 } from '../voice/voiceSettings.js';
+import { settingsProfileSchema, settingsTabsSchema } from '../forms/index.js';
+import { fieldTargetId } from '../forms/types.js';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'data';
 
-const SettingsLink: React.FC<{ icon: any; label: string; active: boolean; onClick: () => void }> = ({ icon: Icon, label, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-      active 
-        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' 
-        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-    }`}
-  >
-    <Icon className="w-5 h-5" />
-    {label}
-  </button>
+const SettingsLink = React.forwardRef<HTMLButtonElement, { icon: any; label: string; active: boolean; onClick: () => void }>(
+  ({ icon: Icon, label, active, onClick }, ref) => (
+    <button
+      ref={ref}
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+        active
+          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100'
+          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+      }`}
+    >
+      <Icon className="w-5 h-5" />
+      {label}
+    </button>
+  )
 );
+SettingsLink.displayName = 'SettingsLink';
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
@@ -50,21 +56,42 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </div>
 );
 
-const InputField: React.FC<{ label: string; type?: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; icon?: any; prefix?: string }> = ({ label, type = 'text', value, onChange, icon: Icon, prefix }) => (
-  <div className="space-y-2">
-    <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-    <div className="relative">
-      {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
-      {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
-      <input
-        type={type}
-        value={value}
-        onChange={onChange}
-        className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
-      />
+type VoiceFieldRef = { id: string; label: string };
+
+const InputField: React.FC<{
+  label: string;
+  type?: string;
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  icon?: any;
+  prefix?: string;
+  voiceTarget?: VoiceFieldRef;
+}> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, voiceTarget }) => {
+  const ref = useRef<HTMLInputElement | null>(null);
+  useVoiceTarget({
+    id: voiceTarget?.id ?? '',
+    label: voiceTarget?.label ?? label,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: !!voiceTarget?.id,
+  });
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
+      <div className="relative">
+        {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
+        {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
+        <input
+          ref={ref}
+          type={type}
+          value={value}
+          onChange={onChange}
+          className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
+        />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const TextAreaField: React.FC<{ label: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number }> = ({ label, value, onChange, placeholder, rows = 3 }) => (
   <div className="space-y-2">
@@ -93,13 +120,61 @@ const SettingsPage: React.FC = () => {
   const [voiceAgentOn, setVoiceAgentOn] = useState(() => isVoiceAgentEnabled());
   const [voiceTtsOn, setVoiceTtsOn] = useState(() => isVoiceTtsEnabled());
   const saveProfileRef = useRef<HTMLButtonElement>(null);
+  const tabProfileRef = useRef<HTMLButtonElement>(null);
+  const tabSecurityRef = useRef<HTMLButtonElement>(null);
+  const tabNotificationsRef = useRef<HTMLButtonElement>(null);
+  const tabDataRef = useRef<HTMLButtonElement>(null);
+  const signOutRef = useRef<HTMLButtonElement>(null);
 
+  // Legacy alias.
   useVoiceTarget({
     id: 'settings.save_profile',
+    label: 'Save profile changes (legacy alias)',
+    action: 'click',
+    ref: saveProfileRef as React.RefObject<HTMLElement | null>,
+    enabled: activeTab === 'profile',
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsProfileSchema.formKey, 'save'),
     label: 'Save profile changes',
     action: 'click',
-    ref: saveProfileRef,
+    ref: saveProfileRef as React.RefObject<HTMLElement | null>,
     enabled: activeTab === 'profile',
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'profile'),
+    label: 'Profile tab',
+    action: 'click',
+    ref: tabProfileRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'security'),
+    label: 'Security tab',
+    action: 'click',
+    ref: tabSecurityRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'notifications'),
+    label: 'Notifications tab',
+    action: 'click',
+    ref: tabNotificationsRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'data'),
+    label: 'Data tab',
+    action: 'click',
+    ref: tabDataRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'sign_out'),
+    label: 'Sign out',
+    action: 'click',
+    ref: signOutRef as React.RefObject<HTMLElement | null>,
+  });
+
+  const sp = (key: string): VoiceFieldRef => ({
+    id: fieldTargetId(settingsProfileSchema.formKey, key),
+    label: settingsProfileSchema.fields.find((f) => f.key === key)?.label ?? key,
   });
 
   // Update form when user changes
@@ -141,32 +216,37 @@ const SettingsPage: React.FC = () => {
       
       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
         <aside className="space-y-2">
-          <SettingsLink 
-            icon={User} 
-            label="Profile" 
-            active={activeTab === 'profile'} 
-            onClick={() => setActiveTab('profile')} 
+          <SettingsLink
+            ref={tabProfileRef}
+            icon={User}
+            label="Profile"
+            active={activeTab === 'profile'}
+            onClick={() => setActiveTab('profile')}
           />
-          <SettingsLink 
-            icon={Shield} 
-            label="Security" 
-            active={activeTab === 'security'} 
-            onClick={() => setActiveTab('security')} 
+          <SettingsLink
+            ref={tabSecurityRef}
+            icon={Shield}
+            label="Security"
+            active={activeTab === 'security'}
+            onClick={() => setActiveTab('security')}
           />
-          <SettingsLink 
-            icon={Bell} 
-            label="Notifications" 
-            active={activeTab === 'notifications'} 
-            onClick={() => setActiveTab('notifications')} 
+          <SettingsLink
+            ref={tabNotificationsRef}
+            icon={Bell}
+            label="Notifications"
+            active={activeTab === 'notifications'}
+            onClick={() => setActiveTab('notifications')}
           />
-          <SettingsLink 
-            icon={Database} 
-            label="Data & Storage" 
-            active={activeTab === 'data'} 
-            onClick={() => setActiveTab('data')} 
+          <SettingsLink
+            ref={tabDataRef}
+            icon={Database}
+            label="Data & Storage"
+            active={activeTab === 'data'}
+            onClick={() => setActiveTab('data')}
           />
           <div className="pt-8 border-t border-gray-100 mt-4">
-            <button 
+            <button
+              ref={signOutRef}
               onClick={logout}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 transition-all"
             >
@@ -196,30 +276,36 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InputField 
-                      label="Display Name" 
+                    <InputField
+                      label="Display Name"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
+                      voiceTarget={sp('display_name')}
                     />
-                    <InputField 
-                      label="Username" 
+                    <InputField
+                      label="Username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      prefix="@" 
+                      prefix="@"
+                      voiceTarget={sp('username')}
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Email</label>
-                    <InputField 
+                    <InputField
+                      label=""
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       icon={Mail}
+                      voiceTarget={sp('email')}
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Bio</label>
-                    <textarea 
+                    <textarea
+                      data-voice-target={fieldTargetId(settingsProfileSchema.formKey, 'bio')}
+                      aria-label="Bio"
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
                       className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none h-32 resize-none"
