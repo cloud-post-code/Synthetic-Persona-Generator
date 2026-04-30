@@ -173,6 +173,21 @@ export const ALL_FORMS: BackendFormSchema[] = [
     ],
   },
   {
+    formKey: 'build.persona.advisor_free_text',
+    page: '/build',
+    title: 'Advisor — describe expert (text)',
+    purpose:
+      'Build an advisor from freeform text; optional Improve with LLM normalizes notes into profile-style source, then the same pipeline as LinkedIn paste.',
+    persistsTo: ['personas', 'persona_files'],
+    submitTargetId: 'build.persona.advisor_free_text.submit',
+    fields: [
+      { key: 'free_text', label: 'Expert description (notes or bio)', type: 'textarea', required: true },
+      { key: 'improve_llm', label: 'Improve with LLM', type: 'button', action: 'click' },
+      { key: 'other_docs_file', label: 'Other docs (CV/portfolio) file', type: 'button', action: 'click' },
+      { key: 'submit', label: 'Submit for Advisor Profiling', type: 'button', action: 'click' },
+    ],
+  },
+  {
     formKey: 'build.persona.visibility',
     page: '/build',
     title: 'Build persona — visibility',

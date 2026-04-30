@@ -14,6 +14,7 @@ import {
   buildSyntheticBusinessProfileSchema,
   buildAdvisorLinkedinSchema,
   buildAdvisorPdfSchema,
+  buildAdvisorFreeTextSchema,
 } from './buildPersonaFormSchemas.js';
 import { simulationTemplateFormSchema } from './simulationTemplateFormSchema.js';
 import { settingsTabsSchema, settingsProfileSchema } from './settingsFormSchema.js';
@@ -49,6 +50,7 @@ export {
   buildSyntheticBusinessProfileSchema,
   buildAdvisorLinkedinSchema,
   buildAdvisorPdfSchema,
+  buildAdvisorFreeTextSchema,
   simulationTemplateFormSchema,
   settingsTabsSchema,
   settingsProfileSchema,

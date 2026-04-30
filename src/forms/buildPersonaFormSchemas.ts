@@ -123,6 +123,33 @@ export const buildAdvisorPdfSchema: FormSchema = {
   ],
 };
 
+export const buildAdvisorFreeTextSchema: FormSchema = {
+  formKey: 'build.persona.advisor_free_text',
+  page: '/build',
+  title: 'Advisor — describe expert (text)',
+  purpose:
+    'Build an advisor from freeform text; optional LLM improve rewrites notes into LinkedIn-style source, then the same pipeline as LinkedIn paste runs.',
+  persistsTo: ['personas', 'persona_files'],
+  submitTargetId: 'build.persona.advisor_free_text.submit',
+  fields: [
+    {
+      key: 'free_text',
+      label: 'Expert description (notes or bio)',
+      type: 'textarea',
+      required: true,
+      description: 'Rough notes or pasted bio; use Improve with LLM to normalize for the advisor builder.',
+    },
+    {
+      key: 'improve_llm',
+      label: 'Improve with LLM',
+      type: 'button',
+      action: 'click',
+    },
+    { key: 'other_docs_file', label: 'Other docs (CV/portfolio) file', type: 'button', action: 'click' },
+    { key: 'submit', label: 'Submit for Advisor Profiling', type: 'button', action: 'click' },
+  ],
+};
+
 /** Visibility step that appears after generation completes (both flows). */
 export const buildPersonaVisibilitySchema: FormSchema = {
   formKey: 'build.persona.visibility',
@@ -152,5 +179,6 @@ export const buildPersonaSchemas: FormSchema[] = [
   buildSyntheticBusinessProfileSchema,
   buildAdvisorLinkedinSchema,
   buildAdvisorPdfSchema,
+  buildAdvisorFreeTextSchema,
   buildPersonaVisibilitySchema,
 ];

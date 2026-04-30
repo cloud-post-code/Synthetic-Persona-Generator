@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Check, Users, Image as ImageIcon } from 'lucide-react';
+import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Check, Users, Image as ImageIcon, AlignLeft } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
@@ -12,6 +12,7 @@ import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
   buildAdvisorLinkedinSchema,
   buildAdvisorPdfSchema,
+  buildAdvisorFreeTextSchema,
   buildPersonaPickerSchema,
   buildPersonaVisibilitySchema,
   buildSyntheticBusinessProfileSchema,
@@ -66,6 +67,10 @@ const adv = (key: string): VoiceFieldRef => ({
   id: fieldTargetId(buildAdvisorLinkedinSchema.formKey, key),
   label: buildAdvisorLinkedinSchema.fields.find((f) => f.key === key)?.label ?? key,
 });
+const advFree = (key: string): VoiceFieldRef => ({
+  id: fieldTargetId(buildAdvisorFreeTextSchema.formKey, key),
+  label: buildAdvisorFreeTextSchema.fields.find((f) => f.key === key)?.label ?? key,
+});
 
 const TypeCard: React.FC<{
   title: string;
@@ -118,7 +123,7 @@ const SYNTHETIC_MD_STEPS: MdStep[] = [
 ];
 
 const ADVISOR_MD_STEPS: MdStep[] = [
-  { title: 'Source material', subtitle: 'Extract text from LinkedIn, PDF, or supporting docs', icon: FileText },
+  { title: 'Source material', subtitle: 'LinkedIn paste, free text, PDF, or supporting docs', icon: FileText },
   { title: 'Identity', subtitle: 'Name, title, and summary', icon: Users },
   { title: '1_Expert_Blueprint.md', subtitle: 'High-fidelity expert profile', icon: FileText },
   { title: 'Portrait', subtitle: 'Avatar image', icon: ImageIcon },
@@ -601,17 +606,19 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
 };
 
 // --- ADVISOR FORM ---
-type AdvisorSourceMode = 'linkedin' | 'pdf';
+type AdvisorSourceMode = 'linkedin' | 'pdf' | 'free_text';
 
 const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
+  const [improving, setImproving] = useState(false);
   const cancelledRef = useRef(false);
   const [createdPersonaIds, setCreatedPersonaIds] = useState<string[] | null>(null);
   const [visibilityChoice, setVisibilityChoice] = useState<'private' | 'public'>(defaultVisibility);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [sourceMode, setSourceMode] = useState<AdvisorSourceMode | null>(null);
   const [linkedinText, setLinkedinText] = useState('');
+  const [freeText, setFreeText] = useState('');
   const [otherDocsFileName, setOtherDocsFileName] = useState('');
   const [otherDocsFileContent, setOtherDocsFileContent] = useState('');
   const [otherDocsFileBase64, setOtherDocsFileBase64] = useState('');
@@ -621,6 +628,23 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
   const [fileBase64, setFileBase64] = useState<string>('');
   const [fileMimeType, setFileMimeType] = useState<string>('');
   const buildSaveRef = useRef<HTMLButtonElement>(null);
+  const freeTextRef = useRef<HTMLTextAreaElement>(null);
+  const improveFreeRef = useRef<HTMLButtonElement>(null);
+
+  useVoiceTarget({
+    id: advFree('free_text').id,
+    label: advFree('free_text').label,
+    action: 'fill',
+    ref: freeTextRef,
+    enabled: sourceMode === 'free_text',
+  });
+  useVoiceTarget({
+    id: advFree('improve_llm').id,
+    label: advFree('improve_llm').label,
+    action: 'click',
+    ref: improveFreeRef,
+    enabled: sourceMode === 'free_text' && !loading,
+  });
 
   useVoiceTarget({
     id: 'build.save',
@@ -737,6 +761,22 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
     setOtherDocsFileMimeType('');
   };
 
+  const handleImproveFreeText = async () => {
+    if (!freeText.trim()) {
+      alert('Add notes or a bio about the expert, then use Improve with LLM.');
+      return;
+    }
+    setImproving(true);
+    try {
+      const improved = await geminiService.improveAdvisorSourceMaterial(freeText);
+      setFreeText(improved);
+    } catch (err: any) {
+      alert(err?.message || 'Improve failed. Check your API key and try again.');
+    } finally {
+      setImproving(false);
+    }
+  };
+
   const handleCancelGenerate = () => {
     cancelledRef.current = true;
     setLoading(false);
@@ -751,6 +791,11 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
         alert('Please paste the LinkedIn profile text.');
         return;
       }
+    } else if (sourceMode === 'free_text') {
+      if (!freeText.trim()) {
+        alert('Please add text describing the expert, or use Improve with LLM first.');
+        return;
+      }
     } else {
       if (!fileContent && !fileBase64) {
         alert('Please select a file to upload.');
@@ -762,9 +807,10 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
     try {
       let extractedText = fileContent;
 
-      if (sourceMode === 'linkedin') {
+      if (sourceMode === 'linkedin' || sourceMode === 'free_text') {
+        const pastedProfileText = sourceMode === 'linkedin' ? linkedinText : freeText;
         setLoadingStage('Analyzing professional facts...');
-        const extractedFacts = await geminiService.extractFacts(linkedinText);
+        const extractedFacts = await geminiService.extractFacts(pastedProfileText);
         if (cancelledRef.current) return;
         let otherDocsResolved = '';
         if (otherDocsFileName) {
@@ -800,7 +846,7 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
           : combined;
         const profileOutput = await geminiService.generateChain(highFidelityPersonaTemplate, {
           "Fact Extraction (Source of Truth)": extractedFacts,
-          "Raw LinkedIn Content": linkedinText,
+          "Raw LinkedIn Content": pastedProfileText,
           "Other Docs": otherDocsResolved,
           "Primary Source Material": limitedMaterial,
           "Identity Target": `${name} - ${title}`,
@@ -1028,7 +1074,7 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         <div className="space-y-6">
           <h3 className="text-xl font-bold text-gray-900">How do you want to create your advisor?</h3>
           <p className="text-gray-500">Pick one method. Each run uses only that input.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <button
               type="button"
               onClick={() => setSourceMode('linkedin')}
@@ -1040,8 +1086,17 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
             </button>
             <button
               type="button"
+              onClick={() => setSourceMode('free_text')}
+              className="group bg-white border-2 border-gray-100 hover:border-fuchsia-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+            >
+              <AlignLeft className="w-10 h-10 text-fuchsia-500 mb-3" />
+              <h4 className="font-bold text-gray-900 mb-1">Describe expert (text)</h4>
+              <p className="text-sm text-gray-500">Type notes or a bio; use Improve with LLM to format it like a profile, then run the same pipeline as LinkedIn.</p>
+            </button>
+            <button
+              type="button"
               onClick={() => setSourceMode('pdf')}
-              className="group bg-white border-2 border-gray-100 hover:border-indigo-400 p-6 rounded-2xl text-left transition-all hover:shadow-lg"
+              className="group bg-white border-2 border-gray-100 hover:border-indigo-400 p-6 rounded-2xl text-left transition-all sm:col-span-2 lg:col-span-1"
             >
               <FileUp className="w-10 h-10 text-indigo-500 mb-3" />
               <h4 className="font-bold text-gray-900 mb-1">Upload PDF / document</h4>
@@ -1111,6 +1166,81 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
         </>
       )}
 
+      {sourceMode === 'free_text' && (
+        <>
+          <div className="bg-fuchsia-50/90 border border-fuchsia-100 rounded-3xl p-6 flex gap-4">
+            <Sparkles className="w-6 h-6 text-fuchsia-600 shrink-0" />
+            <div>
+              <h4 className="font-bold text-fuchsia-950 mb-1">Text-based advisor</h4>
+              <p className="text-sm text-fuchsia-900/90 leading-relaxed">
+                Add rough notes or a short bio. <span className="font-semibold">Improve with LLM</span> rewrites the box into LinkedIn-style source text so fact extraction and the expert blueprint use the same system as a pasted profile. You can submit without improving if your text is already detailed.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1 flex-1 min-w-[200px]">
+                <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Expert description</label>
+                <p className="text-sm text-gray-500">Notes, bullets, or pasted bio.</p>
+              </div>
+              <button
+                ref={improveFreeRef}
+                type="button"
+                onClick={handleImproveFreeText}
+                disabled={improving || !freeText.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-sm bg-fuchsia-600 text-white hover:bg-fuchsia-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shrink-0"
+              >
+                {improving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                Improve with LLM
+              </button>
+            </div>
+            <textarea
+              ref={freeTextRef}
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              placeholder="Example: Senior climate policy advisor, 12 years at EPA then NGO work. Focus on carbon markets and EU regulation. Speaks at COP; wrote the 2021 brief on border adjustments..."
+              className="w-full bg-gray-50 border border-gray-100 rounded-3xl p-6 min-h-[200px] font-medium focus:ring-4 focus:ring-fuchsia-100 transition-all outline-none resize-y"
+            />
+          </div>
+          <div className="space-y-4">
+            <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Other docs (CV, portfolio, optional)</label>
+            <p className="text-sm text-gray-500">Upload a CV, portfolio, or other document to add to the advisor context—same as the LinkedIn flow.</p>
+            {otherDocsFileName ? (
+              <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                <FileText className="w-5 h-5 text-gray-500 shrink-0" />
+                <span className="text-sm font-medium text-gray-900 truncate flex-1">{otherDocsFileName}</span>
+                <button
+                  type="button"
+                  onClick={clearOtherDocsFile}
+                  className="shrink-0 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-red-600 border border-gray-200 rounded-xl hover:bg-gray-100"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:border-fuchsia-200 transition-all bg-gray-50/50">
+                <Upload className="w-10 h-10 text-gray-300 mb-2" />
+                <p className="text-sm font-medium text-gray-600 mb-3">PDF, Word, images, or text files</p>
+                <input
+                  type="file"
+                  id="other-docs-file-free"
+                  className="hidden"
+                  accept={GEMINI_FILE_INPUT_ACCEPT}
+                  onChange={handleOtherDocsFile}
+                />
+                <label
+                  htmlFor="other-docs-file-free"
+                  data-voice-target={fieldTargetId(buildAdvisorFreeTextSchema.formKey, 'other_docs_file')}
+                  className="cursor-pointer px-6 py-2.5 bg-fuchsia-50 text-fuchsia-800 font-bold rounded-xl hover:bg-fuchsia-100 text-sm"
+                >
+                  Select file
+                </label>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {sourceMode === 'pdf' && (
         <div className="space-y-4">
           <label className="block text-sm font-black text-gray-400 uppercase tracking-widest">Upload Expert Source</label>
@@ -1133,12 +1263,24 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       <div className="flex flex-wrap items-center gap-4">
         <button
           data-voice-target={fieldTargetId(
-            sourceMode === 'pdf' ? buildAdvisorPdfSchema.formKey : buildAdvisorLinkedinSchema.formKey,
+            sourceMode === 'pdf'
+              ? buildAdvisorPdfSchema.formKey
+              : sourceMode === 'free_text'
+                ? buildAdvisorFreeTextSchema.formKey
+                : buildAdvisorLinkedinSchema.formKey,
             'submit'
           )}
           aria-label="Submit for Advisor Profiling"
           type="submit"
-          disabled={sourceMode === null || (sourceMode === 'linkedin' ? !linkedinText.trim() : !fileContent && !fileBase64)}
+          disabled={
+            improving ||
+            sourceMode === null ||
+            (sourceMode === 'linkedin'
+              ? !linkedinText.trim()
+              : sourceMode === 'free_text'
+                ? !freeText.trim()
+                : !fileContent && !fileBase64)
+          }
           className="flex-1 min-w-[200px] py-6 bg-violet-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-violet-700 disabled:opacity-50 transition-all"
         >
           Submit for Advisor Profiling
@@ -1242,7 +1384,7 @@ const BuildPersonaPage: React.FC = () => {
           />
           <TypeCard
             title="Advisor"
-            description="Create advisors from LinkedIn profile text or PDF/document upload. Deep analysis with Red Team critical evaluation."
+            description="Create advisors from LinkedIn paste, free text (with optional LLM improve), or PDF/document upload. Deep analysis with Red Team critical evaluation."
             icon={Sparkles}
             onClick={() => setSelectedBuildMode('advisor')}
             theme="violet"

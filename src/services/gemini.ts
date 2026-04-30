@@ -245,6 +245,34 @@ export const geminiService = {
     }
   },
 
+  /**
+   * Rewrite rough notes into LinkedIn-style profile text so the same advisor pipeline
+   * (extractFacts → identity → high-fidelity blueprint) as pasted LinkedIn can run.
+   */
+  improveAdvisorSourceMaterial: async (rawNotes: string): Promise<string> => {
+    const trimmed = rawNotes.trim();
+    if (!trimmed) {
+      throw new Error('Add some text about the expert before using Improve.');
+    }
+    const prompt = `You prepare source material for an automated "expert advisor" persona builder. That system is tuned for pasted LinkedIn profile text, then structured fact extraction.
+
+The user provided informal notes about a professional expert (bullets, fragments, interview notes, or a short bio). Rewrite their input into ONE cohesive plain-text document that resembles what you would get by selecting all text on a LinkedIn profile page:
+
+- Use clear sections when content supports it: Summary/About, Experience, Education, Skills, Certifications, etc.
+- Preserve every factual claim from the user's notes. Do not invent employers, dates, titles, degrees, metrics, or achievements that are not clearly supported by the notes.
+- You may fix grammar, connect fragments, and clarify phrasing. If something is vague, keep it vague rather than guessing specifics.
+- If the notes describe domain expertise without a named person, write a rich expert profile consistent with the notes without inventing a fake personal name in the document.
+- If the input is only a URL line or too short to profile, output a short paragraph stating that full pasted text is needed—do not fabricate a profile.
+
+USER NOTES:
+${truncate(trimmed, 50000)}
+
+Output ONLY the improved profile text. No title line like "Here is" or markdown code fences.`;
+
+    const out = await geminiService.generateBasic(prompt, false);
+    return (out || '').trim();
+  },
+
   generateAvatar: async (name: string, title: string): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
