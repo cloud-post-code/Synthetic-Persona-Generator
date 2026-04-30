@@ -11,6 +11,9 @@ export const VoiceAgentDock: React.FC = () => {
   const recRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
   const holdingRef = useRef(false);
 
+  const supported = isSpeechRecognitionSupported() && isSecureContextForMic();
+  const busy = agentState === 'thinking' || agentState === 'acting' || agentState === 'speaking';
+
   const stopRec = useCallback(() => {
     recRef.current?.stop();
     recRef.current = null;
@@ -45,36 +48,55 @@ export const VoiceAgentDock: React.FC = () => {
     rec.start();
   }, [pushTranscript, startListening, stopRec]);
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      holdingRef.current = true;
-      startRec();
-    },
-    [startRec]
-  );
-
-  const onPointerUp = useCallback(() => {
-    holdingRef.current = false;
-    recRef.current?.stop();
-  }, []);
-
   useEffect(() => {
+    const isCommandKey = (e: KeyboardEvent) =>
+      e.key === 'Meta' || e.code === 'MetaLeft' || e.code === 'MetaRight';
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         taskTracker.cancel();
         cancelSpeech();
         stopRec();
+        return;
       }
+      if (!isCommandKey(e)) {
+        // If another key is pressed while holding ⌘ (e.g. ⌘C, ⌘V), abort PTT
+        if (holdingRef.current && e.metaKey) {
+          holdingRef.current = false;
+          recRef.current?.stop();
+        }
+        return;
+      }
+      if (e.repeat || holdingRef.current) return;
+      if (!supported || busy) return;
+      holdingRef.current = true;
+      startRec();
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isCommandKey(e)) return;
+      if (!holdingRef.current) return;
+      holdingRef.current = false;
+      recRef.current?.stop();
+    };
+
+    const onBlur = () => {
+      if (!holdingRef.current) return;
+      holdingRef.current = false;
+      recRef.current?.stop();
+    };
+
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [stopRec]);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [stopRec, startRec, supported, busy]);
 
   if (!isDockVisible) return null;
-
-  const supported = isSpeechRecognitionSupported() && isSecureContextForMic();
-  const busy = agentState === 'thinking' || agentState === 'acting' || agentState === 'speaking';
 
   return (
     <div
@@ -88,25 +110,23 @@ export const VoiceAgentDock: React.FC = () => {
         </div>
       )}
       <div className="flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-2 py-2 shadow-lg">
-        <span className="hidden sm:inline pl-2 text-xs text-gray-500 max-w-[140px]">
-          {busy ? 'Working…' : 'Hold mic · say undo'}
+        <span className="hidden sm:inline pl-2 text-xs text-gray-500 max-w-[160px]">
+          {busy ? 'Working…' : 'Hold ⌘ · say undo'}
         </span>
-        <button
-          type="button"
-          disabled={!supported || busy}
-          onPointerDown={onPointerDown}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+        <div
+          aria-disabled={!supported || busy}
           className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
             agentState === 'listening'
               ? 'bg-red-500 text-white ring-2 ring-red-300'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'
+              : !supported || busy
+                ? 'bg-indigo-600 text-white opacity-40'
+                : 'bg-indigo-600 text-white'
           }`}
-          title={supported ? 'Hold to speak' : 'Voice not available'}
-          aria-label="Voice control, hold to speak"
+          title={supported ? 'Hold ⌘ (Command) to speak' : 'Voice not available'}
+          aria-label="Voice control, hold the Command key to speak"
         >
           {busy ? <Loader2 className="h-6 w-6 animate-spin" /> : supported ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
-        </button>
+        </div>
       </div>
     </div>
   );
