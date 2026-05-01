@@ -409,67 +409,7 @@ const BusinessProfilePage: React.FC = () => {
           <>
             <DescribeBusinessProfileBar onApplyDraft={handleVoiceDraft} disabled={generateLoading} />
 
-            <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 print:hidden" aria-label="Sections">
-              {BUSINESS_PROFILE_SPEC.map((sec) => (
-                <button
-                  key={sec.key}
-                  type="button"
-                  onClick={() => setActiveTab(sec.key)}
-                  className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
-                    activeTab === sec.key
-                      ? 'border-gray-900 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  {sec.shortLabel}
-                </button>
-              ))}
-            </nav>
-
-            <div className="print:hidden space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
-              {activeSection.frameworks.map((fw) => {
-                const fwId = `${activeSection.key}.${fw.key}`;
-                const collapsed = collapsedFw[fwId];
-                return (
-                  <section key={fwId} className="rounded-lg border border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => toggleFw(fwId)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-gray-50/80"
-                    >
-                      {collapsed ? (
-                        <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
-                      )}
-                      <span>
-                        <span className="block font-medium text-gray-900">{fw.title}</span>
-                        <span className="block text-xs text-gray-500">{fw.description}</span>
-                      </span>
-                    </button>
-                    {!collapsed && (
-                      <div className="space-y-4 border-t border-gray-100 px-4 py-4">
-                        {fw.questions.map((q) => {
-                          const qKey = businessProfileAnswerKey(activeSection.key, fw.key, q.key);
-                          return (
-                            <TextArea
-                              key={qKey}
-                              qKey={qKey}
-                              label={q.label}
-                              value={answers[qKey] ?? ''}
-                              onChange={(v) => setQuestion(qKey, v)}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-
-            <section className="mt-8 print:hidden space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-6">
+            <section className="mb-6 print:hidden space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-6">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
                 <Sparkles className="h-4 w-4 text-indigo-600" />
                 Generate with AI
@@ -546,6 +486,66 @@ const BusinessProfilePage: React.FC = () => {
                 )}
               </div>
             </section>
+
+            <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 print:hidden" aria-label="Sections">
+              {BUSINESS_PROFILE_SPEC.map((sec) => (
+                <button
+                  key={sec.key}
+                  type="button"
+                  onClick={() => setActiveTab(sec.key)}
+                  className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
+                    activeTab === sec.key
+                      ? 'border-gray-900 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  {sec.shortLabel}
+                </button>
+              ))}
+            </nav>
+
+            <div className="print:hidden space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
+              {activeSection.frameworks.map((fw) => {
+                const fwId = `${activeSection.key}.${fw.key}`;
+                const collapsed = collapsedFw[fwId];
+                return (
+                  <section key={fwId} className="rounded-lg border border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => toggleFw(fwId)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-gray-50/80"
+                    >
+                      {collapsed ? (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                      )}
+                      <span>
+                        <span className="block font-medium text-gray-900">{fw.title}</span>
+                        <span className="block text-xs text-gray-500">{fw.description}</span>
+                      </span>
+                    </button>
+                    {!collapsed && (
+                      <div className="space-y-4 border-t border-gray-100 px-4 py-4">
+                        {fw.questions.map((q) => {
+                          const qKey = businessProfileAnswerKey(activeSection.key, fw.key, q.key);
+                          return (
+                            <TextArea
+                              key={qKey}
+                              qKey={qKey}
+                              label={q.label}
+                              value={answers[qKey] ?? ''}
+                              onChange={(v) => setQuestion(qKey, v)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
           </>
         )}
 
