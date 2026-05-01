@@ -527,19 +527,11 @@ const SimulationPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const simNewSessionRef = useRef<HTMLButtonElement>(null);
   const simGotoHubRef = useRef<HTMLButtonElement>(null);
   const simHubSearchRef = useRef<HTMLInputElement>(null);
   const simStartRef = useRef<HTMLButtonElement>(null);
   const simBackToTemplatesRef = useRef<HTMLButtonElement>(null);
 
-  useVoiceTarget({
-    id: 'simulate.new_session',
-    label: 'New simulation',
-    action: 'click',
-    ref: simNewSessionRef,
-    enabled: stage === 'selection',
-  });
   useVoiceTarget({
     id: 'simulate.goto_hub',
     label: 'Build simulation',
@@ -2084,26 +2076,15 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                   <span className="font-semibold text-gray-800">Simulations</span> in the sidebar.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  ref={simNewSessionRef}
-                  type="button"
-                  onClick={startNewSim}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-200 bg-white text-gray-800 rounded-lg hover:bg-gray-50 hover:border-gray-300 text-sm font-bold"
-                >
-                  <Sparkles className="w-4 h-4 text-indigo-600" aria-hidden />
-                  New simulation
-                </button>
-                <button
-                  ref={simGotoHubRef}
-                  type="button"
-                  onClick={() => navigate('/simulations')}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold"
-                >
-                  <Plus className="w-4 h-4" />
-                  Build simulation
-                </button>
-              </div>
+              <button
+                ref={simGotoHubRef}
+                type="button"
+                onClick={() => navigate('/simulations')}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Build simulation
+              </button>
             </div>
 
             <DescribeSimulateRunBar
