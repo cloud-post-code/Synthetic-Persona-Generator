@@ -64,9 +64,14 @@ const SidebarSimulationLogs: React.FC<{
     setExpanded(false);
   }, [location.pathname]);
 
-  if (!bridge) return null;
+  const sessions = bridge?.sessions ?? [];
+  const activeSessionId = bridge?.activeSessionId ?? null;
+  const onSelectSession = bridge?.onSelectSession;
+  const onDeleteSession = bridge?.onDeleteSession;
+  const onClearAll = bridge?.onClearAll;
+  const clearing = bridge?.clearing ?? false;
+  const isAdmin = bridge?.isAdmin ?? false;
 
-  const { sessions, activeSessionId, onSelectSession, onDeleteSession, onClearAll, clearing, isAdmin } = bridge;
   const hasOverflow = sessions.length > SIMULATION_LOG_PREVIEW;
   const visible = expanded ? sessions : sessions.slice(0, SIMULATION_LOG_PREVIEW);
 
@@ -76,11 +81,11 @@ const SidebarSimulationLogs: React.FC<{
         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] leading-tight pt-0.5">
           Simulation logs
         </h3>
-        {isAdmin && sessions.length > 0 ? (
+        {bridge && isAdmin && sessions.length > 0 ? (
           <button
             type="button"
             disabled={clearing}
-            onClick={() => void onClearAll()}
+            onClick={() => onClearAll && void onClearAll()}
             title="Admin: delete all simulation history for your account"
             className="shrink-0 flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:opacity-50"
           >
@@ -90,7 +95,19 @@ const SidebarSimulationLogs: React.FC<{
         ) : null}
       </div>
 
-      {sessions.length === 0 ? (
+      {!bridge ? (
+        <p className="text-[10px] text-gray-500 leading-snug px-0.5 py-2">
+          Open{' '}
+          <Link
+            to="/simulate"
+            className="font-bold text-indigo-600 hover:text-indigo-800"
+            onClick={() => onAfterSelect()}
+          >
+            Run simulation
+          </Link>{' '}
+          to view and manage your session history.
+        </p>
+      ) : sessions.length === 0 ? (
         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider text-center py-3">No history yet</p>
       ) : (
         <>
@@ -100,7 +117,7 @@ const SidebarSimulationLogs: React.FC<{
                 <button
                   type="button"
                   onClick={() => {
-                    void onSelectSession(s);
+                    if (onSelectSession) void onSelectSession(s);
                     onAfterSelect();
                   }}
                   className={`w-full text-left p-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
@@ -115,7 +132,7 @@ const SidebarSimulationLogs: React.FC<{
                 <button
                   type="button"
                   onClick={(e) => {
-                    void onDeleteSession(e, s.id);
+                    if (onDeleteSession) void onDeleteSession(e, s.id);
                   }}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100"
                   aria-label={`Delete ${s.name}`}
@@ -214,9 +231,7 @@ const Sidebar: React.FC = () => {
           })}
         </nav>
 
-        {location.pathname === '/simulate' ? (
-          <SidebarSimulationLogs onAfterSelect={() => setIsMobileOpen(false)} />
-        ) : null}
+        <SidebarSimulationLogs onAfterSelect={() => setIsMobileOpen(false)} />
 
         {/* User section */}
         <div className="p-4 border-t border-gray-200">
