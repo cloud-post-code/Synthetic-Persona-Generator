@@ -13,11 +13,14 @@ import { fieldTargetId } from '../forms/types.js';
 export type DescribeBusinessProfileBarProps = {
   onApplyDraft: (draft: BusinessProfileVoiceDraft) => void | Promise<void>;
   disabled?: boolean;
+  /** Current form answers (all keys); used for conservative merge in Build it for me. */
+  existingAnswers?: Record<string, string>;
 };
 
 export const DescribeBusinessProfileBar: React.FC<DescribeBusinessProfileBarProps> = ({
   onApplyDraft,
   disabled = false,
+  existingAnswers,
 }) => {
   const [text, setText] = useState('');
   const [interim, setInterim] = useState('');
@@ -117,7 +120,9 @@ export const DescribeBusinessProfileBar: React.FC<DescribeBusinessProfileBarProp
     setSuccessSummary(null);
     setIsGenerating(true);
     try {
-      const draft = await geminiService.draftBusinessProfileFromDescription(trimmed);
+      const draft = await geminiService.draftBusinessProfileFromDescription(trimmed, {
+        existingAnswers,
+      });
       const n = Object.keys(draft.filled).length;
       if (n === 0) {
         setError(
@@ -138,7 +143,7 @@ export const DescribeBusinessProfileBar: React.FC<DescribeBusinessProfileBarProp
     } finally {
       setIsGenerating(false);
     }
-  }, [disabled, isGenerating, onApplyDraft, text]);
+  }, [disabled, isGenerating, onApplyDraft, existingAnswers, text]);
 
   if (disabled) return null;
 

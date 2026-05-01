@@ -85,17 +85,25 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
     cancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
-    const opts = { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined };
     const input = generateFileData?.data ?? companyHint.trim();
     try {
+      const snapshot = await getBusinessProfile();
+      if (cancelledRef.current) return;
+      const opts = {
+        mimeType: generateFileData?.mimeType,
+        companyHint: companyHint.trim() || undefined,
+        ...(snapshot?.answers && Object.keys(snapshot.answers).length > 0
+          ? { existingAnswers: snapshot.answers as Record<string, string> }
+          : {}),
+      };
       const merged = await geminiService.generateBusinessProfileFromDocument(input, opts);
       if (cancelledRef.current) return;
-      const current = await getBusinessProfile();
-      const answers = mergeGeneratedIntoAnswers(current?.answers, merged);
+      const latest = await getBusinessProfile();
+      const answers = mergeGeneratedIntoAnswers(latest?.answers, merged);
       const hintTrim = companyHint.trim();
       const saved = await saveBusinessProfile({
         answers,
-        knowledge_documents: current?.knowledge_documents,
+        knowledge_documents: latest?.knowledge_documents,
         company_hint: hintTrim ? hintTrim : null,
       });
       if (cancelledRef.current) return;

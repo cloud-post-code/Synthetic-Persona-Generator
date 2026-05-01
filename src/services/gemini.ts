@@ -10,6 +10,7 @@ import {
 import {
   BUSINESS_PROFILE_SPEC,
   businessProfileAnswerKey,
+  getAnswerKeysForSection,
   getBusinessProfileAllowedAnswerKeySet,
   type BusinessProfileSectionKey,
 } from '../constants/businessProfileSpec.js';
@@ -128,7 +129,81 @@ export type BusinessProfileSectionSource = {
   textCorpus?: string;
   /** Binary uploads (PDF, images, Word, etc.); `data` may be data URL or raw base64. */
   inlineFiles?: { data: string; mimeType: string; name?: string }[];
+  /** Current saved answers for this section only (keys = section.framework.question). Used for conservative merge. */
+  existingAnswers?: Record<string, string>;
 };
+
+const BP_EXISTING_VALUE_PROMPT_MAX = 3500;
+
+function sliceExistingAnswersForKeys(
+  existing: Record<string, string> | undefined,
+  keys: string[]
+): Record<string, string> {
+  if (!existing) return {};
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = existing[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
+function formatBusinessProfileCurrentValuesBlock(
+  keys: string[],
+  labelByKey: Record<string, string>,
+  existing: Record<string, string> | undefined
+): string {
+  const sliced = sliceExistingAnswersForKeys(existing, keys);
+  if (Object.keys(sliced).length === 0) return '';
+  const lines: string[] = [
+    '',
+    '## CURRENT VALUES (user profile — treat as authoritative by default; long text may be truncated)',
+  ];
+  for (const k of keys) {
+    const cur = sliced[k];
+    if (!cur) continue;
+    const label = labelByKey[k] ?? k;
+    lines.push(`### ${k} (${label})`);
+    lines.push(truncate(cur, BP_EXISTING_VALUE_PROMPT_MAX));
+  }
+  return lines.join('\n');
+}
+
+function formatBusinessProfileExistingSummaryForVoice(existing: Record<string, string> | undefined): string {
+  if (!existing) return '';
+  const entries = Object.entries(existing)
+    .map(([k, v]) => [k, typeof v === 'string' ? v.trim() : ''] as const)
+    .filter(([, v]) => v.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return '';
+  const lines: string[] = ['## CURRENT PROFILE (non-empty fields only; truncated)', ''];
+  for (const [k, v] of entries) {
+    lines.push(`### ${k}`);
+    lines.push(truncate(v, BP_EXISTING_VALUE_PROMPT_MAX));
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd();
+}
+
+function mergeCertaintyBlockDocumentBacked(): string {
+  return `MERGE + CERTAINTY (together with RULES above):
+- **Evidence bar:** For each key, every factual claim in a non-null value must be traceable to explicit wording or a direct, verifiable entailment from the provided files or plain-text excerpts in this request. If you cannot meet that bar, use JSON null for that key—even if CURRENT VALUES for that key is empty.
+- **Preserve when no new fact:** If CURRENT VALUES has text for a key and the materials do not add any **new**, **explicit** fact for that key, use JSON null (leave the field unchanged on the client).
+- **Additive merge:** If materials add a new explicit fact that does **not** contradict CURRENT, return the **full merged** text: keep applicable prior text and integrate the new fact in plain language without filler. If you are unsure whether facts contradict, use JSON null for that key.
+- **Replace only on clear conflict:** Replace or substantially edit CURRENT only when the materials **explicitly** contradict it and the corrected text is **directly** stated or unmistakably implied by the materials. If the conflict is unclear or arguable, use JSON null.
+- **No invention from hints alone:** Do not use the company identifier or general web knowledge to fabricate content when materials are attached; materials and excerpts are the primary evidence.`;
+}
+
+function mergeCertaintyBlockNoDocument(hint: boolean): string {
+  if (hint) {
+    return `MERGE + CERTAINTY (together with RULES above):
+- **Existing text:** When CURRENT VALUES has text for a key, use JSON null unless reliable general knowledge supports a **specific** factual update with **very high** confidence. When in doubt, use JSON null and keep the prior answer.
+- **Additive / replace:** Only output non-null text when the update is clearly factual and non-speculative. If the new text would contradict CURRENT without explicit support from general knowledge, use JSON null.
+- Treat CURRENT as authoritative when any update would be vague, stylistic, or assumed.`;
+  }
+  return `MERGE + CERTAINTY:
+- When CURRENT VALUES has text for a key, use JSON null unless you can answer from industry-agnostic guidance without implying a specific entity. Prefer null over weak guesses.`;
+}
 
 async function runBusinessProfileGeneration(
   prompt: string,
@@ -587,11 +662,13 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
     if (!sec) return {};
     const keys: string[] = [];
     const keyLines: string[] = [];
+    const labelByKey: Record<string, string> = {};
     for (const fw of sec.frameworks) {
       for (const q of fw.questions) {
         const k = businessProfileAnswerKey(sec.key, fw.key, q.key);
         keys.push(k);
         keyLines.push(`- "${k}": ${q.label}`);
+        labelByKey[k] = q.label;
       }
     }
     const hasMaterial =
@@ -627,12 +704,18 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
 - Output only the JSON object.`
       : hint
         ? `RULES:
-- Use reliable general knowledge about the company only where you have reasonable confidence.
-- If you cannot answer a question, use null for that key.
+- Use reliable general knowledge about the company only where you have **very high** confidence for a **specific** fact.
+- If you cannot answer without speculation, use JSON null for that key.
+- Do not infer numbers, named customers, URLs, or headcount that are not well-attested in public knowledge about that entity.
 - Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - Do not use placeholder strings; use JSON null instead.
 - Output only the JSON object.`
         : sourcingRulesNoSource;
+
+    const currentValuesBlock = formatBusinessProfileCurrentValuesBlock(keys, labelByKey, source.existingAnswers);
+    const mergeBlock = hasMaterial
+      ? mergeCertaintyBlockDocumentBacked()
+      : mergeCertaintyBlockNoDocument(Boolean(hint));
 
     const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
@@ -644,9 +727,11 @@ OUTPUT: A single JSON object only. No markdown code fences, no explanation. Use 
 ${keys.join(', ')}
 
 Each key corresponds to one guided question:
-${keyLines.join('\n')}
+${keyLines.join('\n')}${currentValuesBlock}
 
-${sourcingRules}`;
+${sourcingRules}
+
+${mergeBlock}`;
 
     const rawResult = await runBusinessProfileGeneration(prompt, source);
     return normalizeBusinessProfileResult(rawResult, keys);
@@ -662,6 +747,7 @@ ${sourcingRules}`;
       mimeType?: string;
       companyHint?: string;
       extraInlineFiles?: { data: string; mimeType: string; name?: string }[];
+      existingAnswers?: Record<string, string>;
     } = {}
   ): Promise<Record<string, string | null>> => {
     const inlineFiles: { data: string; mimeType: string; name?: string }[] = [...(options.extraInlineFiles ?? [])];
@@ -669,14 +755,28 @@ ${sourcingRules}`;
       inlineFiles.unshift({ data: documentInput, mimeType: options.mimeType, name: 'document' });
     }
     const textOnly = documentInput.trim() && !options.mimeType;
-    const sectionSource: BusinessProfileSectionSource = {
-      companyHint: options.companyHint,
-      textCorpus: textOnly ? documentInput : undefined,
-      inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
-    };
+    const fullExisting = options.existingAnswers;
 
     const parts = await Promise.all(
-      BUSINESS_PROFILE_SPEC.map((sec) => geminiService.generateBusinessProfileSection(sec.key, sectionSource))
+      BUSINESS_PROFILE_SPEC.map((sec) => {
+        const sectionKeys = getAnswerKeysForSection(sec.key);
+        let existingAnswers: Record<string, string> | undefined;
+        if (fullExisting) {
+          const slice: Record<string, string> = {};
+          for (const k of sectionKeys) {
+            const v = fullExisting[k];
+            if (typeof v === 'string' && v.trim()) slice[k] = v.trim();
+          }
+          if (Object.keys(slice).length > 0) existingAnswers = slice;
+        }
+        const sectionSource: BusinessProfileSectionSource = {
+          companyHint: options.companyHint,
+          textCorpus: textOnly ? documentInput : undefined,
+          inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
+          ...(existingAnswers ? { existingAnswers } : {}),
+        };
+        return geminiService.generateBusinessProfileSection(sec.key, sectionSource);
+      })
     );
     const result: Record<string, string | null> = {};
     for (const part of parts) {
@@ -691,36 +791,42 @@ ${sourcingRules}`;
    * Map spoken or typed business description to sparse Business Profile answer keys
    * (one or more sections / "reports"). Keys use section.framework.question slugs.
    */
-  draftBusinessProfileFromDescription: async (description: string): Promise<BusinessProfileVoiceDraft> => {
+  draftBusinessProfileFromDescription: async (
+    description: string,
+    options?: { existingAnswers?: Record<string, string> }
+  ): Promise<BusinessProfileVoiceDraft> => {
     const trimmed = (description || '').trim();
     if (!trimmed) {
       throw new Error('Describe your business (text or voice) before using Build it for me.');
     }
     const catalog = buildBusinessProfileKeyCatalogForPrompt();
+    const existingBlock = formatBusinessProfileExistingSummaryForVoice(options?.existingAnswers);
     const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
 The user is filling a structured **Business Profile** with six thematic sections (tabs). Each field has a stable JSON key in the form section.framework.question.
 
 ## User description (voice or typed)
 ${truncate(trimmed, 14000)}
-
+${existingBlock ? `\n${existingBlock}\n` : ''}
 ## Allowed fields (only these keys may appear in "filled")
 ${catalog}
 
 ## Task
-1. Read the description and map facts and reasonable inferences to the **most relevant** field keys.
-2. You may populate **multiple sections** in one response—include every key the description supports.
-3. Use **sparse** output: include only keys with substantive non-empty text. Omit keys you cannot support (do not output null for every key).
-4. Infer reasonably when the user is vague (e.g. name the likely ICP, beachhead, pricing motion) and mention assumptions in "notes".
-5. Do **not** invent unrelated content just to fill fields; stay grounded in the description.
-6. Keep each value concise but useful (typically 1–4 short paragraphs per field unless a list is clearly needed).
+1. Read the description. Map **only explicit facts** (or what the user clearly entails in plain language) to the **most relevant** field keys.
+2. You may populate **multiple sections** in one response only when the description **explicitly** supports each key you output.
+3. **Sparse "filled":** Include a key only when the description **explicitly** states or clearly entails that fact for that field. Omit keys you cannot support (do not output null entries).
+4. **No speculative inference:** If the user is vague, map **only** what is explicit; put uncertainty or caveats in "notes"—do **not** invent ICP, pricing, beachhead, or personas they did not say.
+5. **Merged values:** When CURRENT PROFILE shows prior text for a key, put that key in "filled" only if the description **adds or changes** something with explicit support. The value must be the **full** merged field text (keep prior content that still applies and integrate new explicit facts). If the description does not address a key, **omit** it from "filled" so the prior answer remains.
+6. **Ambiguity vs CURRENT:** If the description could conflict with CURRENT PROFILE but is ambiguous, **omit** that key from "filled" so CURRENT wins.
+7. Do **not** invent unrelated content to fill fields.
+8. Keep each "filled" value concise (typically 1–4 short paragraphs unless a list is clearly needed).
 
 ## Output
 Return ONE JSON object only (no markdown fences):
 {
   "routing_rationale": string (one or two sentences, user-facing — what you mapped and where),
   "filled": { "<section.framework.question>": "<text>", ... },
-  "notes": string[] (optional — assumptions or caveats)
+  "notes": string[] (optional — uncertainty or caveats)
 }
 
 If nothing in the description maps to any field, return "filled": {} and explain in routing_rationale.`;

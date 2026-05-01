@@ -31,6 +31,7 @@ import {
   type BusinessProfileSectionKey,
   businessProfileAnswerKey,
   getAllBusinessProfileAnswerKeys,
+  getAnswerKeysForSection,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
@@ -456,7 +457,17 @@ const BusinessProfilePage: React.FC = () => {
       for (const sec of BUSINESS_PROFILE_SPEC) {
         if (generateCancelledRef.current) return;
         setGenerateStage(`Filling: ${sec.title}…`);
-        const part = await geminiService.generateBusinessProfileSection(sec.key, source);
+        const sectionKeys = getAnswerKeysForSection(sec.key);
+        const existingAnswers: Record<string, string> = {};
+        for (const k of sectionKeys) {
+          const v = answers[k];
+          if (typeof v === 'string' && v.trim()) existingAnswers[k] = v.trim();
+        }
+        const secSource: BusinessProfileSectionSource = {
+          ...source,
+          ...(Object.keys(existingAnswers).length > 0 ? { existingAnswers } : {}),
+        };
+        const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
         mergeGenerated(part);
       }
       if (!generateCancelledRef.current) {
@@ -586,7 +597,11 @@ const BusinessProfilePage: React.FC = () => {
               </p>
             </section>
 
-            <DescribeBusinessProfileBar onApplyDraft={handleVoiceDraft} disabled={generateLoading} />
+            <DescribeBusinessProfileBar
+              onApplyDraft={handleVoiceDraft}
+              disabled={generateLoading}
+              existingAnswers={answers}
+            />
 
             <section className="mb-6 print:hidden space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-6">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
