@@ -84,11 +84,20 @@ export interface User {
   isAdmin?: boolean;
 }
 
+/** Uploaded reference docs from Business Profile; used for generation, prompts, and agent context. */
+export interface BusinessProfileKnowledgeDocument {
+  id: string;
+  name: string;
+  data: string;
+  mimeType?: string;
+}
+
 /** Structured disciplined-entrepreneurship profile; keys from businessProfileSpec (section.framework.question). */
 export interface BusinessProfile {
   id?: string;
   user_id?: string;
   answers: Record<string, string>;
+  knowledge_documents?: BusinessProfileKnowledgeDocument[];
   created_at?: string;
   updated_at?: string;
 }

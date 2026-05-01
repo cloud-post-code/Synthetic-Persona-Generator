@@ -5,7 +5,7 @@ import type { UiSemanticDoc, UiSemanticsCorpus } from '../uiSemantics.js';
 
 export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
   "hash": "df32779eddd1bf81b903a9c4e95f363b6dad2a367ec3f15e4864b3c0679bf559",
-  "generatedAt": "2026-05-01T18:53:32.941Z",
+  "generatedAt": "2026-05-01T19:32:01.150Z",
   "docs": [
     {
       "type": "ui_node",

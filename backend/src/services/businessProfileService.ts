@@ -1,17 +1,25 @@
 import pool from '../config/database.js';
-import { BusinessProfile, CreateOrUpdateBusinessProfileRequest } from '../types/index.js';
+import {
+  BusinessProfile,
+  BusinessProfileKnowledgeDocument,
+  CreateOrUpdateBusinessProfileRequest,
+} from '../types/index.js';
 import { indexBusinessProfile } from './embeddingService.js';
 import {
   businessProfileAnswerKey,
   getBusinessProfileAllowedAnswerKeySet,
   parseBusinessProfileAnswersJson,
 } from '../constants/businessProfileSpec.js';
+import { parseKnowledgeDocumentsJson } from '../utils/businessProfileKnowledge.js';
+
+export { BP_KNOWLEDGE_MAX_DOCS } from '../utils/businessProfileKnowledge.js';
 
 function mapRow(row: Record<string, unknown>): BusinessProfile {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
     answers: parseBusinessProfileAnswersJson(row.answers),
+    knowledge_documents: parseKnowledgeDocumentsJson(row.knowledge_documents),
     created_at: row.created_at as Date,
     updated_at: row.updated_at as Date,
   };
@@ -19,7 +27,7 @@ function mapRow(row: Record<string, unknown>): BusinessProfile {
 
 export async function getByUserId(userId: string): Promise<BusinessProfile | null> {
   const result = await pool.query(
-    `SELECT id, user_id, answers, created_at, updated_at
+    `SELECT id, user_id, answers, knowledge_documents, created_at, updated_at
      FROM business_profiles
      WHERE user_id = $1`,
     [userId]
@@ -52,6 +60,16 @@ function answersFromRequest(
   return { ...(existing?.answers ?? {}) };
 }
 
+function knowledgeDocumentsFromRequest(
+  data: Record<string, unknown>,
+  existing: BusinessProfile | null,
+): BusinessProfileKnowledgeDocument[] {
+  if (!Object.prototype.hasOwnProperty.call(data, 'knowledge_documents')) {
+    return existing?.knowledge_documents ?? [];
+  }
+  return parseKnowledgeDocumentsJson(data.knowledge_documents);
+}
+
 export async function upsert(
   userId: string,
   data: CreateOrUpdateBusinessProfileRequest
@@ -59,17 +77,20 @@ export async function upsert(
   const allowed = getBusinessProfileAllowedAnswerKeySet();
   const existing = await getByUserId(userId);
   const mergedClean = answersFromRequest(data, existing, allowed);
+  const mergedKnowledge = knowledgeDocumentsFromRequest(data as Record<string, unknown>, existing);
   const answersJson = JSON.stringify(mergedClean);
+  const knowledgeJson = JSON.stringify(mergedKnowledge);
 
   try {
     const result = await pool.query(
-      `INSERT INTO business_profiles (user_id, answers)
-       VALUES ($1, $2::jsonb)
+      `INSERT INTO business_profiles (user_id, answers, knowledge_documents)
+       VALUES ($1, $2::jsonb, $3::jsonb)
        ON CONFLICT (user_id) DO UPDATE SET
          answers = EXCLUDED.answers,
+         knowledge_documents = EXCLUDED.knowledge_documents,
          updated_at = CURRENT_TIMESTAMP
-       RETURNING id, user_id, answers, created_at, updated_at`,
-      [userId, answersJson]
+       RETURNING id, user_id, answers, knowledge_documents, created_at, updated_at`,
+      [userId, answersJson, knowledgeJson]
     );
 
     let profile: BusinessProfile;
@@ -77,7 +98,7 @@ export async function upsert(
       profile = mapRow(result.rows[0] as Record<string, unknown>);
     } else {
       const refetch = await pool.query(
-        `SELECT id, user_id, answers, created_at, updated_at
+        `SELECT id, user_id, answers, knowledge_documents, created_at, updated_at
          FROM business_profiles WHERE user_id = $1`,
         [userId]
       );

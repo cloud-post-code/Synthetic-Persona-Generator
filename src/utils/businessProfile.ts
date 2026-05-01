@@ -6,6 +6,7 @@ import {
   type BusinessProfileScope,
   DEFAULT_BUSINESS_PROFILE_SCOPE,
 } from '../constants/businessProfileSpec.js';
+import { extractKnowledgeDocumentText } from './knowledgeDocumentText.js';
 
 export type { BusinessProfileScope } from '../constants/businessProfileSpec.js';
 
@@ -27,11 +28,26 @@ export function businessProfileSummaryLine(profile: BusinessProfile | null): str
   return `${keys.length} fields filled in Business Profile.`;
 }
 
+function businessKnowledgeDocumentsPromptAppend(profile: BusinessProfile | null): string {
+  const docs = profile?.knowledge_documents;
+  if (!docs?.length) return '';
+  const parts: string[] = [];
+  for (const d of docs) {
+    const text = extractKnowledgeDocumentText(d);
+    if (text?.trim()) parts.push(`### ${d.name}\n\n${text.trim()}`);
+    else parts.push(`### ${d.name}\n\n[Binary file on file — full text is not inlined in this prompt.]`);
+  }
+  return `## Business knowledge base (uploaded documents)\n\n${parts.join('\n\n---\n\n')}`;
+}
+
 export function businessProfileToPromptString(
   profile: BusinessProfile | null,
   scope: BusinessProfileScope = DEFAULT_BUSINESS_PROFILE_SCOPE
 ): string {
-  if (!profile?.answers) return 'No business background content.';
+  if (!profile?.answers) {
+    const docOnly = businessKnowledgeDocumentsPromptAppend(profile);
+    return docOnly || 'No business background content.';
+  }
   const answers = profile.answers;
   const blocks: string[] = [];
 
@@ -47,7 +63,12 @@ export function businessProfileToPromptString(
       if (text) blocks.push(text);
     }
   }
-  return blocks.length ? blocks.join('\n\n---\n\n') : 'No business background content.';
+  const frameworkBlock = blocks.length ? blocks.join('\n\n---\n\n') : '';
+  const docBlock = businessKnowledgeDocumentsPromptAppend(profile);
+  if (!frameworkBlock && !docBlock) return 'No business background content.';
+  if (!docBlock) return frameworkBlock;
+  if (!frameworkBlock) return docBlock;
+  return `${frameworkBlock}\n\n---\n\n${docBlock}`;
 }
 
 /** Markdown document for export / print (includes empty sections only if they have content). */

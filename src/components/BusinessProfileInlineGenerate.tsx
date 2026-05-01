@@ -4,6 +4,7 @@ import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import type { BusinessProfile } from '../models/types.js';
+import { KnowledgeDocumentUploadPreview } from './KnowledgeDocumentUploadPreview.js';
 
 export type BusinessProfileInlineGenerateProps = {
   onSaved: (profile: BusinessProfile) => void;
@@ -83,7 +84,10 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
       if (cancelledRef.current) return;
       const current = await getBusinessProfile();
       const answers = mergeGeneratedIntoAnswers(current?.answers, merged);
-      const saved = await saveBusinessProfile({ answers });
+      const saved = await saveBusinessProfile({
+        answers,
+        knowledge_documents: current?.knowledge_documents,
+      });
       if (cancelledRef.current) return;
       onSaved(saved);
     } catch (err) {
@@ -110,8 +114,8 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
             Generate with AI
           </h4>
           <p className="text-xs text-indigo-800/80 mt-1 max-w-xl">
-            Upload a deck, plan, or 10-K, and/or enter a company name or website. We fill your saved Business Profile
-            using the document and public information—same as the{' '}
+            Upload a deck, plan, or 10-K, and/or enter a company name or website. With files, we only fill answers
+            those sources support; other fields stay as they are. Same pipeline as the{' '}
             <Link to="/business-profile" className="font-semibold text-indigo-700 underline hover:text-indigo-900">
               Business Profile
             </Link>{' '}
@@ -138,6 +142,19 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
             >
               {generateFileName || 'Select document'}
             </label>
+            {generateFileData?.data ? (
+              <div className="mt-3 w-full text-left">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Uploaded sample</p>
+                <KnowledgeDocumentUploadPreview
+                  doc={{
+                    data: generateFileData.data,
+                    mimeType: generateFileData.mimeType,
+                    name: generateFileName || undefined,
+                  }}
+                  maxTextChars={520}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
         <div>

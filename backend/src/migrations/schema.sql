@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS business_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  knowledge_documents JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

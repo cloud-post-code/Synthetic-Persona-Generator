@@ -7,6 +7,8 @@ import {
   compileFrameworkPlainText,
   parseBusinessProfileAnswersJson,
 } from '../constants/businessProfileSpec.js';
+import { parseKnowledgeDocumentsJson } from '../utils/businessProfileKnowledge.js';
+import { extractKnowledgeDocumentText } from '../utils/knowledgeDocumentText.js';
 
 export const UI_SEMANTIC_SOURCE_TYPES: UiSemanticType[] = [
   'ui_node',
@@ -187,11 +189,22 @@ export async function indexPersona(personaId: string): Promise<void> {
 }
 
 export async function indexBusinessProfile(userId: string): Promise<void> {
-  const result = await pool.query(`SELECT answers FROM business_profiles WHERE user_id = $1`, [userId]);
+  const result = await pool.query(
+    `SELECT answers, knowledge_documents FROM business_profiles WHERE user_id = $1`,
+    [userId]
+  );
   if (result.rows.length === 0) return;
 
-  const answers = parseBusinessProfileAnswersJson(result.rows[0].answers);
-  const allChunks: { text: string; sourceName: string; chunkIndex: number }[] = [];
+  const row = result.rows[0] as { answers: unknown; knowledge_documents: unknown };
+  const answers = parseBusinessProfileAnswersJson(row.answers);
+  const knowledgeDocs = parseKnowledgeDocumentsJson(row.knowledge_documents);
+
+  await pool.query(
+    `DELETE FROM knowledge_chunks WHERE user_id = $1 AND source_type IN ('business_profile', 'business_profile.framework', 'business_knowledge_doc')`,
+    [userId]
+  );
+
+  const allChunks: { text: string; sourceName: string; chunkIndex: number; sourceType: string }[] = [];
   let flatIndex = 0;
 
   for (const sec of BUSINESS_PROFILE_SPEC) {
@@ -204,19 +217,33 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
           text: parts[idx]!,
           sourceName: `${sec.key}/${fw.key}`,
           chunkIndex: flatIndex++,
+          sourceType: 'business_profile.framework',
         });
       }
     }
   }
 
-  if (allChunks.length === 0) return;
+  for (const doc of knowledgeDocs) {
+    const extracted = extractKnowledgeDocumentText(doc);
+    if (!extracted?.trim()) continue;
+    const parts = chunkText(extracted);
+    const baseName = doc.name || doc.id;
+    for (let idx = 0; idx < parts.length; idx++) {
+      allChunks.push({
+        text: parts[idx]!,
+        sourceName: `${doc.id}:${baseName}`,
+        chunkIndex: flatIndex++,
+        sourceType: 'business_knowledge_doc',
+      });
+    }
+  }
+
+  if (allChunks.length === 0) {
+    console.log(`[EMBED] No business profile / knowledge chunks for user ${userId} (stale chunks cleared)`);
+    return;
+  }
 
   const embeddings = await embedTexts(allChunks.map((c) => c.text));
-
-  await pool.query(
-    `DELETE FROM knowledge_chunks WHERE user_id = $1 AND source_type IN ('business_profile', 'business_profile.framework')`,
-    [userId]
-  );
 
   const insertValues: string[] = [];
   const insertParams: any[] = [];
@@ -225,13 +252,13 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
   for (let i = 0; i < allChunks.length; i++) {
     const chunk = allChunks[i]!;
     const hash = sha256(chunk.text);
-    const embeddingPgArray = `{${embeddings[i].join(',')}}`;
+    const embeddingPgArray = `{${embeddings[i]!.join(',')}}`;
     insertValues.push(
       `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}::float8[], $${paramIdx + 6})`
     );
     insertParams.push(
       userId,
-      'business_profile.framework',
+      chunk.sourceType,
       chunk.sourceName,
       chunk.text,
       chunk.chunkIndex,
@@ -249,7 +276,7 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
     );
   }
 
-  console.log(`[EMBED] Indexed ${allChunks.length} business profile framework chunks for user ${userId}`);
+  console.log(`[EMBED] Indexed ${allChunks.length} business profile + knowledge chunks for user ${userId}`);
 }
 
 export async function indexSessionContext(sessionId: string, fields: Record<string, string>): Promise<void> {
@@ -384,9 +411,12 @@ export async function loadFullKnowledgeDocuments(
   }
 
   if (userId) {
-    const br = await pool.query(`SELECT answers FROM business_profiles WHERE user_id = $1`, [userId]);
+    const br = await pool.query(`SELECT answers, knowledge_documents FROM business_profiles WHERE user_id = $1`, [
+      userId,
+    ]);
     if (br.rows.length > 0) {
-      const answers = parseBusinessProfileAnswersJson(br.rows[0].answers);
+      const row = br.rows[0] as { answers: unknown; knowledge_documents: unknown };
+      const answers = parseBusinessProfileAnswersJson(row.answers);
       for (const sec of BUSINESS_PROFILE_SPEC) {
         for (const fw of sec.frameworks) {
           const frameworkText = compileFrameworkPlainText(sec.key, fw.key, answers);
@@ -395,6 +425,19 @@ export async function loadFullKnowledgeDocuments(
             'business_profile.framework',
             `Runner business profile — ${sec.title} / ${fw.title}`,
             frameworkText
+          );
+        }
+      }
+      const knowledgeDocs = parseKnowledgeDocumentsJson(row.knowledge_documents);
+      for (const doc of knowledgeDocs) {
+        const extracted = extractKnowledgeDocumentText(doc);
+        if (extracted?.trim()) {
+          push('full_business_knowledge_doc', `Business knowledge — ${doc.name}`, extracted);
+        } else if (doc.name) {
+          push(
+            'full_business_knowledge_doc',
+            `Business knowledge — ${doc.name} (binary)`,
+            `[File on record: ${doc.name}. Use Business Profile generation or download from the Knowledge base tab to use this document.]`
           );
         }
       }

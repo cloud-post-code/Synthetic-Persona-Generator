@@ -34,6 +34,7 @@ export async function migrateBusinessProfilesToJsonb(pool: Pool): Promise<void> 
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+      knowledge_documents JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -49,6 +50,12 @@ export async function migrateBusinessProfilesToJsonb(pool: Pool): Promise<void> 
   if (!colSet.has('answers')) {
     await pool.query(
       `ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS answers JSONB NOT NULL DEFAULT '{}'::jsonb`
+    );
+  }
+
+  if (!colSet.has('knowledge_documents')) {
+    await pool.query(
+      `ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS knowledge_documents JSONB NOT NULL DEFAULT '[]'::jsonb`
     );
   }
 

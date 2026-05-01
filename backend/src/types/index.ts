@@ -56,16 +56,26 @@ export interface Message {
   created_at: Date;
 }
 
+/** Uploaded docs on Business Profile (Generate with AI); persisted for RAG / prompts. */
+export interface BusinessProfileKnowledgeDocument {
+  id: string;
+  name: string;
+  data: string;
+  mimeType?: string;
+}
+
 export interface BusinessProfile {
   id: string;
   user_id: string;
   answers: Record<string, string>;
+  knowledge_documents: BusinessProfileKnowledgeDocument[];
   created_at: Date;
   updated_at: Date;
 }
 
 export interface CreateOrUpdateBusinessProfileRequest {
   answers?: Record<string, string>;
+  knowledge_documents?: BusinessProfileKnowledgeDocument[];
 }
 
 export type SimulationMode = 

@@ -149,6 +149,20 @@ async function runBusinessProfileGeneration(
   return await geminiService.generateBasic(prompt, true);
 }
 
+/** Treat model placeholder prose as empty so merges do not overwrite real answers. */
+function scrubBusinessProfilePlaceholderAnswer(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (
+    /^(n\/a|n\.a\.|na|not applicable|not specified|not available|no information|unknown|undefined|tbd|tbc|—|-|\.{3,})$/i.test(
+      t,
+    )
+  ) {
+    return null;
+  }
+  return t;
+}
+
 function normalizeBusinessProfileResult(rawResult: string | object, keys: string[]): Record<string, string | null> {
   const parsed = typeof rawResult === 'string'
     ? (() => {
@@ -163,7 +177,11 @@ function normalizeBusinessProfileResult(rawResult: string | object, keys: string
   const result: Record<string, string | null> = {};
   for (const k of keys) {
     const v = parsed[k];
-    result[k] = v === undefined || v === null ? null : String(v).trim() || null;
+    if (v === undefined || v === null) {
+      result[k] = null;
+    } else {
+      result[k] = scrubBusinessProfilePlaceholderAnswer(String(v));
+    }
   }
   return result;
 }
@@ -557,12 +575,39 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
         keyLines.push(`- "${k}": ${q.label}`);
       }
     }
-    const hintSection = source.companyHint?.trim()
-      ? `\nThe user also provided this company identifier: "${source.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
-      : '';
+    const hasMaterial =
+      Boolean((source.textCorpus ?? '').trim()) || (source.inlineFiles?.length ?? 0) > 0;
+    const hint = source.companyHint?.trim();
+
+    const taskLine = hasMaterial
+      ? `TASK: Fill in ONLY this section of a Business Profile from the attached files and plain-text excerpts in this request.`
+      : hint
+        ? `TASK: Fill in ONLY this section of a Business Profile using reliable general knowledge about: "${hint}". No document was attached.`
+        : `TASK: Fill in ONLY this section of a Business Profile.`;
+
+    const hintLine =
+      hasMaterial && hint
+        ? `\nThe user also provided this company identifier: "${hint}". Use it only to disambiguate which entity the materials refer to—not to invent answers for topics the materials do not cover.`
+        : '';
+
+    const sourcingRules = hasMaterial
+      ? `RULES:
+- **Grounding:** Every non-null value must be clearly supported by the provided files or plain-text excerpts (explicit text or a direct, verifiable inference from that text).
+- Prefer JSON null over guessing. If the materials do not address a question, use null for that key.
+- Do not fill gaps from unrelated public facts, “typical startup” boilerplate, or general web memory.
+- Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
+- Do not use placeholder strings (e.g. "N/A", "not specified", "TBD"); use JSON null instead.
+- Output only the JSON object.`
+      : `RULES:
+- Use reliable general knowledge about the company only where you have reasonable confidence.
+- If you cannot answer a question, use null for that key.
+- Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
+- Do not use placeholder strings; use JSON null instead.
+- Output only the JSON object.`;
+
     const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
-TASK: Fill in ONLY this section of a Business Profile from the provided document(s)${source.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+${taskLine}${hintLine}
 
 SECTION TITLE: ${sec.title}
 
@@ -572,11 +617,7 @@ ${keys.join(', ')}
 Each key corresponds to one guided question:
 ${keyLines.join('\n')}
 
-RULES:
-- Extract and infer from all provided sources; for public companies you may use known facts to fill gaps.
-- Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
-- If a field cannot be determined, use null for that key.
-- Output only the JSON object.`;
+${sourcingRules}`;
 
     const rawResult = await runBusinessProfileGeneration(prompt, source);
     return normalizeBusinessProfileResult(rawResult, keys);

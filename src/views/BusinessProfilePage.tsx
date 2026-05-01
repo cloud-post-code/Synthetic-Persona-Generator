@@ -4,6 +4,7 @@ import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -32,12 +33,15 @@ import {
   getAllBusinessProfileAnswerKeys,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
+import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
+import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 
 type VoiceFieldRef = { id: string; label: string };
 
 const BP_GEN_MAX_FILES = 12;
 
-type BpGenFile = { id: string; name: string; data: string; mimeType?: string };
+const TAB_KNOWLEDGE_BASE = 'knowledge_base' as const;
+type BusinessProfilePageTab = BusinessProfileSectionKey | typeof TAB_KNOWLEDGE_BASE;
 
 function bpFileReadsAsBinary(file: File): boolean {
   const t = file.type || '';
@@ -45,7 +49,7 @@ function bpFileReadsAsBinary(file: File): boolean {
   return !['text/plain', 'text/csv', 'application/json'].includes(t);
 }
 
-async function readBpGenFile(file: File): Promise<BpGenFile> {
+async function readBpGenFile(file: File): Promise<BusinessProfileKnowledgeDocument> {
   const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -72,7 +76,10 @@ async function readBpGenFile(file: File): Promise<BpGenFile> {
   });
 }
 
-function buildBpGenerationSource(files: BpGenFile[], companyHint: string): BusinessProfileSectionSource {
+function buildBpGenerationSource(
+  files: BusinessProfileKnowledgeDocument[],
+  companyHint: string
+): BusinessProfileSectionSource {
   const textParts: string[] = [];
   const inlineFiles: { data: string; mimeType: string; name?: string }[] = [];
   for (const f of files) {
@@ -94,11 +101,6 @@ function emptyAnswers(): Record<string, string> {
   for (const k of getAllBusinessProfileAnswerKeys()) o[k] = '';
   return o;
 }
-
-/** Answer keys for the “Who is your customer” section only (Business Profile spec). */
-const WHO_IS_CUSTOMER_ANSWER_KEYS = getAllBusinessProfileAnswerKeys().filter((k) =>
-  k.startsWith('who_is_customer.'),
-);
 
 function answersForApi(a: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -146,14 +148,15 @@ const BusinessProfilePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [answers, setAnswers] = useState<Record<string, string>>(emptyAnswers);
 
-  const activeTab = useMemo((): BusinessProfileSectionKey => {
+  const activeTab = useMemo((): BusinessProfilePageTab => {
     const t = searchParams.get('tab');
+    if (t === TAB_KNOWLEDGE_BASE) return TAB_KNOWLEDGE_BASE;
     if (t && BUSINESS_PROFILE_SPEC.some((s) => s.key === t)) return t as BusinessProfileSectionKey;
     return 'who_is_customer';
   }, [searchParams]);
 
   const setActiveTab = useCallback(
-    (tab: BusinessProfileSectionKey) => {
+    (tab: BusinessProfilePageTab) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -176,7 +179,7 @@ const BusinessProfilePage: React.FC = () => {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateStage, setGenerateStage] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generateFiles, setGenerateFiles] = useState<BpGenFile[]>([]);
+  const [knowledgeFiles, setKnowledgeFiles] = useState<BusinessProfileKnowledgeDocument[]>([]);
   const [companyHint, setCompanyHint] = useState('');
   const generateCancelledRef = useRef(false);
 
@@ -208,6 +211,20 @@ const BusinessProfilePage: React.FC = () => {
           }
         }
         setAnswers(next);
+        setKnowledgeFiles(
+          Array.isArray(profile?.knowledge_documents)
+            ? profile.knowledge_documents.filter(
+                (d) =>
+                  d &&
+                  typeof d.id === 'string' &&
+                  typeof d.name === 'string' &&
+                  typeof d.data === 'string' &&
+                  d.id.trim() &&
+                  d.name.trim() &&
+                  d.data,
+              )
+            : [],
+        );
         loadedRef.current = true;
       })
       .finally(() => {
@@ -218,11 +235,11 @@ const BusinessProfilePage: React.FC = () => {
     };
   }, []);
 
-  const persist = useCallback(async (payload: Record<string, string>) => {
+  const persist = useCallback(async (payload: Record<string, string>, docs: BusinessProfileKnowledgeDocument[]) => {
     setSaveState('saving');
     setSaveMessage(null);
     try {
-      await saveBusinessProfile({ answers: payload });
+      await saveBusinessProfile({ answers: payload, knowledge_documents: docs });
       commandBus.emit({ type: 'business_profile:saved' });
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
@@ -236,41 +253,48 @@ const BusinessProfilePage: React.FC = () => {
   useEffect(() => {
     if (!loadedRef.current || loading) return;
     const id = window.setTimeout(() => {
-      void persist(answersForApi(answers));
+      void persist(answersForApi(answers), knowledgeFiles);
     }, 750);
     return () => window.clearTimeout(id);
-  }, [answers, loading, persist]);
+  }, [answers, knowledgeFiles, loading, persist]);
+
+  useEffect(() => {
+    if (activeTab === TAB_KNOWLEDGE_BASE && knowledgeFiles.length === 0) {
+      setActiveTab('who_is_customer');
+    }
+  }, [activeTab, knowledgeFiles.length, setActiveTab]);
 
   const handleManualSave = () => {
-    void persist(answersForApi(answers));
+    void persist(answersForApi(answers), knowledgeFiles);
   };
 
-  const hasCustomerProfileContent = useMemo(
-    () => WHO_IS_CUSTOMER_ANSWER_KEYS.some((k) => (answers[k] ?? '').trim()),
-    [answers],
-  );
+  const hasBusinessProfileContent = useMemo(() => {
+    const hasAnswers = getAllBusinessProfileAnswerKeys().some((k) => (answers[k] ?? '').trim());
+    return hasAnswers || knowledgeFiles.length > 0 || companyHint.trim().length > 0;
+  }, [answers, knowledgeFiles, companyHint]);
 
-  const handleClearCustomerProfile = () => {
-    if (!hasCustomerProfileContent || loading) return;
+  const handleClearBusinessProfile = () => {
+    if (!hasBusinessProfileContent || loading) return;
     if (
       !window.confirm(
-        'Clear all saved answers under “Who is your customer” (persona, beachhead, segmentation)? Other profile sections stay as they are.',
+        'Clear the entire business profile? This removes all section answers, uploaded knowledge documents, and the company or website hint used for generation. This cannot be undone.',
       )
     ) {
       return;
     }
-    const next: Record<string, string> = { ...answers };
-    for (const k of WHO_IS_CUSTOMER_ANSWER_KEYS) next[k] = '';
-    const payload = answersForApi(next);
+    const next = emptyAnswers();
     void (async () => {
       setSaveState('saving');
       setSaveMessage(null);
       try {
-        await saveBusinessProfile({ answers: payload });
+        await saveBusinessProfile({ answers: {}, knowledge_documents: [] });
         commandBus.emit({ type: 'business_profile:saved' });
         setAnswers(next);
+        setKnowledgeFiles([]);
+        setCompanyHint('');
+        setGenerateError(null);
         setSaveState('saved');
-        setSaveMessage('Customer profile cleared.');
+        setSaveMessage('Business profile cleared.');
         window.setTimeout(() => {
           setSaveState('idle');
           setSaveMessage(null);
@@ -315,27 +339,27 @@ const BusinessProfilePage: React.FC = () => {
     e.target.value = '';
     if (!list?.length) return;
     setGenerateError(null);
-    const remaining = BP_GEN_MAX_FILES - generateFiles.length;
+    const remaining = BP_GEN_MAX_FILES - knowledgeFiles.length;
     if (remaining <= 0) {
       setGenerateError(`You can add at most ${BP_GEN_MAX_FILES} files. Remove some to add more.`);
       return;
     }
-    const toAdd = Array.from(list).slice(0, remaining);
+    const toAdd = Array.from(list as FileList) as File[];
     try {
       const entries = await Promise.all(toAdd.map((f) => readBpGenFile(f)));
-      setGenerateFiles((prev) => [...prev, ...entries]);
+      setKnowledgeFiles((prev) => [...prev, ...entries]);
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Failed to read file.');
     }
   };
 
-  const removeGenerateFile = (id: string) => {
-    setGenerateFiles((prev) => prev.filter((f) => f.id !== id));
+  const removeKnowledgeFile = (id: string) => {
+    setKnowledgeFiles((prev) => prev.filter((f) => f.id !== id));
     setGenerateError(null);
   };
 
-  const clearGenerateFiles = () => {
-    setGenerateFiles([]);
+  const clearKnowledgeFiles = () => {
+    setKnowledgeFiles([]);
     setGenerateError(null);
   };
 
@@ -405,7 +429,7 @@ const BusinessProfilePage: React.FC = () => {
   }, [setActiveTab]);
 
   const handleGenerate = async () => {
-    const source = buildBpGenerationSource(generateFiles, companyHint);
+    const source = buildBpGenerationSource(knowledgeFiles, companyHint);
     if (!source.textCorpus && !source.inlineFiles?.length && !source.companyHint) {
       setGenerateError('Upload one or more documents and/or enter a company name or website to generate from.');
       return;
@@ -437,7 +461,8 @@ const BusinessProfilePage: React.FC = () => {
     }
   };
 
-  const activeSection = BUSINESS_PROFILE_SPEC.find((s) => s.key === activeTab)!;
+  const activeSection =
+    activeTab === TAB_KNOWLEDGE_BASE ? undefined : BUSINESS_PROFILE_SPEC.find((s) => s.key === activeTab);
 
   return (
     <div className="min-h-screen bg-[#fafafa] print:bg-white">
@@ -453,13 +478,13 @@ const BusinessProfilePage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={handleClearCustomerProfile}
-              disabled={loading || generateLoading || !hasCustomerProfileContent}
-              title="Remove all answers in the Customer section only"
+              onClick={handleClearBusinessProfile}
+              disabled={loading || generateLoading || !hasBusinessProfileContent}
+              title="Remove all business profile answers, knowledge documents, and generation hint"
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <RotateCcw className="h-4 w-4" />
-              Clear customer profile
+              Clear business profile
             </button>
             <button
               type="button"
@@ -533,8 +558,9 @@ const BusinessProfilePage: React.FC = () => {
                 Generate with AI
               </h3>
               <p className="text-xs text-indigo-900/80">
-                Upload one or more documents (PDF, images, Word, text, CSV, JSON) and/or a company hint. We fill each
-                section (six model calls) into your profile.
+                Upload one or more documents (PDF, images, Word, text, CSV, JSON) and/or a company hint. With
+                documents, we only pre-fill answers the files clearly support (six section calls); other fields stay
+                empty. A company name alone (no files) can use general knowledge about that entity.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -556,37 +582,40 @@ const BusinessProfilePage: React.FC = () => {
                         htmlFor="bp-gen-file"
                         className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
                       >
-                        {generateFiles.length ? 'Add more files' : 'Choose files'}
+                        {knowledgeFiles.length ? 'Add more files' : 'Choose files'}
                       </label>
                       <p className="mt-2 text-center text-[11px] text-indigo-900/70">
                         Up to {BP_GEN_MAX_FILES} files · hold Cmd/Ctrl to select several
                       </p>
                     </div>
-                    {generateFiles.length > 0 && (
-                      <ul className="max-h-40 space-y-1.5 overflow-y-auto border-t border-indigo-100 pt-2 text-xs text-gray-800">
-                        {generateFiles.map((f) => (
+                    {knowledgeFiles.length > 0 && (
+                      <ul className="max-h-[min(50vh,22rem)] space-y-2 overflow-y-auto border-t border-indigo-100 pt-2 text-xs text-gray-800">
+                        {knowledgeFiles.map((f) => (
                           <li
                             key={f.id}
-                            className="flex items-center justify-between gap-2 rounded-md bg-white/90 px-2 py-1.5 ring-1 ring-gray-100"
+                            className="rounded-md bg-white/90 px-2 py-2 ring-1 ring-gray-100"
                           >
-                            <span className="min-w-0 truncate font-medium" title={f.name}>
-                              {f.name}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removeGenerateFile(f.id)}
-                              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
-                            >
-                              Remove
-                            </button>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="min-w-0 truncate font-medium" title={f.name}>
+                                {f.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeKnowledgeFile(f.id)}
+                                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            <KnowledgeDocumentUploadPreview doc={f} maxTextChars={480} />
                           </li>
                         ))}
                       </ul>
                     )}
-                    {generateFiles.length > 0 && (
+                    {knowledgeFiles.length > 0 && (
                       <button
                         type="button"
-                        onClick={clearGenerateFiles}
+                        onClick={clearKnowledgeFiles}
                         className="mt-2 text-center text-[11px] font-semibold text-indigo-800 underline hover:text-indigo-950"
                       >
                         Clear all files
@@ -623,7 +652,7 @@ const BusinessProfilePage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={generateLoading || (!generateFiles.length && !companyHint.trim())}
+                  disabled={generateLoading || (!knowledgeFiles.length && !companyHint.trim())}
                   onClick={() => void handleGenerate()}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
@@ -662,49 +691,101 @@ const BusinessProfilePage: React.FC = () => {
                   {sec.shortLabel}
                 </button>
               ))}
+              {knowledgeFiles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(TAB_KNOWLEDGE_BASE)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
+                    activeTab === TAB_KNOWLEDGE_BASE
+                      ? 'border-gray-900 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                  Knowledge base
+                </button>
+              )}
             </nav>
 
             <div className="print:hidden space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
-              {activeSection.frameworks.map((fw) => {
-                const fwId = `${activeSection.key}.${fw.key}`;
-                const collapsed = collapsedFw[fwId];
-                return (
-                  <section key={fwId} className="rounded-lg border border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => toggleFw(fwId)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-gray-50/80"
-                    >
-                      {collapsed ? (
-                        <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
-                      )}
-                      <span>
-                        <span className="block font-medium text-gray-900">{fw.title}</span>
-                        <span className="block text-xs text-gray-500">{fw.description}</span>
-                      </span>
-                    </button>
-                    {!collapsed && (
-                      <div className="space-y-4 border-t border-gray-100 px-4 py-4">
-                        {fw.questions.map((q) => {
-                          const qKey = businessProfileAnswerKey(activeSection.key, fw.key, q.key);
-                          return (
-                            <TextArea
-                              key={qKey}
-                              qKey={qKey}
-                              label={q.label}
-                              value={answers[qKey] ?? ''}
-                              onChange={(v) => setQuestion(qKey, v)}
+              {activeTab === TAB_KNOWLEDGE_BASE ? (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-900">Knowledge base</h2>
+                  <p className="text-sm text-gray-600">
+                    Files you upload under “Generate with AI” are saved automatically. They are included when building
+                    personas, running simulations, and in agent context alongside your structured profile answers.
+                  </p>
+                  <ul className="space-y-3">
+                    {knowledgeFiles.map((f) => (
+                      <li key={f.id} className="rounded-lg border border-gray-100 bg-gray-50/40 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">{f.name}</p>
+                            <p className="text-xs text-gray-500">{f.mimeType ?? 'Plain text'}</p>
+                            <KnowledgeDocumentUploadPreview
+                              doc={f}
+                              density="comfortable"
+                              maxTextChars={800}
+                              tone="neutral"
+                              className="mt-1"
                             />
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeKnowledgeFile(f.id)}
+                            className="shrink-0 self-start rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : activeSection ? (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
+                  {activeSection.frameworks.map((fw) => {
+                    const fwId = `${activeSection.key}.${fw.key}`;
+                    const collapsed = collapsedFw[fwId];
+                    return (
+                      <section key={fwId} className="rounded-lg border border-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => toggleFw(fwId)}
+                          className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-gray-50/80"
+                        >
+                          {collapsed ? (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                          )}
+                          <span>
+                            <span className="block font-medium text-gray-900">{fw.title}</span>
+                            <span className="block text-xs text-gray-500">{fw.description}</span>
+                          </span>
+                        </button>
+                        {!collapsed && (
+                          <div className="space-y-4 border-t border-gray-100 px-4 py-4">
+                            {fw.questions.map((q) => {
+                              const qKey = businessProfileAnswerKey(activeSection.key, fw.key, q.key);
+                              return (
+                                <TextArea
+                                  key={qKey}
+                                  qKey={qKey}
+                                  label={q.label}
+                                  value={answers[qKey] ?? ''}
+                                  onChange={(v) => setQuestion(qKey, v)}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </>
+              ) : null}
             </div>
           </>
         )}
