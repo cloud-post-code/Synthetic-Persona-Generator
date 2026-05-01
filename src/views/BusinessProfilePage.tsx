@@ -10,6 +10,7 @@ import {
   FileDown,
   Loader2,
   Printer,
+  RotateCcw,
   Sparkles,
   Upload,
   X,
@@ -93,6 +94,11 @@ function emptyAnswers(): Record<string, string> {
   for (const k of getAllBusinessProfileAnswerKeys()) o[k] = '';
   return o;
 }
+
+/** Answer keys for the “Who is your customer” section only (Business Profile spec). */
+const WHO_IS_CUSTOMER_ANSWER_KEYS = getAllBusinessProfileAnswerKeys().filter((k) =>
+  k.startsWith('who_is_customer.'),
+);
 
 function answersForApi(a: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -237,6 +243,47 @@ const BusinessProfilePage: React.FC = () => {
 
   const handleManualSave = () => {
     void persist(answersForApi(answers));
+  };
+
+  const hasCustomerProfileContent = useMemo(
+    () => WHO_IS_CUSTOMER_ANSWER_KEYS.some((k) => (answers[k] ?? '').trim()),
+    [answers],
+  );
+
+  const handleClearCustomerProfile = () => {
+    if (!hasCustomerProfileContent || loading) return;
+    if (
+      !window.confirm(
+        'Clear all saved answers under “Who is your customer” (persona, beachhead, segmentation)? Other profile sections stay as they are.',
+      )
+    ) {
+      return;
+    }
+    const next: Record<string, string> = { ...answers };
+    for (const k of WHO_IS_CUSTOMER_ANSWER_KEYS) next[k] = '';
+    const payload = answersForApi(next);
+    void (async () => {
+      setSaveState('saving');
+      setSaveMessage(null);
+      try {
+        await saveBusinessProfile({ answers: payload });
+        commandBus.emit({ type: 'business_profile:saved' });
+        setAnswers(next);
+        setSaveState('saved');
+        setSaveMessage('Customer profile cleared.');
+        window.setTimeout(() => {
+          setSaveState('idle');
+          setSaveMessage(null);
+        }, 3000);
+      } catch (err) {
+        setSaveState('error');
+        setSaveMessage(err instanceof Error ? err.message : 'Clear failed');
+        window.setTimeout(() => {
+          setSaveState('idle');
+          setSaveMessage(null);
+        }, 4000);
+      }
+    })();
   };
 
   const setQuestion = (key: string, val: string) => {
@@ -404,6 +451,16 @@ const BusinessProfilePage: React.FC = () => {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearCustomerProfile}
+              disabled={loading || generateLoading || !hasCustomerProfileContent}
+              title="Remove all answers in the Customer section only"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Clear customer profile
+            </button>
             <button
               type="button"
               onClick={() => setViewFull((v) => !v)}
