@@ -4,12 +4,14 @@ export const settingsTabsSchema: FormSchema = {
   formKey: 'settings.tabs',
   page: '/settings',
   title: 'Settings — sidebar tabs',
-  purpose: 'Switch between Profile, Security, Notifications, and Data sections.',
+  purpose: 'Switch between Profile, Security, Notifications, Data, and AI usage sections.',
   fields: [
     { key: 'profile', label: 'Profile tab', type: 'tab', action: 'click' },
     { key: 'security', label: 'Security tab', type: 'tab', action: 'click' },
     { key: 'notifications', label: 'Notifications tab', type: 'tab', action: 'click' },
     { key: 'data', label: 'Data and Storage tab', type: 'tab', action: 'click' },
+    { key: 'usage', label: 'AI usage tab', type: 'tab', action: 'click' },
+    { key: 'reset_token_usage', label: 'Reset AI token usage counters', type: 'button', action: 'click' },
     { key: 'sign_out', label: 'Sign out', type: 'button', action: 'click' },
   ],
 };

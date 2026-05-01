@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import pool from '../config/database.js';
 import { loadFullKnowledgeDocuments, RetrievedChunk } from './embeddingService.js';
+import { mergeUsage, normalizeUsageMetadata, type NormalizedGeminiUsage } from '../utils/geminiUsage.js';
 
 const CHAT_MODEL = 'gemini-2.5-flash';
 const MAX_HISTORY_CHARS = 40000;
@@ -67,6 +68,8 @@ export interface AgentTurnResult {
   thinking: string;
   retrieval: RetrievalInfo;
   validation: ValidationInfo | null;
+  /** Aggregated token usage for all generateContent calls in this turn. */
+  usage?: NormalizedGeminiUsage;
 }
 
 async function getPersonaIdentity(personaId: string): Promise<{ name: string; description: string }> {
@@ -78,6 +81,18 @@ async function getPersonaIdentity(personaId: string): Promise<{ name: string; de
   return result.rows[0];
 }
 
+function accumulateTurnUsage(
+  agg: NormalizedGeminiUsage,
+  response: { usageMetadata?: unknown }
+): void {
+  const u = normalizeUsageMetadata(response.usageMetadata);
+  if (!u) return;
+  const m = mergeUsage(agg, u);
+  agg.promptTokenCount = m.promptTokenCount;
+  agg.candidatesTokenCount = m.candidatesTokenCount;
+  agg.totalTokenCount = m.totalTokenCount;
+}
+
 async function thinkStep(
   ai: GoogleGenAI,
   persona: { name: string; description: string },
@@ -85,7 +100,8 @@ async function thinkStep(
   userMessage: string,
   simulationInstructions?: string,
   previousThinking?: string,
-  retryContext?: { previousResponse: string; validation: ValidationInfo }
+  retryContext?: { previousResponse: string; validation: ValidationInfo },
+  usageAgg?: NormalizedGeminiUsage
 ): Promise<{ thinking: string; searchQueries: string[] }> {
   let systemPrompt = `You are ${persona.name}, ${persona.description}.
 
@@ -151,6 +167,7 @@ Output your thinking in JSON:
       responseMimeType: 'application/json',
     },
   });
+  if (usageAgg) accumulateTurnUsage(usageAgg, response);
 
   const text = response.text || '{}';
   try {
@@ -188,7 +205,8 @@ async function respondStep(
   simulationInstructions?: string,
   image?: string,
   mimeType?: string,
-  revisionOf?: { draft: string; validation: ValidationInfo }
+  revisionOf?: { draft: string; validation: ValidationInfo },
+  usageAgg?: NormalizedGeminiUsage
 ): Promise<string> {
   let systemPrompt = `You are ${persona.name}, ${persona.description}.
 You ARE this persona. Respond in first person as them. Never describe or reference the persona—speak only as them. Stay in character.`;
@@ -245,6 +263,7 @@ ${truncate(draft, 4000)}`;
       systemInstruction: systemPrompt,
     },
   });
+  if (usageAgg) accumulateTurnUsage(usageAgg, response);
 
   return response.text || '';
 }
@@ -256,7 +275,8 @@ async function validateStep(
   response: string,
   retrievedContext: string,
   ragEmpty: boolean,
-  simulationInstructions?: string
+  simulationInstructions?: string,
+  usageAgg?: NormalizedGeminiUsage
 ): Promise<ValidationInfo> {
   const systemPrompt = `You are a quality-assurance reviewer evaluating an in-character reply. You must score two independent dimensions.
 
@@ -304,6 +324,7 @@ Output JSON only:
       responseMimeType: 'application/json',
     },
   });
+  if (usageAgg) accumulateTurnUsage(usageAgg, result);
 
   const text = result.text || '{}';
   try {
@@ -400,6 +421,12 @@ export async function runAgentTurnStreaming(
     ragEmpty,
   };
 
+  const usageAgg: NormalizedGeminiUsage = {
+    promptTokenCount: 0,
+    candidatesTokenCount: 0,
+    totalTokenCount: 0,
+  };
+
   for (let round = 1; round <= MAX_QUALITY_ROUNDS; round++) {
     const chainThinking = round === 1 ? previousThinking : thinking;
     const retryContext =
@@ -415,7 +442,8 @@ export async function runAgentTurnStreaming(
       userMessage,
       simulationInstructions,
       chainThinking,
-      retryContext
+      retryContext,
+      usageAgg
     );
     thinking = thinkOut.thinking;
     write({ step: 'thinking', status: 'done', thinking, searchQueries: [] });
@@ -448,7 +476,8 @@ export async function runAgentTurnStreaming(
       simulationInstructions,
       image,
       mimeType,
-      revisionOf
+      revisionOf,
+      usageAgg
     );
     write({ step: 'responding', status: 'done', response });
 
@@ -472,7 +501,8 @@ export async function runAgentTurnStreaming(
           response,
           retrievedContext,
           ragEmpty,
-          simulationInstructions
+          simulationInstructions,
+          usageAgg
         );
       } catch (err: any) {
         console.error(`[Validation] Failed:`, err?.message || err);
@@ -495,7 +525,17 @@ export async function runAgentTurnStreaming(
     }
   }
 
-  const result: AgentTurnResult = { response, thinking, retrieval: retrievalInfo, validation };
+  const hasUsage =
+    usageAgg.promptTokenCount > 0 ||
+    usageAgg.candidatesTokenCount > 0 ||
+    usageAgg.totalTokenCount > 0;
+  const result: AgentTurnResult = {
+    response,
+    thinking,
+    retrieval: retrievalInfo,
+    validation,
+    ...(hasUsage ? { usage: { ...usageAgg } } : {}),
+  };
   write({ step: 'complete', result });
   return result;
 }

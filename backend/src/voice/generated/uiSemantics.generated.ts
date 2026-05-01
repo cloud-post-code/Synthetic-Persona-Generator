@@ -4,8 +4,8 @@
 import type { UiSemanticDoc, UiSemanticsCorpus } from '../uiSemantics.js';
 
 export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
-  "hash": "df32779eddd1bf81b903a9c4e95f363b6dad2a367ec3f15e4864b3c0679bf559",
-  "generatedAt": "2026-05-01T19:32:01.150Z",
+  "hash": "b58e442368aeb79d2c6dbad08ad787f51b230c4b734422ca376258fe1117b16c",
+  "generatedAt": "2026-05-01T19:45:52.558Z",
   "docs": [
     {
       "type": "ui_node",
@@ -185,7 +185,7 @@ export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
       "type": "form_schema",
       "id": "settings.tabs",
       "title": "Form — Settings — sidebar tabs",
-      "body": "# Form settings.tabs\n\nTitle: Settings — sidebar tabs\nPage: /settings\nPurpose: Switch between Profile, Security, Notifications, and Data sections.\n\n\n\n## Fields (target ids)\n- settings.tabs.profile | label=\"Profile tab\" type=tab action=click\n- settings.tabs.security | label=\"Security tab\" type=tab action=click\n- settings.tabs.notifications | label=\"Notifications tab\" type=tab action=click\n- settings.tabs.data | label=\"Data tab\" type=tab action=click\n- settings.tabs.sign_out | label=\"Sign out\" type=button action=click\n"
+      "body": "# Form settings.tabs\n\nTitle: Settings — sidebar tabs\nPage: /settings\nPurpose: Switch between Profile, Security, Notifications, Data, and AI usage sections.\n\n\n\n## Fields (target ids)\n- settings.tabs.profile | label=\"Profile tab\" type=tab action=click\n- settings.tabs.security | label=\"Security tab\" type=tab action=click\n- settings.tabs.notifications | label=\"Notifications tab\" type=tab action=click\n- settings.tabs.data | label=\"Data tab\" type=tab action=click\n- settings.tabs.usage | label=\"AI usage tab\" type=tab action=click\n- settings.tabs.reset_token_usage | label=\"Reset AI token usage counters\" type=button action=click\n- settings.tabs.sign_out | label=\"Sign out\" type=button action=click\n"
     },
     {
       "type": "form_schema",

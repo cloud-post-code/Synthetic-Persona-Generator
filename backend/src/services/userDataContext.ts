@@ -26,9 +26,49 @@ export type Domain =
   | 'settings'
   | 'profile';
 
-/** Merge transcript-hinted digest domains with path defaults (e.g. /simulate always sees templates + personas). */
-export function mergeVoiceDigestDomains(pathname: string | undefined, fromTranscript: Domain[]): Domain[] {
+/** UI node → digest domains relevant to that screen (merged with transcript hints and path rules). */
+function digestDomainsForUiNode(nodeId: string | null | undefined): Domain[] {
+  if (!nodeId) return [];
+  switch (nodeId) {
+    case 'build.persona':
+      return ['persona', 'personaFile'];
+    case 'simulations.hub':
+      return ['simulationTemplate'];
+    case 'simulate.run':
+      return ['simulationTemplate', 'persona', 'businessProfile'];
+    case 'gallery.personas':
+    case 'gallery.saved':
+    case 'gallery.library':
+      return ['persona'];
+    case 'gallery.focus':
+      return ['persona', 'focusGroup', 'focusGroupMember'];
+    case 'chat.thread':
+      return ['chat', 'persona', 'simulationSession'];
+    case 'business.profile':
+      return ['businessProfile'];
+    case 'settings.page':
+      return ['settings', 'profile'];
+    case 'info.synthetic_user':
+    case 'info.advisor':
+      return ['persona'];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Merge transcript-hinted digest domains with current UI node and path defaults
+ * (e.g. /simulate always sees templates + personas).
+ */
+export function mergeVoiceDigestDomains(
+  pathname: string | undefined,
+  currentNodeId: string | null | undefined,
+  fromTranscript: Domain[]
+): Domain[] {
   const set = new Set<Domain>(fromTranscript);
+  for (const d of digestDomainsForUiNode(currentNodeId)) {
+    set.add(d);
+  }
   const p = (pathname || '').trim();
   if (p === '/simulate') {
     set.add('simulationTemplate');

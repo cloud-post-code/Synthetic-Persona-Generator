@@ -282,7 +282,7 @@ Return ONLY the improved description text, nothing else. No preamble, no quotes,
 
 Current description:
 ${description.trim() || '(empty - please create an initial description based on the simulation title and type)'}`;
-      const improved = await geminiService.generateBasic(prompt, false);
+      const improved = await geminiService.generateBasic(prompt, false, 'build_simulation');
       const text = typeof improved === 'string' ? improved.trim() : String(improved || '').trim();
       if (text) setDescription(text);
     } catch (err: any) {

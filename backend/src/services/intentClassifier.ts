@@ -7,7 +7,7 @@ import {
 import type { VoiceIntentRequest } from '../types/voiceIntentRequest.js';
 import type { SlotSpec } from '../voice/intentTemplates.js';
 
-const CLASSIFIER_MODEL = 'gemini-2.5-flash';
+import { VOICE_AGENT_MODEL } from '../voice/voiceModel.js';
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -134,7 +134,7 @@ Use slot keys only when clearly implied; use {} for slots if unknown.`;
   const user = `Utterance: ${transcript}\n\nIntents:\n${list}`;
 
   const response = await ai.models.generateContent({
-    model: CLASSIFIER_MODEL,
+    model: VOICE_AGENT_MODEL,
     contents: [{ role: 'user', parts: [{ text: user }] }],
     config: {
       systemInstruction: system,

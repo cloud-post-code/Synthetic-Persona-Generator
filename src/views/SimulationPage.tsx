@@ -11,7 +11,6 @@ import {
   Sparkles,
   Send,
   AlertCircle,
-  History,
   Trash2,
   Plus,
   X as CloseIcon,
@@ -58,6 +57,7 @@ import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useSimulationLogsBridgeSetter } from '../context/SimulationLogsBridgeContext.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { DescribeSimulateRunBar } from '../components/DescribeSimulateRunBar.js';
 import type { SimulationRunDraft } from '../services/simulationRunDraft.js';
@@ -136,12 +136,8 @@ function creatorLabel(sim: SimulationTemplate): string {
   return sim.creator_username || 'User';
 }
 
-const STORAGE_KEY_LEFT = 'simulation-left-panel-width';
 const STORAGE_KEY_RIGHT = 'simulation-right-panel-width';
-const DEFAULT_LEFT = 288;
 const DEFAULT_RIGHT = 448;
-const MIN_LEFT = 200;
-const MAX_LEFT = 500;
 const MIN_RIGHT = 280;
 const MAX_RIGHT = 600;
 
@@ -594,18 +590,6 @@ const SimulationPage: React.FC = () => {
   const [pipelineEvents, setPipelineEvents] = useState<AgentPipelineEvent[]>([]);
   const [pipelineActive, setPipelineActive] = useState(false);
 
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_LEFT);
-      if (saved) {
-        const n = parseInt(saved, 10);
-        if (!isNaN(n) && n >= MIN_LEFT && n <= MAX_LEFT) return n;
-      }
-    } catch (err) {
-      console.warn('Failed to load left panel width:', err);
-    }
-    return DEFAULT_LEFT;
-  });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_RIGHT);
@@ -619,17 +603,6 @@ const SimulationPage: React.FC = () => {
     return DEFAULT_RIGHT;
   });
 
-  const updateLeftWidth = (delta: number) => {
-    setLeftPanelWidth((w) => {
-      const next = Math.max(MIN_LEFT, Math.min(MAX_LEFT, w + delta));
-      try {
-        localStorage.setItem(STORAGE_KEY_LEFT, String(next));
-      } catch (err) {
-        console.warn('Failed to save left panel width:', err);
-      }
-      return next;
-    });
-  };
   const updateRightWidth = (delta: number) => {
     setRightPanelWidth((w) => {
       const next = Math.max(MIN_RIGHT, Math.min(MAX_RIGHT, w - delta));
@@ -662,6 +635,7 @@ const SimulationPage: React.FC = () => {
 
   const personaCountMin = selectedSimulation?.persona_count_min ?? 1;
   const { user, isAdmin } = useAuth();
+  const setSimulationLogsBridge = useSimulationLogsBridgeSetter();
   const personaCountMax = selectedSimulation?.persona_count_max ?? 1;
   const selectedPersona = selectedPersonas[0] ?? null;
   const runnerDisplayName = getRunnerDisplayName(user?.username);
@@ -2061,73 +2035,42 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
     setSimulationRunSummaryLoading(false);
   };
 
+  const resumeSimBridgeRef = useRef(resumeSimulation);
+  resumeSimBridgeRef.current = resumeSimulation;
+  const deleteSessionBridgeRef = useRef(deleteSession);
+  deleteSessionBridgeRef.current = deleteSession;
+  const clearAllSimLogsBridgeRef = useRef(handleAdminClearAllSimulationLogs);
+  clearAllSimLogsBridgeRef.current = handleAdminClearAllSimulationLogs;
+
+  useEffect(() => {
+    setSimulationLogsBridge({
+      sessions: simulationHistory,
+      activeSessionId: currentSessionId,
+      onSelectSession: (s) => {
+        void resumeSimBridgeRef.current(s);
+      },
+      onDeleteSession: (e, id) => {
+        void deleteSessionBridgeRef.current(e, id);
+      },
+      onClearAll: () => {
+        void clearAllSimLogsBridgeRef.current();
+      },
+      clearing: adminClearingSimulationLogs,
+      isAdmin,
+    });
+    return () => {
+      setSimulationLogsBridge(null);
+    };
+  }, [
+    simulationHistory,
+    currentSessionId,
+    adminClearingSimulationLogs,
+    isAdmin,
+    setSimulationLogsBridge,
+  ]);
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">
-      {/* Sidebar - History */}
-      <aside
-        className="hidden md:flex shrink-0 flex-col border-r border-gray-100 bg-gray-50/50"
-        style={{ width: leftPanelWidth }}
-      >
-        <div className="p-4 border-b border-gray-100 bg-white">
-          <button
-            ref={simNewSessionRef}
-            type="button"
-            onClick={startNewSim}
-            className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-          >
-            <Sparkles className="w-3.5 h-3.5" /> New Simulation
-          </button>
-        </div>
-        <div className="flex-grow overflow-y-auto p-3 space-y-1.5">
-          <div className="flex items-start justify-between gap-2 mb-3 px-2">
-            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] leading-tight pt-0.5">
-              Simulation Logs
-            </h3>
-            {isAdmin && simulationHistory.length > 0 ? (
-              <button
-                type="button"
-                disabled={adminClearingSimulationLogs}
-                onClick={() => void handleAdminClearAllSimulationLogs()}
-                title="Admin: delete all simulation history for your account"
-                className="shrink-0 flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-              >
-                {adminClearingSimulationLogs ? (
-                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="w-3 h-3" aria-hidden />
-                )}
-                Clear all
-              </button>
-            ) : null}
-          </div>
-           {simulationHistory.length > 0 ? simulationHistory.map(s => (
-             <div key={s.id} className="group relative">
-               <button
-                 onClick={() => resumeSimulation(s)}
-                 className={`w-full text-left p-3 rounded-xl text-sm font-bold transition-all flex items-center gap-3 ${currentSessionId === s.id ? 'bg-white text-indigo-600 shadow-lg border border-gray-100' : 'text-gray-500 hover:bg-white hover:text-gray-900'}`}
-               >
-                 <History className={`w-3.5 h-3.5 shrink-0 ${currentSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} />
-                 <span className="truncate pr-6">{s.name}</span>
-               </button>
-               <button 
-                 onClick={(e) => deleteSession(e, s.id)}
-                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-               >
-                 <Trash2 className="w-4 h-4" />
-               </button>
-             </div>
-           )) : (
-             <div className="p-10 text-center">
-               <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">No history yet</p>
-             </div>
-           )}
-        </div>
-      </aside>
-
-      <div className="hidden md:flex shrink-0">
-        <ResizableDivider onDrag={updateLeftWidth} />
-      </div>
-
       {/* Main Area */}
       <main className="flex-grow flex flex-col relative bg-white overflow-hidden min-w-0">
         {stage === 'selection' && (
@@ -2141,15 +2084,26 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                   <span className="font-semibold text-gray-800">Simulations</span> in the sidebar.
                 </p>
               </div>
-              <button
-                ref={simGotoHubRef}
-                type="button"
-                onClick={() => navigate('/simulations')}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                Build simulation
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  ref={simNewSessionRef}
+                  type="button"
+                  onClick={startNewSim}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-200 bg-white text-gray-800 rounded-lg hover:bg-gray-50 hover:border-gray-300 text-sm font-bold"
+                >
+                  <Sparkles className="w-4 h-4 text-indigo-600" aria-hidden />
+                  New simulation
+                </button>
+                <button
+                  ref={simGotoHubRef}
+                  type="button"
+                  onClick={() => navigate('/simulations')}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold"
+                >
+                  <Plus className="w-4 h-4" />
+                  Build simulation
+                </button>
+              </div>
             </div>
 
             <DescribeSimulateRunBar

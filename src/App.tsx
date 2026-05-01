@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes, History, Trash2, Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { SimulationLogsBridgeProvider, useSimulationLogsBridge } from './context/SimulationLogsBridgeContext.js';
 import HomePage from './views/HomePage.js';
 import BuildPersonaPage from './views/BuildPersonaPage.js';
 import ChatPage from './views/ChatPage.js';
@@ -47,6 +48,95 @@ const SidebarNavLink: React.FC<{
       <Icon className="w-5 h-5 mr-3" />
       {label}
     </Link>
+  );
+};
+
+const SIMULATION_LOG_PREVIEW = 4;
+
+const SidebarSimulationLogs: React.FC<{
+  onAfterSelect: () => void;
+}> = ({ onAfterSelect }) => {
+  const location = useLocation();
+  const bridge = useSimulationLogsBridge();
+  const [expanded, setExpanded] = React.useState(false);
+
+  React.useEffect(() => {
+    setExpanded(false);
+  }, [location.pathname]);
+
+  if (!bridge) return null;
+
+  const { sessions, activeSessionId, onSelectSession, onDeleteSession, onClearAll, clearing, isAdmin } = bridge;
+  const hasOverflow = sessions.length > SIMULATION_LOG_PREVIEW;
+  const visible = expanded ? sessions : sessions.slice(0, SIMULATION_LOG_PREVIEW);
+
+  return (
+    <div className="shrink-0 border-t border-gray-200 px-3 py-3">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] leading-tight pt-0.5">
+          Simulation logs
+        </h3>
+        {isAdmin && sessions.length > 0 ? (
+          <button
+            type="button"
+            disabled={clearing}
+            onClick={() => void onClearAll()}
+            title="Admin: delete all simulation history for your account"
+            className="shrink-0 flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {clearing ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <Trash2 className="w-3 h-3" aria-hidden />}
+            Clear all
+          </button>
+        ) : null}
+      </div>
+
+      {sessions.length === 0 ? (
+        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider text-center py-3">No history yet</p>
+      ) : (
+        <>
+          <div className={expanded ? 'max-h-40 overflow-y-auto space-y-1 pr-0.5' : 'space-y-1'}>
+            {visible.map((s) => (
+              <div key={s.id} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void onSelectSession(s);
+                    onAfterSelect();
+                  }}
+                  className={`w-full text-left p-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                    activeSessionId === s.id
+                      ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`}
+                >
+                  <History className={`w-3.5 h-3.5 shrink-0 ${activeSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} aria-hidden />
+                  <span className="truncate pr-6">{s.name}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    void onDeleteSession(e, s.id);
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100"
+                  aria-label={`Delete ${s.name}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+          {hasOverflow ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-2 w-full text-center text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800"
+            >
+              {expanded ? 'View less' : 'View more'}
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 };
 
@@ -105,7 +195,7 @@ const Sidebar: React.FC = () => {
         </div>
 
         {/* Navigation items */}
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+        <nav className="flex-1 min-h-0 px-4 py-6 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -123,6 +213,10 @@ const Sidebar: React.FC = () => {
             );
           })}
         </nav>
+
+        {location.pathname === '/simulate' ? (
+          <SidebarSimulationLogs onAfterSelect={() => setIsMobileOpen(false)} />
+        ) : null}
 
         {/* User section */}
         <div className="p-4 border-t border-gray-200">
@@ -320,15 +414,17 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <Router>
-        {/* VoiceAgentProvider: wraps app for global navigator agent + task tracker. Re-enable with VoiceAgentDock. */}
-        <div className="min-h-screen flex">
-          <Sidebar />
-          <main className="flex-1 lg:ml-64 flex flex-col">
-            <AppRoutes />
-          </main>
-        </div>
-        {/* <VoiceAgentDock /> */}
-        <ApiErrorBanner />
+        <SimulationLogsBridgeProvider>
+          {/* VoiceAgentProvider: wraps app for global navigator agent + task tracker. Re-enable with VoiceAgentDock. */}
+          <div className="min-h-screen flex">
+            <Sidebar />
+            <main className="flex-1 lg:ml-64 flex flex-col">
+              <AppRoutes />
+            </main>
+          </div>
+          {/* <VoiceAgentDock /> */}
+          <ApiErrorBanner />
+        </SimulationLogsBridgeProvider>
       </Router>
     </AuthProvider>
   );

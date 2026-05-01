@@ -275,7 +275,12 @@ export async function observe(req: AuthRequest, res: Response, next: NextFunctio
         r.replans += 1;
         r.history.push({ kind: 'replanned', at: Date.now(), detail: `inline ${newSteps[0]?.type}` });
       });
-      return res.json({ action: 'replan', steps: newSteps, cursor: obs.stepIndex, reason: 'inline clarify/speak' });
+      return res.json({
+        action: 'replan',
+        steps: newSteps,
+        cursor: obs.stepIndex,
+        reason: 'inline clarify/speak',
+      });
     }
 
     store.update(rec.planId, (r) => {

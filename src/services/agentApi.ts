@@ -1,4 +1,5 @@
 import { apiClient } from './api.js';
+import { tokenUsageStore } from './tokenUsageStore.js';
 
 export interface AgentTurnRequest {
   personaId: string;
@@ -27,11 +28,18 @@ export interface ValidationInfo {
   completeness_suggestions: string[];
 }
 
+export interface AgentTurnTokenUsage {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  totalTokenCount: number;
+}
+
 export interface AgentTurnResponse {
   response: string;
   thinking: string;
   retrieval: RetrievalInfo;
   validation: ValidationInfo | null;
+  usage?: AgentTurnTokenUsage;
 }
 
 export interface AgentPipelineEvent {
@@ -98,6 +106,12 @@ export function finalizePipelineEvents(
 }
 
 /** Restore or synthesize pipeline events for a persisted message. */
+function recordRunSimulationAgentUsage(result: AgentTurnResponse): void {
+  if (result.usage) {
+    tokenUsageStore.addUsage('run_simulation', result.usage);
+  }
+}
+
 export function pipelineEventsFromStoredMessage(m: {
   content: string;
   thinking?: string;
@@ -166,7 +180,8 @@ export const agentApi = {
 
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      const data = await response.json();
+      const data = (await response.json()) as AgentTurnResponse;
+      recordRunSimulationAgentUsage(data);
       onEvent({ step: 'complete', status: 'done', result: data });
       return data;
     }
@@ -212,6 +227,7 @@ export const agentApi = {
     if (!finalResult) {
       throw new Error('Stream ended without a complete event');
     }
+    recordRunSimulationAgentUsage(finalResult);
     return finalResult;
   },
 

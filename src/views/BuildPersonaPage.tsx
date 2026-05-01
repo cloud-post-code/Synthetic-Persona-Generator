@@ -352,7 +352,7 @@ const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () =
 
       setLoadingStage('Identifying synthetic personas...');
       const idPrompt = `Identify ${formData.q7} distinct personas from this analysis. For each persona return a real-sounding human name (invented first and last name, e.g. "Sarah Chen", "Marcus Webb") in "name" and their job/role title (e.g. "Project Lead", "Marketing Director") in "title". Do not put job titles in the "name" field—only plausible person names. CRITICAL: Each persona must have a unique full name—no two personas in the list may share the same name. Return JSON: { "personas": [{ "name": string, "title": string }] }. Analysis: ${marketCanvas}`;
-      const raw = await geminiService.generateBasic(idPrompt, true);
+      const raw = await geminiService.generateBasic(idPrompt, true, 'build_personas');
       if (cancelledRef.current) return;
       const personasRaw = Array.isArray(raw?.personas) ? raw.personas : [];
       const usedNames = new Set<string>();
@@ -919,7 +919,7 @@ const AdvisorForm = forwardRef<AdvisorFormHandle, { onComplete: () => void; defa
           : extractedFacts;
         setLoadingStage('Discovering identity...');
         const idPrompt = `Identify the specific professional from these facts. Return JSON: { "name": string, "title": string, "summary": string }. Facts: ${extractedFacts.substring(0, 2000)}`;
-        const identity = await geminiService.generateBasic(idPrompt, true);
+        const identity = await geminiService.generateBasic(idPrompt, true, 'build_personas');
         if (cancelledRef.current) return;
         const rawName = (identity as { name?: string })?.name;
         const rawTitle = (identity as { title?: string })?.title;
@@ -1014,7 +1014,7 @@ Return the extracted text in a structured format. Be concise but comprehensive.`
       setLoadingStage('Identifying Author Identity...');
       const idPrompt = `Analyze this text and identify the primary author/expert. Return JSON: { "name": string, "title": string, "summary": string }. 
 Limit your analysis to the key identifying information. Text sample: ${extractedText.substring(0, 8000)}`;
-      const identity = await geminiService.generateBasic(idPrompt, true);
+      const identity = await geminiService.generateBasic(idPrompt, true, 'build_personas');
       if (cancelledRef.current) return;
       const rawName = (identity as { name?: string })?.name;
       const rawTitle = (identity as { title?: string })?.title;

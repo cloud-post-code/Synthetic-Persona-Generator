@@ -14,6 +14,14 @@ import {
   type BusinessProfileSectionKey,
 } from '../constants/businessProfileSpec.js';
 import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
+import { normalizeUsageMetadata } from '../utils/geminiUsage.js';
+import { tokenUsageStore, type TokenUsageBucket } from './tokenUsageStore.js';
+
+export type { TokenUsageBucket } from './tokenUsageStore.js';
+
+function recordGeminiResponseUsage(response: { usageMetadata?: unknown }, bucket: TokenUsageBucket): void {
+  tokenUsageStore.addUsage(bucket, normalizeUsageMetadata(response.usageMetadata));
+}
 
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
@@ -124,7 +132,8 @@ export type BusinessProfileSectionSource = {
 
 async function runBusinessProfileGeneration(
   prompt: string,
-  source: BusinessProfileSectionSource
+  source: BusinessProfileSectionSource,
+  usageBucket: TokenUsageBucket = 'business_profile'
 ): Promise<string | object> {
   const textCorpus = (source.textCorpus ?? '').trim();
   const inlineFiles = (source.inlineFiles ?? []).filter((f) => f.data && f.mimeType);
@@ -138,15 +147,15 @@ async function runBusinessProfileGeneration(
     fullPrompt += `\n\nThe user attached ${inlineFiles.length} file(s) as inline media (${names}). Use every attachment as source material; reconcile overlaps consistently.`;
 
     const [first, ...rest] = inlineFiles;
-    return await geminiService.runSimulation(fullPrompt, first.data, first.mimeType, rest);
+    return await geminiService.runSimulation(fullPrompt, first.data, first.mimeType, rest, usageBucket);
   }
 
   if (textCorpus) {
     const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(textCorpus, 100000)}`;
-    return await geminiService.generateBasic(fullPrompt, true);
+    return await geminiService.generateBasic(fullPrompt, true, usageBucket);
   }
 
-  return await geminiService.generateBasic(prompt, true);
+  return await geminiService.generateBasic(prompt, true, usageBucket);
 }
 
 /** Treat model placeholder prose as empty so merges do not overwrite real answers. */
@@ -250,7 +259,11 @@ function sanitizeBusinessProfileVoiceDraft(parsed: unknown): BusinessProfileVoic
 }
 
 export const geminiService = {
-  generateBasic: async (prompt: string, isJson: boolean = false): Promise<any> => {
+  generateBasic: async (
+    prompt: string,
+    isJson: boolean = false,
+    usageBucket?: TokenUsageBucket
+  ): Promise<any> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
@@ -261,6 +274,7 @@ export const geminiService = {
         model: 'gemini-2.5-flash',
         contents: truncate(prompt, MAX_PART_CHARS),
       });
+      if (usageBucket) recordGeminiResponseUsage(response, usageBucket);
       const text = response.text || "";
       return isJson ? extractJson(text) : text;
     } catch (error: any) {
@@ -298,7 +312,7 @@ export const geminiService = {
   generatePersonaName: async (context: string): Promise<string> => {
     const prompt = `Generate a plausible, invented full name (first and last name only) for a person who might have this role. Return only valid JSON: {"name": "First Last"}. The value for "name" must be a real-sounding human name (e.g. "Sarah Chen", "Marcus Webb"), never a job title or role (e.g. not "Project Lead", "Marketing Director", or "Advisor"). Context/role: ${context}`;
     try {
-      const parsed = await geminiService.generateBasic(prompt, true);
+      const parsed = await geminiService.generateBasic(prompt, true, 'build_personas');
       const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
       if (name.length > 0) return name;
     } catch (e) {
@@ -338,6 +352,7 @@ export const geminiService = {
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
+      recordGeminiResponseUsage(response, 'build_personas');
       return response.text || "No facts extracted.";
     } catch (error: any) {
       console.error('Gemini API error:', error);
@@ -380,7 +395,7 @@ ${truncate(trimmed, 50000)}
 
 Output ONLY the improved profile text. No title line like "Here is" or markdown code fences.`;
 
-    const out = await geminiService.generateBasic(prompt, false);
+    const out = await geminiService.generateBasic(prompt, false, 'build_personas');
     return (out || '').trim();
   },
 
@@ -403,6 +418,7 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
           }
         }
       });
+      recordGeminiResponseUsage(response, 'build_personas');
 
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
@@ -457,6 +473,7 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
         contents: prompt,
         ...(temperature !== undefined && temperature !== null ? { config: { temperature } } : {}),
       });
+      recordGeminiResponseUsage(response, 'build_personas');
 
       return response.text || "";
     } catch (error: any) {
@@ -484,7 +501,8 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
     prompt: string,
     imageData?: string,
     mimeType?: string,
-    extraInlineFiles?: { data: string; mimeType: string }[]
+    extraInlineFiles?: { data: string; mimeType: string }[],
+    usageBucket: TokenUsageBucket = 'build_personas'
   ): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
@@ -527,6 +545,7 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
         model: 'gemini-2.5-flash',
         contents: { parts }
       });
+      recordGeminiResponseUsage(response, usageBucket);
 
       return response.text || "";
     } catch (error: any) {
@@ -696,7 +715,7 @@ Return ONE JSON object only (no markdown fences):
 
 If nothing in the description maps to any field, return "filled": {} and explain in routing_rationale.`;
 
-    const parsed = await geminiService.generateBasic(prompt, true);
+    const parsed = await geminiService.generateBasic(prompt, true, 'business_profile');
     return sanitizeBusinessProfileVoiceDraft(parsed);
   },
 
@@ -723,6 +742,7 @@ If nothing in the description maps to any field, return "filled": {} and explain
           systemInstruction: truncate(systemPrompt, MAX_SYSTEM_CHARS),
         },
       });
+      recordGeminiResponseUsage(response, 'run_simulation');
 
       return response.text || "";
     } catch (error: any) {
@@ -764,6 +784,7 @@ where N is an integer from 1 to 100. No other text.`;
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
+    recordGeminiResponseUsage(response, 'run_simulation');
     const text = (response.text || '').trim();
     const parsed = parseLastPersuasionPercentFromText(text);
     if (parsed != null) return parsed;
@@ -842,7 +863,7 @@ One of: "text" | "image" | "table" | "pdf" | "multiple_choice" | "business_profi
 
 Output valid JSON only.`;
 
-    const parsed = await geminiService.generateBasic(prompt, true);
+    const parsed = await geminiService.generateBasic(prompt, true, 'build_simulation');
     return sanitizeDraft(parsed);
   },
 
@@ -907,7 +928,7 @@ Return ONE JSON object only (no markdown fences):
 
 Omit keys not needed for the chosen persona_type (use "" for unused strings). persona_count always set.`;
 
-    const parsed = await geminiService.generateBasic(prompt, true);
+    const parsed = await geminiService.generateBasic(prompt, true, 'build_personas');
     return sanitizePersonaBuildDraft(parsed, { forcePersonaType: opts?.forcePersonaType });
   },
 
@@ -980,7 +1001,7 @@ Return ONE JSON object only (no markdown fences):
   "routing_rationale": string
 }`;
 
-    const parsed = await geminiService.generateBasic(prompt, true);
+    const parsed = await geminiService.generateBasic(prompt, true, 'run_simulation');
     return sanitizeSimulationRunDraft(parsed, ctx);
   },
 
@@ -1012,7 +1033,7 @@ Return ONE JSON object only, no markdown fences:
   "updated_notes": string (full updated notes: merge the user's request; preserve facts unless they asked to remove; keep third person; ready to re-send to "Build it for me")
 }`;
 
-    const parsed = await geminiService.generateBasic(prompt, true);
+    const parsed = await geminiService.generateBasic(prompt, true, 'build_personas');
     const ar =
       typeof (parsed as { assistant_reply?: unknown })?.assistant_reply === "string"
         ? String((parsed as { assistant_reply: string }).assistant_reply).trim()
@@ -1113,6 +1134,7 @@ Output only the system prompt text, nothing else.`;
       model: 'gemini-2.5-flash',
       contents: truncate(prompt, MAX_PART_CHARS),
     });
+    recordGeminiResponseUsage(response, 'build_simulation');
     const text = (response.text || '').trim();
     if (!text) throw new Error('AI did not return a system prompt.');
     return text;
@@ -1149,6 +1171,7 @@ Respond with a single JSON object only, no other text. Use this exact format:
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
+    recordGeminiResponseUsage(response, 'run_simulation');
     const text = response.text || '';
     const parsed = extractJson(text);
     const id = parsed?.persona_id;
@@ -1206,6 +1229,7 @@ Respond with a single JSON object only. Do not choose the same persona who just 
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
+    recordGeminiResponseUsage(response, 'run_simulation');
     const text = response.text || '';
     const parsed = extractJson(text);
     const action = parsed?.action === 'END' ? 'END' : 'NEXT';
@@ -1254,6 +1278,7 @@ Write in clear paragraphs. No JSON. Output only the summary and answer.`;
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
+    recordGeminiResponseUsage(response, 'run_simulation');
     return (response.text || '').trim() || 'No summary generated.';
     });
   },
@@ -1279,6 +1304,7 @@ Below is plain-text survey output (Question / Answer blocks only). Write ONE coh
         model: 'gemini-2.5-flash',
         contents: `${prompt}\n\n---\n\n${truncate(qaPlainTextBundle, 48000)}`,
       });
+      recordGeminiResponseUsage(response, 'run_simulation');
       return (response.text || '').trim() || 'No summary generated.';
     });
   },

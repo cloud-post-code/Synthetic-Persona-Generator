@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   User, 
   Shield, 
@@ -7,7 +7,6 @@ import {
   Database, 
   Lock, 
   Mail, 
-  Trash2, 
   Download, 
   Eye, 
   EyeOff,
@@ -15,7 +14,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   LogOut,
-  Plus
+  Plus,
+  BarChart3,
 } from 'lucide-react';
 import { storageService } from '../../services/storage';
 import { useAuth } from '../context/AuthContext.js';
@@ -28,8 +28,13 @@ import {
 } from '../voice/voiceSettings.js';
 import { settingsProfileSchema, settingsTabsSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
+import {
+  tokenUsageStore,
+  TOKEN_USAGE_BUCKET_LABELS,
+  type TokenUsageBucket,
+} from '../services/tokenUsageStore.js';
 
-type SettingsTab = 'profile' | 'security' | 'notifications' | 'data';
+type SettingsTab = 'profile' | 'security' | 'notifications' | 'data' | 'usage';
 
 const SettingsLink = React.forwardRef<HTMLButtonElement, { icon: any; label: string; active: boolean; onClick: () => void }>(
   ({ icon: Icon, label, active, onClick }, ref) => (
@@ -124,7 +129,10 @@ const SettingsPage: React.FC = () => {
   const tabSecurityRef = useRef<HTMLButtonElement>(null);
   const tabNotificationsRef = useRef<HTMLButtonElement>(null);
   const tabDataRef = useRef<HTMLButtonElement>(null);
+  const tabUsageRef = useRef<HTMLButtonElement>(null);
+  const resetTokenUsageRef = useRef<HTMLButtonElement>(null);
   const signOutRef = useRef<HTMLButtonElement>(null);
+  const [usageTick, setUsageTick] = useState(0);
 
   // Legacy alias.
   useVoiceTarget({
@@ -166,6 +174,19 @@ const SettingsPage: React.FC = () => {
     ref: tabDataRef as React.RefObject<HTMLElement | null>,
   });
   useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'usage'),
+    label: 'AI usage tab',
+    action: 'click',
+    ref: tabUsageRef as React.RefObject<HTMLElement | null>,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(settingsTabsSchema.formKey, 'reset_token_usage'),
+    label: 'Reset AI token usage counters',
+    action: 'click',
+    ref: resetTokenUsageRef as React.RefObject<HTMLElement | null>,
+    enabled: activeTab === 'usage',
+  });
+  useVoiceTarget({
     id: fieldTargetId(settingsTabsSchema.formKey, 'sign_out'),
     label: 'Sign out',
     action: 'click',
@@ -186,6 +207,13 @@ const SettingsPage: React.FC = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    return tokenUsageStore.subscribe(() => setUsageTick((t) => t + 1));
+  }, []);
+
+  const usageSnapshot = useMemo(() => tokenUsageStore.getSnapshot(), [usageTick]);
+  const usageGrandTotal = useMemo(() => tokenUsageStore.grandTotal(usageSnapshot), [usageSnapshot]);
+
   const handleSave = () => {
     setSaveStatus('Settings saved successfully!');
     setTimeout(() => setSaveStatus(null), 3000);
@@ -198,6 +226,24 @@ const SettingsPage: React.FC = () => {
       window.location.reload();
     }
   };
+
+  const handleResetTokenUsage = () => {
+    if (
+      window.confirm(
+        'Reset all AI token usage counters in this browser? This does not affect your Google API quota — only the totals shown here.'
+      )
+    ) {
+      tokenUsageStore.reset();
+    }
+  };
+
+  const BUCKET_ORDER: TokenUsageBucket[] = [
+    'build_simulation',
+    'run_simulation',
+    'build_personas',
+    'business_profile',
+    'voice_agent',
+  ];
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12 w-full">
@@ -243,6 +289,13 @@ const SettingsPage: React.FC = () => {
             label="Data & Storage"
             active={activeTab === 'data'}
             onClick={() => setActiveTab('data')}
+          />
+          <SettingsLink
+            ref={tabUsageRef}
+            icon={BarChart3}
+            label="AI usage"
+            active={activeTab === 'usage'}
+            onClick={() => setActiveTab('usage')}
           />
           <div className="pt-8 border-t border-gray-100 mt-4">
             <button
@@ -418,6 +471,63 @@ const SettingsPage: React.FC = () => {
                 ))}
               </div>
             </Section>
+          )}
+
+          {activeTab === 'usage' && (
+            <div className="space-y-6">
+              <Section title="AI token usage (this browser)">
+                <p className="text-sm text-gray-600 mb-6">
+                  Cumulative tokens reported by the Gemini API for this app. Run simulation includes persona chat and
+                  server-side simulation turns; voice agent counts planner calls on the server.
+                </p>
+                <div className="space-y-5">
+                  {BUCKET_ORDER.map((bucket) => {
+                    const u = usageSnapshot[bucket];
+                    const total = u.totalTokenCount;
+                    const pct =
+                      usageGrandTotal > 0 ? Math.min(100, Math.round((total / usageGrandTotal) * 1000) / 10) : 0;
+                    return (
+                      <div key={bucket}>
+                        <div className="flex justify-between items-baseline gap-2 mb-1">
+                          <span className="font-bold text-gray-900 text-sm">
+                            {TOKEN_USAGE_BUCKET_LABELS[bucket]}
+                          </span>
+                          <span className="text-xs font-mono text-gray-600 tabular-nums">
+                            {total.toLocaleString()} total
+                            <span className="text-gray-400">
+                              {' '}
+                              · in {u.promptTokenCount.toLocaleString()} · out {u.candidatesTokenCount.toLocaleString()}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Grand total</p>
+                    <p className="text-2xl font-black text-gray-900 tabular-nums">
+                      {usageGrandTotal.toLocaleString()} tokens
+                    </p>
+                  </div>
+                  <button
+                    ref={resetTokenUsageRef}
+                    type="button"
+                    onClick={handleResetTokenUsage}
+                    className="px-6 py-3 rounded-xl font-bold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all"
+                  >
+                    Reset usage counters
+                  </button>
+                </div>
+              </Section>
+            </div>
           )}
 
           {activeTab === 'data' && (
