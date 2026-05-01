@@ -448,10 +448,6 @@ const BusinessProfilePage: React.FC = () => {
 
   const handleGenerate = async () => {
     const source = buildBpGenerationSource(knowledgeFiles, companyHint);
-    if (!source.textCorpus && !source.inlineFiles?.length && !source.companyHint) {
-      setGenerateError('Upload one or more documents and/or enter a company name or website to generate from.');
-      return;
-    }
     generateCancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
@@ -599,9 +595,9 @@ const BusinessProfilePage: React.FC = () => {
               </h3>
               <p className="text-xs text-indigo-900/80">
                 Upload one or more documents (PDF, images, Word, text, CSV, JSON). With documents, we only pre-fill
-                answers the files clearly support (six section calls); other fields stay empty. If you only use a
-                company name (no files), set it in the field above—general knowledge about that entity can fill the
-                profile.
+                answers the files clearly support (six section calls); other fields stay empty. Optionally add a
+                company name or website for general-knowledge grounding. With neither, generation still runs using
+                conservative, non-specific guidance (many fields may stay empty).
               </p>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600">
@@ -678,12 +674,12 @@ const BusinessProfilePage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={generateLoading || (!knowledgeFiles.length && !companyHint.trim())}
+                  disabled={generateLoading}
                   onClick={() => void handleGenerate()}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {generateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {generateLoading ? generateStage || 'Generating…' : 'Generate from document'}
+                  {generateLoading ? generateStage || 'Generating…' : 'Generate with AI'}
                 </button>
                 {generateLoading && (
                   <button

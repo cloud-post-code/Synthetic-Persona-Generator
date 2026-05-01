@@ -51,18 +51,10 @@ const SidebarNavLink: React.FC<{
   );
 };
 
-const SIMULATION_LOG_PREVIEW = 4;
-
 const SidebarSimulationLogs: React.FC<{
   onAfterSelect: () => void;
 }> = ({ onAfterSelect }) => {
-  const location = useLocation();
   const bridge = useSimulationLogsBridge();
-  const [expanded, setExpanded] = React.useState(false);
-
-  React.useEffect(() => {
-    setExpanded(false);
-  }, [location.pathname]);
 
   const sessions = bridge?.sessions ?? [];
   const activeSessionId = bridge?.activeSessionId ?? null;
@@ -72,11 +64,8 @@ const SidebarSimulationLogs: React.FC<{
   const clearing = bridge?.clearing ?? false;
   const isAdmin = bridge?.isAdmin ?? false;
 
-  const hasOverflow = sessions.length > SIMULATION_LOG_PREVIEW;
-  const visible = expanded ? sessions : sessions.slice(0, SIMULATION_LOG_PREVIEW);
-
   return (
-    <div className="shrink-0 border-t border-gray-200 px-3 py-3">
+    <div className="shrink-0 border-t border-gray-200 px-0 py-3 mt-1">
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] leading-tight pt-0.5">
           Simulation logs
@@ -110,48 +99,37 @@ const SidebarSimulationLogs: React.FC<{
       ) : sessions.length === 0 ? (
         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider text-center py-3">No history yet</p>
       ) : (
-        <>
-          <div className={expanded ? 'max-h-40 overflow-y-auto space-y-1 pr-0.5' : 'space-y-1'}>
-            {visible.map((s) => (
-              <div key={s.id} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onSelectSession) void onSelectSession(s);
-                    onAfterSelect();
-                  }}
-                  className={`w-full text-left p-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                    activeSessionId === s.id
-                      ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-                >
-                  <History className={`w-3.5 h-3.5 shrink-0 ${activeSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} aria-hidden />
-                  <span className="truncate pr-6">{s.name}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    if (onDeleteSession) void onDeleteSession(e, s.id);
-                  }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100"
-                  aria-label={`Delete ${s.name}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" aria-hidden />
-                </button>
-              </div>
-            ))}
-          </div>
-          {hasOverflow ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="mt-2 w-full text-center text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800"
-            >
-              {expanded ? 'View less' : 'View more'}
-            </button>
-          ) : null}
-        </>
+        <div className="max-h-64 overflow-y-auto space-y-1 pr-0.5">
+          {sessions.map((s) => (
+            <div key={s.id} className="group relative">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onSelectSession) void onSelectSession(s);
+                  onAfterSelect();
+                }}
+                className={`w-full text-left p-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                  activeSessionId === s.id
+                    ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <History className={`w-3.5 h-3.5 shrink-0 ${activeSessionId === s.id ? 'text-indigo-600' : 'opacity-30'}`} aria-hidden />
+                <span className="truncate pr-6">{s.name}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (onDeleteSession) void onDeleteSession(e, s.id);
+                }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100"
+                aria-label={`Delete ${s.name}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" aria-hidden />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -211,7 +189,7 @@ const Sidebar: React.FC = () => {
           </Link>
         </div>
 
-        {/* Navigation items */}
+        {/* Navigation items; simulation logs sit directly under Admin (or under Settings if not admin) inside the same scroll region */}
         <nav className="flex-1 min-h-0 px-4 py-6 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -229,9 +207,8 @@ const Sidebar: React.FC = () => {
               />
             );
           })}
+          <SidebarSimulationLogs onAfterSelect={() => setIsMobileOpen(false)} />
         </nav>
-
-        <SidebarSimulationLogs onAfterSelect={() => setIsMobileOpen(false)} />
 
         {/* User section */}
         <div className="p-4 border-t border-gray-200">

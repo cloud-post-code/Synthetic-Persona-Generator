@@ -602,12 +602,20 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
       ? `TASK: Fill in ONLY this section of a Business Profile from the attached files and plain-text excerpts in this request.`
       : hint
         ? `TASK: Fill in ONLY this section of a Business Profile using reliable general knowledge about: "${hint}". No document was attached.`
-        : `TASK: Fill in ONLY this section of a Business Profile.`;
+        : `TASK: Fill in ONLY this section of a Business Profile. The user provided no documents and no company or website—do not invent a specific company, brand, URL, or numeric claims; use null where facts would be fabricated.`;
 
     const hintLine =
       hasMaterial && hint
         ? `\nThe user also provided this company identifier: "${hint}". Use it only to disambiguate which entity the materials refer to—not to invent answers for topics the materials do not cover.`
         : '';
+
+    const sourcingRulesNoSource = `RULES:
+- No documents or company identifier were provided. Do not invent company names, URLs, customers, revenue, headcount, or other entity-specific facts.
+- Use JSON null wherever a truthful, specific answer would require such facts.
+- You may supply brief, industry-agnostic entrepreneurship guidance only when a question can be answered without naming or implying a particular business.
+- Keep each non-null value concise (1–4 short paragraphs max per field unless the question clearly needs a list).
+- Do not use placeholder strings; use JSON null instead.
+- Output only the JSON object.`;
 
     const sourcingRules = hasMaterial
       ? `RULES:
@@ -617,12 +625,14 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
 - Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - Do not use placeholder strings (e.g. "N/A", "not specified", "TBD"); use JSON null instead.
 - Output only the JSON object.`
-      : `RULES:
+      : hint
+        ? `RULES:
 - Use reliable general knowledge about the company only where you have reasonable confidence.
 - If you cannot answer a question, use null for that key.
 - Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - Do not use placeholder strings; use JSON null instead.
-- Output only the JSON object.`;
+- Output only the JSON object.`
+        : sourcingRulesNoSource;
 
     const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
