@@ -175,6 +175,7 @@ const BusinessProfilePage: React.FC = () => {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const loadedRef = useRef(false);
   const saveBtnRef = useRef<HTMLButtonElement>(null);
+  const companyHintInputRef = useRef<HTMLInputElement>(null);
 
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateStage, setGenerateStage] = useState<string | null>(null);
@@ -195,6 +196,13 @@ const BusinessProfilePage: React.FC = () => {
     label: 'Save business profile',
     action: 'click',
     ref: saveBtnRef as React.RefObject<HTMLElement | null>,
+    enabled: !loading,
+  });
+  useVoiceTarget({
+    id: fieldTargetId(businessProfileFormSchema.formKey, 'company_hint'),
+    label: 'Company name or website (optional)',
+    action: 'fill',
+    ref: companyHintInputRef as React.RefObject<HTMLElement | null>,
     enabled: !loading,
   });
 
@@ -225,6 +233,8 @@ const BusinessProfilePage: React.FC = () => {
               )
             : [],
         );
+        const hint = profile?.company_hint;
+        setCompanyHint(typeof hint === 'string' ? hint : '');
         loadedRef.current = true;
       })
       .finally(() => {
@@ -235,28 +245,36 @@ const BusinessProfilePage: React.FC = () => {
     };
   }, []);
 
-  const persist = useCallback(async (payload: Record<string, string>, docs: BusinessProfileKnowledgeDocument[]) => {
-    setSaveState('saving');
-    setSaveMessage(null);
-    try {
-      await saveBusinessProfile({ answers: payload, knowledge_documents: docs });
-      commandBus.emit({ type: 'business_profile:saved' });
-      setSaveState('saved');
-      setTimeout(() => setSaveState('idle'), 2000);
-    } catch (err) {
-      setSaveState('error');
-      setSaveMessage(err instanceof Error ? err.message : 'Save failed');
-      setTimeout(() => setSaveState('idle'), 4000);
-    }
-  }, []);
+  const persist = useCallback(
+    async (payload: Record<string, string>, docs: BusinessProfileKnowledgeDocument[], hint: string) => {
+      setSaveState('saving');
+      setSaveMessage(null);
+      try {
+        const t = hint.trim();
+        await saveBusinessProfile({
+          answers: payload,
+          knowledge_documents: docs,
+          company_hint: t ? t : null,
+        });
+        commandBus.emit({ type: 'business_profile:saved' });
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 2000);
+      } catch (err) {
+        setSaveState('error');
+        setSaveMessage(err instanceof Error ? err.message : 'Save failed');
+        setTimeout(() => setSaveState('idle'), 4000);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!loadedRef.current || loading) return;
     const id = window.setTimeout(() => {
-      void persist(answersForApi(answers), knowledgeFiles);
+      void persist(answersForApi(answers), knowledgeFiles, companyHint);
     }, 750);
     return () => window.clearTimeout(id);
-  }, [answers, knowledgeFiles, loading, persist]);
+  }, [answers, knowledgeFiles, companyHint, loading, persist]);
 
   useEffect(() => {
     if (activeTab === TAB_KNOWLEDGE_BASE && knowledgeFiles.length === 0) {
@@ -265,7 +283,7 @@ const BusinessProfilePage: React.FC = () => {
   }, [activeTab, knowledgeFiles.length, setActiveTab]);
 
   const handleManualSave = () => {
-    void persist(answersForApi(answers), knowledgeFiles);
+    void persist(answersForApi(answers), knowledgeFiles, companyHint);
   };
 
   const hasBusinessProfileContent = useMemo(() => {
@@ -287,7 +305,7 @@ const BusinessProfilePage: React.FC = () => {
       setSaveState('saving');
       setSaveMessage(null);
       try {
-        await saveBusinessProfile({ answers: {}, knowledge_documents: [] });
+        await saveBusinessProfile({ answers: {}, knowledge_documents: [], company_hint: null });
         commandBus.emit({ type: 'business_profile:saved' });
         setAnswers(next);
         setKnowledgeFiles([]);
@@ -550,6 +568,28 @@ const BusinessProfilePage: React.FC = () => {
           </article>
         ) : (
           <>
+            <section className="mb-6 print:hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Company name or website (optional)
+              </label>
+              <input
+                ref={companyHintInputRef}
+                type="text"
+                value={companyHint}
+                onChange={(e) => {
+                  setCompanyHint(e.target.value);
+                  setGenerateError(null);
+                }}
+                placeholder="e.g. Acme Inc or https://acme.com"
+                disabled={generateLoading}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:opacity-60"
+              />
+              <p className="mt-2 text-[11px] text-gray-500">
+                Saved with your business profile. Used as optional context when you generate from documents—you do not
+                need to enter it again for each run.
+              </p>
+            </section>
+
             <DescribeBusinessProfileBar onApplyDraft={handleVoiceDraft} disabled={generateLoading} />
 
             <section className="mb-6 print:hidden space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-6">
@@ -558,16 +598,16 @@ const BusinessProfilePage: React.FC = () => {
                 Generate with AI
               </h3>
               <p className="text-xs text-indigo-900/80">
-                Upload one or more documents (PDF, images, Word, text, CSV, JSON) and/or a company hint. With
-                documents, we only pre-fill answers the files clearly support (six section calls); other fields stay
-                empty. A company name alone (no files) can use general knowledge about that entity.
+                Upload one or more documents (PDF, images, Word, text, CSV, JSON). With documents, we only pre-fill
+                answers the files clearly support (six section calls); other fields stay empty. If you only use a
+                company name (no files), set it in the field above—general knowledge about that entity can fill the
+                profile.
               </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
-                    Documents (optional, multiple)
-                  </label>
-                  <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-white/80 px-3 py-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Documents (optional, multiple)
+                </label>
+                <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-white/80 px-3 py-3">
                     <div className="mb-3 flex flex-col items-center py-2">
                       <Upload className="mb-2 h-8 w-8 text-indigo-300" />
                       <input
@@ -621,20 +661,6 @@ const BusinessProfilePage: React.FC = () => {
                         Clear all files
                       </button>
                     )}
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Company name or website (optional)</label>
-                  <input
-                    type="text"
-                    value={companyHint}
-                    onChange={(e) => {
-                      setCompanyHint(e.target.value);
-                      setGenerateError(null);
-                    }}
-                    placeholder="e.g. Acme Inc"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                  />
                 </div>
               </div>
               {generateError && (

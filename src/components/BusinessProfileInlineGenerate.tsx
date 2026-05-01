@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
@@ -36,6 +36,18 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
   const [companyHint, setCompanyHint] = useState('');
   const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBusinessProfile().then((profile) => {
+      if (cancelled || !profile) return;
+      const hint = profile.company_hint;
+      setCompanyHint(typeof hint === 'string' ? hint : '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -84,9 +96,11 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
       if (cancelledRef.current) return;
       const current = await getBusinessProfile();
       const answers = mergeGeneratedIntoAnswers(current?.answers, merged);
+      const hintTrim = companyHint.trim();
       const saved = await saveBusinessProfile({
         answers,
         knowledge_documents: current?.knowledge_documents,
+        company_hint: hintTrim ? hintTrim : null,
       });
       if (cancelledRef.current) return;
       onSaved(saved);
@@ -114,8 +128,9 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
             Generate with AI
           </h4>
           <p className="text-xs text-indigo-800/80 mt-1 max-w-xl">
-            Upload a deck, plan, or 10-K, and/or enter a company name or website. With files, we only fill answers
-            those sources support; other fields stay as they are. Same pipeline as the{' '}
+            Upload a deck, plan, or 10-K, and/or use the saved company or website hint (loaded from your Business
+            Profile). With files, we only fill answers those sources support; other fields stay as they are. Same
+            pipeline as the{' '}
             <Link to="/business-profile" className="font-semibold text-indigo-700 underline hover:text-indigo-900">
               Business Profile
             </Link>{' '}
@@ -125,6 +140,23 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
       </div>
 
       <div className="space-y-3">
+        <div>
+          <label className={labelClass}>Company name or website (optional)</label>
+          <input
+            type="text"
+            value={companyHint}
+            onChange={(e) => {
+              setCompanyHint(e.target.value);
+              setGenerateError(null);
+            }}
+            placeholder="e.g. Acme Inc or https://acme.com"
+            className="w-full bg-white border border-indigo-100 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-400 outline-none"
+          />
+          <p className="mt-1.5 text-[11px] text-indigo-900/70">
+            Pre-filled from your Business Profile when set there; saved again when you generate so you do not have to
+            re-type it each time.
+          </p>
+        </div>
         <div>
           <label className={labelClass}>Document (optional)</label>
           <div className="border-2 border-dashed border-indigo-200 rounded-xl p-4 flex flex-col items-center text-center bg-white/60">
@@ -157,19 +189,6 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
             ) : null}
           </div>
         </div>
-        <div>
-          <label className={labelClass}>Company name or website (optional)</label>
-          <input
-            type="text"
-            value={companyHint}
-            onChange={(e) => {
-              setCompanyHint(e.target.value);
-              setGenerateError(null);
-            }}
-            placeholder="e.g. Acme Inc or https://acme.com"
-            className="w-full bg-white border border-indigo-100 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-400 outline-none"
-          />
-        </div>
       </div>
 
       {generateError && (
@@ -180,7 +199,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
         <button
           type="button"
           onClick={() => void handleGenerate()}
-          disabled={generateLoading}
+          disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50"
         >
           {generateLoading ? (

@@ -54,7 +54,16 @@ const yesNoCount: { value: string; label: string }[] = [1, 2, 3, 4, 5].map((n) =
 }));
 
 function businessProfileBackendFormFields(): BackendFormFieldDef[] {
-  const fields: BackendFormFieldDef[] = [];
+  const fields: BackendFormFieldDef[] = [
+    {
+      key: 'company_hint',
+      dbColumn: 'company_hint',
+      label: 'Company name or website (optional)',
+      type: 'text',
+      description:
+        'Optional; saved on business_profiles.company_hint and reused for AI generation (not per-generate-only).',
+    },
+  ];
   for (const sec of BUSINESS_PROFILE_SPEC) {
     for (const fw of sec.frameworks) {
       for (const q of fw.questions) {

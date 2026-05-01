@@ -5,7 +5,16 @@ import {
 } from '../constants/businessProfileSpec.js';
 
 function buildBusinessProfileFormFields() {
-  const fields: FormSchema['fields'] = [];
+  const fields: FormSchema['fields'] = [
+    {
+      key: 'company_hint',
+      dbColumn: 'company_hint',
+      label: 'Company name or website (optional)',
+      type: 'text',
+      description:
+        'Optional company or URL; saved with your profile and reused whenever you generate from documents (no need to re-enter each time).',
+    },
+  ];
   for (const sec of BUSINESS_PROFILE_SPEC) {
     for (const fw of sec.frameworks) {
       for (const q of fw.questions) {

@@ -79,6 +79,7 @@ async function ensureBusinessProfilesTable() {
           user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
           answers JSONB NOT NULL DEFAULT '{}'::jsonb,
           knowledge_documents JSONB NOT NULL DEFAULT '[]'::jsonb,
+          company_hint TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -96,6 +97,14 @@ async function ensureBusinessProfileKnowledgeColumn() {
     await pool.query(
       `ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS knowledge_documents JSONB NOT NULL DEFAULT '[]'::jsonb`
     );
+  } catch (_) {
+    /* column may already exist */
+  }
+}
+
+async function ensureBusinessProfileCompanyHintColumn() {
+  try {
+    await pool.query(`ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS company_hint TEXT`);
   } catch (_) {
     /* column may already exist */
   }
@@ -123,6 +132,7 @@ async function maybeAutoIndexUiSemantics() {
 // Start server - bind to 0.0.0.0 to accept external connections (required for Railway)
 ensureBusinessProfilesTable()
   .then(() => ensureBusinessProfileKnowledgeColumn())
+  .then(() => ensureBusinessProfileCompanyHintColumn())
   .then(() => ensureEmbeddingColumns())
   .then(() => maybeAutoIndexUiSemantics())
   .then(() => {

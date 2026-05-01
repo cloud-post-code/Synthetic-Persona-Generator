@@ -15,11 +15,15 @@ import { parseKnowledgeDocumentsJson } from '../utils/businessProfileKnowledge.j
 export { BP_KNOWLEDGE_MAX_DOCS } from '../utils/businessProfileKnowledge.js';
 
 function mapRow(row: Record<string, unknown>): BusinessProfile {
+  const ch = row.company_hint;
+  const companyHint =
+    ch == null || ch === '' ? null : typeof ch === 'string' ? ch : String(ch);
   return {
     id: row.id as string,
     user_id: row.user_id as string,
     answers: parseBusinessProfileAnswersJson(row.answers),
     knowledge_documents: parseKnowledgeDocumentsJson(row.knowledge_documents),
+    company_hint: companyHint,
     created_at: row.created_at as Date,
     updated_at: row.updated_at as Date,
   };
@@ -27,7 +31,7 @@ function mapRow(row: Record<string, unknown>): BusinessProfile {
 
 export async function getByUserId(userId: string): Promise<BusinessProfile | null> {
   const result = await pool.query(
-    `SELECT id, user_id, answers, knowledge_documents, created_at, updated_at
+    `SELECT id, user_id, answers, knowledge_documents, company_hint, created_at, updated_at
      FROM business_profiles
      WHERE user_id = $1`,
     [userId]
@@ -70,6 +74,16 @@ function knowledgeDocumentsFromRequest(
   return parseKnowledgeDocumentsJson(data.knowledge_documents);
 }
 
+function companyHintFromRequest(data: Record<string, unknown>, existing: BusinessProfile | null): string | null {
+  if (!Object.prototype.hasOwnProperty.call(data, 'company_hint')) {
+    return existing?.company_hint ?? null;
+  }
+  const v = data.company_hint;
+  if (v === undefined || v === null) return null;
+  const s = typeof v === 'string' ? v.trim() : String(v).trim();
+  return s || null;
+}
+
 export async function upsert(
   userId: string,
   data: CreateOrUpdateBusinessProfileRequest
@@ -78,19 +92,21 @@ export async function upsert(
   const existing = await getByUserId(userId);
   const mergedClean = answersFromRequest(data, existing, allowed);
   const mergedKnowledge = knowledgeDocumentsFromRequest(data as Record<string, unknown>, existing);
+  const mergedCompanyHint = companyHintFromRequest(data as Record<string, unknown>, existing);
   const answersJson = JSON.stringify(mergedClean);
   const knowledgeJson = JSON.stringify(mergedKnowledge);
 
   try {
     const result = await pool.query(
-      `INSERT INTO business_profiles (user_id, answers, knowledge_documents)
-       VALUES ($1, $2::jsonb, $3::jsonb)
+      `INSERT INTO business_profiles (user_id, answers, knowledge_documents, company_hint)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4)
        ON CONFLICT (user_id) DO UPDATE SET
          answers = EXCLUDED.answers,
          knowledge_documents = EXCLUDED.knowledge_documents,
+         company_hint = EXCLUDED.company_hint,
          updated_at = CURRENT_TIMESTAMP
-       RETURNING id, user_id, answers, knowledge_documents, created_at, updated_at`,
-      [userId, answersJson, knowledgeJson]
+       RETURNING id, user_id, answers, knowledge_documents, company_hint, created_at, updated_at`,
+      [userId, answersJson, knowledgeJson, mergedCompanyHint]
     );
 
     let profile: BusinessProfile;
@@ -98,7 +114,7 @@ export async function upsert(
       profile = mapRow(result.rows[0] as Record<string, unknown>);
     } else {
       const refetch = await pool.query(
-        `SELECT id, user_id, answers, knowledge_documents, created_at, updated_at
+        `SELECT id, user_id, answers, knowledge_documents, company_hint, created_at, updated_at
          FROM business_profiles WHERE user_id = $1`,
         [userId]
       );

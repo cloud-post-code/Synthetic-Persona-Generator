@@ -98,6 +98,8 @@ export interface BusinessProfile {
   user_id?: string;
   answers: Record<string, string>;
   knowledge_documents?: BusinessProfileKnowledgeDocument[];
+  /** Optional; saved with profile for AI generation context. */
+  company_hint?: string | null;
   created_at?: string;
   updated_at?: string;
 }

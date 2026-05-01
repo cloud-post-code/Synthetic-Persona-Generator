@@ -69,6 +69,8 @@ export interface BusinessProfile {
   user_id: string;
   answers: Record<string, string>;
   knowledge_documents: BusinessProfileKnowledgeDocument[];
+  /** Optional name or URL; used as context for AI profile generation. */
+  company_hint: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -76,6 +78,7 @@ export interface BusinessProfile {
 export interface CreateOrUpdateBusinessProfileRequest {
   answers?: Record<string, string>;
   knowledge_documents?: BusinessProfileKnowledgeDocument[];
+  company_hint?: string | null;
 }
 
 export type SimulationMode = 
