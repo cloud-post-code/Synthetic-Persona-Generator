@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useLayoutEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Target, Sparkles, ArrowLeft, Loader2, Upload, ChevronRight, Building2, HelpCircle, FileText, AlertCircle, Linkedin, FileUp, X, Check, Users, Image as ImageIcon, AlignLeft } from 'lucide-react';
 import { personaApi } from '../services/personaApi.js';
@@ -30,6 +30,8 @@ import { metricsTemplate } from '../../templates/metricsTemplate.js';
 import { agentProfileDetailedTemplate } from '../../templates/agentProfileDetailedTemplate.js';
 import { agentBehaviorsTemplate } from '../../templates/agentBehaviorsTemplate.js';
 import { highFidelityPersonaTemplate } from '../../templates/highFidelityPersonaTemplate.js';
+import { DescribePersonaBar } from '../components/DescribePersonaBar.js';
+import type { PersonaBuildDraft } from '../services/personaBuildDraft.js';
 
 // --- HELPER COMPONENTS ---
 
@@ -202,7 +204,10 @@ const BuildMarkdownStepsIndicator: React.FC<{ loadingStage: string; variant: 'sy
 /** Three ways to generate synthetic users; only one is used per run. */
 export type SyntheticBuildMode = 'problem_solution' | 'supporting_docs' | 'business_profile';
 
-const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
+type SyntheticUserFormHandle = { applyBuildDraft: (draft: PersonaBuildDraft) => void };
+
+const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () => void; defaultVisibility?: 'private' | 'public' }>(
+  function SyntheticUserForm({ onComplete, defaultVisibility = 'private' }, ref) {
   const [method, setMethod] = useState<SyntheticBuildMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
@@ -260,6 +265,48 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
     setLoading(false);
     setLoadingStage('');
   };
+
+  useImperativeHandle(ref, () => ({
+    applyBuildDraft(draft: PersonaBuildDraft) {
+      if (draft.persona_type !== 'synthetic_user') return;
+      const sm = draft.synthetic_method ?? 'problem_solution';
+      setMethod(sm);
+      const n =
+        typeof draft.persona_count === 'number' &&
+        Number.isFinite(draft.persona_count) &&
+        draft.persona_count >= 1 &&
+        draft.persona_count <= 5
+          ? Math.floor(draft.persona_count)
+          : 1;
+      if (sm === 'problem_solution') {
+        setFormData((prev) => ({
+          ...prev,
+          q1: draft.problem?.trim() ? String(draft.problem) : prev.q1,
+          q2: draft.solution?.trim() ? String(draft.solution) : prev.q2,
+          q3: draft.differentiation?.trim() ? String(draft.differentiation) : prev.q3,
+          q4: draft.alternatives?.trim() ? String(draft.alternatives) : prev.q4,
+          q5: draft.context === 'B2C' ? 'B2C' : 'B2B',
+          q7: n,
+        }));
+      } else if (sm === 'supporting_docs') {
+        const body = (draft.supporting_docs_content || '').trim();
+        setFormData((prev) => ({
+          ...prev,
+          q6: body ? body : prev.q6,
+          q7: n,
+        }));
+        if (body) setQ6FileName('Assistant-ingested-notes.txt');
+      } else if (sm === 'business_profile') {
+        setFormData((prev) => ({
+          ...prev,
+          specificUserType: draft.specific_user_type?.trim()
+            ? String(draft.specific_user_type)
+            : prev.specificUserType,
+          q7: n,
+        }));
+      }
+    },
+  }), []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -603,12 +650,15 @@ const SyntheticUserForm: React.FC<{ onComplete: () => void; defaultVisibility?: 
       )}
     </form>
   );
-};
+});
 
 // --- ADVISOR FORM ---
 type AdvisorSourceMode = 'linkedin' | 'pdf' | 'free_text';
 
-const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'private' | 'public' }> = ({ onComplete, defaultVisibility = 'private' }) => {
+type AdvisorFormHandle = { applyBuildDraft: (draft: PersonaBuildDraft) => void };
+
+const AdvisorForm = forwardRef<AdvisorFormHandle, { onComplete: () => void; defaultVisibility?: 'private' | 'public' }>(
+  function AdvisorForm({ onComplete, defaultVisibility = 'private' }, ref) {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [improving, setImproving] = useState(false);
@@ -782,6 +832,25 @@ const AdvisorForm: React.FC<{ onComplete: () => void; defaultVisibility?: 'priva
     setLoading(false);
     setLoadingStage('');
   };
+
+  useImperativeHandle(ref, () => ({
+    applyBuildDraft(draft: PersonaBuildDraft) {
+      if (draft.persona_type !== 'advisor') return;
+      const src = draft.advisor_source ?? 'free_text';
+      setSourceMode(src);
+      const body = (draft.advisor_source_text || '').trim();
+      if (src === 'linkedin') {
+        setLinkedinText(body);
+        setFreeText('');
+      } else if (src === 'free_text') {
+        setFreeText(body);
+        setLinkedinText('');
+      } else {
+        setLinkedinText('');
+        setFreeText('');
+      }
+    },
+  }), []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1292,19 +1361,42 @@ Limit your analysis to the key identifying information. Text sample: ${extracted
       )}
     </form>
   );
-};
+});
 
 // --- MAIN PAGE ---
 type BuildMode = 'synthetic_user' | 'advisor';
 
 const BuildPersonaPage: React.FC = () => {
   const [selectedBuildMode, setSelectedBuildMode] = useState<BuildMode | null>(null);
+  const [pendingPersonaDraft, setPendingPersonaDraft] = useState<PersonaBuildDraft | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultPublic = searchParams.get('visibility') === 'public';
   const syntheticPickRef = useRef<HTMLButtonElement>(null);
   const advisorPickRef = useRef<HTMLButtonElement>(null);
   const buildBackRef = useRef<HTMLButtonElement>(null);
+  const syntheticFormRef = useRef<SyntheticUserFormHandle>(null);
+  const advisorFormRef = useRef<AdvisorFormHandle>(null);
+
+  const handlePersonaAssistantApply = useCallback((draft: PersonaBuildDraft) => {
+    setSelectedBuildMode(draft.persona_type);
+    setPendingPersonaDraft(draft);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!pendingPersonaDraft || !selectedBuildMode) return;
+    if (pendingPersonaDraft.persona_type !== selectedBuildMode) return;
+    const d = pendingPersonaDraft;
+    const t = window.setTimeout(() => {
+      if (d.persona_type === 'synthetic_user') {
+        syntheticFormRef.current?.applyBuildDraft(d);
+      } else {
+        advisorFormRef.current?.applyBuildDraft(d);
+      }
+      setPendingPersonaDraft(null);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [pendingPersonaDraft, selectedBuildMode]);
 
   useVoiceTarget({
     id: 'build.choose_synthetic',
@@ -1373,6 +1465,8 @@ const BuildPersonaPage: React.FC = () => {
           <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium">Select a specialized generation engine to build your synthetic workforce.</p>
         </div>
 
+        <DescribePersonaBar onApplyDraft={handlePersonaAssistantApply} lockPersonaType={null} />
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <TypeCard
             title="Synthetic User"
@@ -1408,8 +1502,26 @@ const BuildPersonaPage: React.FC = () => {
 
       <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-gray-200/50 border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-500">
         <div className="p-8 sm:p-14">
-          {selectedBuildMode === 'synthetic_user' && <SyntheticUserForm onComplete={() => navigate('/gallery')} defaultVisibility={defaultPublic ? 'public' : 'private'} />}
-          {selectedBuildMode === 'advisor' && <AdvisorForm onComplete={() => navigate('/gallery')} defaultVisibility={defaultPublic ? 'public' : 'private'} />}
+          <DescribePersonaBar
+            onApplyDraft={handlePersonaAssistantApply}
+            lockPersonaType={selectedBuildMode}
+          />
+          <div className="mt-10 space-y-10">
+          {selectedBuildMode === 'synthetic_user' && (
+            <SyntheticUserForm
+              ref={syntheticFormRef}
+              onComplete={() => navigate('/gallery')}
+              defaultVisibility={defaultPublic ? 'public' : 'private'}
+            />
+          )}
+          {selectedBuildMode === 'advisor' && (
+            <AdvisorForm
+              ref={advisorFormRef}
+              onComplete={() => navigate('/gallery')}
+              defaultVisibility={defaultPublic ? 'public' : 'private'}
+            />
+          )}
+          </div>
         </div>
       </div>
     </div>

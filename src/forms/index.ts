@@ -7,6 +7,7 @@
 import { businessProfileFormSchema } from './businessProfileFormSchema.js';
 import {
   buildPersonaSchemas,
+  buildPersonaAssistantSchema,
   buildPersonaPickerSchema,
   buildPersonaVisibilitySchema,
   buildSyntheticProblemSolutionSchema,
@@ -43,6 +44,7 @@ export {
   loginFormSchema,
   businessProfileFormSchema,
   buildPersonaSchemas,
+  buildPersonaAssistantSchema,
   buildPersonaPickerSchema,
   buildPersonaVisibilitySchema,
   buildSyntheticProblemSolutionSchema,

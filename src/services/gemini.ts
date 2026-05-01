@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
 import { sanitizeDraft, type SimulationDraft } from "./simulationDraft.js";
+import { sanitizePersonaBuildDraft, type PersonaBuildDraft } from "./personaBuildDraft.js";
 import { customerSegmentTemplate } from "../../templates/customerSegmentTemplate.js";
 import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
 
@@ -701,6 +702,111 @@ Output valid JSON only.`;
 
     const parsed = await geminiService.generateBasic(prompt, true);
     return sanitizeDraft(parsed);
+  },
+
+  /**
+   * Plan persona build: synthetic user vs advisor, sub-method, and field values
+   * to match the Build Persona UI (same flows as manual selection).
+   */
+  draftPersonaBuildFromDescription: async (
+    description: string,
+    opts?: { forcePersonaType?: "synthetic_user" | "advisor" }
+  ): Promise<PersonaBuildDraft> => {
+    const trimmed = (description || "").trim();
+    if (!trimmed) {
+      throw new Error("Describe who you want to build (text or voice) before using Build it for me.");
+    }
+    const lock =
+      opts?.forcePersonaType === "advisor"
+        ? "The user is already on the Advisor builder. You MUST set persona_type to \"advisor\" only."
+        : opts?.forcePersonaType === "synthetic_user"
+          ? "The user is already on the Synthetic User builder. You MUST set persona_type to \"synthetic_user\" only."
+          : "Choose persona_type \"synthetic_user\" or \"advisor\" from the description.";
+
+    const prompt = `You route and pre-fill a "Build Persona" product wizard.
+
+## User description (voice or typed)
+${truncate(trimmed, 14000)}
+
+## Constraint
+${lock}
+
+## Synthetic users (persona_type = "synthetic_user")
+Pick exactly one synthetic_method:
+- "problem_solution" — user has problem/solution style inputs. Fill problem, solution, differentiation, alternatives (substantive paragraphs when possible). Set context "B2B" or "B2C". Set persona_count 1-5.
+- "supporting_docs" — user references an uploaded doc, deck, research, or long pasted business material in speech; put that narrative into supporting_docs_content as plain text (synthesize from description if they summarized a doc verbally).
+- "business_profile" — user wants personas from their company context / ICP / "our customers" without full problem-solution text. Fill specific_user_type when they name a segment. persona_count 1-5.
+
+## Advisors (persona_type = "advisor")
+Pick advisor_source:
+- "linkedin" — they mention LinkedIn, resume, CV paste, profile scrape, job history.
+- "free_text" — rough expert notes, bullets, or "make an advisor who knows X" without a full LinkedIn paste.
+- "pdf" ONLY if they explicitly say they will upload or have a PDF/book file; otherwise prefer free_text or linkedin and put prose in advisor_source_text.
+
+advisor_source_text: the main paste area content (LinkedIn-style block OR expert notes). Never leave empty for linkedin/free_text—derive from description.
+
+## Output
+Return ONE JSON object only (no markdown fences):
+{
+  "persona_type": "synthetic_user" | "advisor",
+  "routing_rationale": string (one or two sentences, user-facing),
+  "synthetic_method": "problem_solution" | "supporting_docs" | "business_profile" | null,
+  "problem": string | "",
+  "solution": string | "",
+  "differentiation": string | "",
+  "alternatives": string | "",
+  "context": "B2B" | "B2C" | null,
+  "persona_count": number 1-5,
+  "supporting_docs_content": string | "",
+  "specific_user_type": string | "",
+  "advisor_source": "linkedin" | "pdf" | "free_text" | null,
+  "advisor_source_text": string | ""
+}
+
+Omit keys not needed for the chosen persona_type (use "" for unused strings). persona_count always set.`;
+
+    const parsed = await geminiService.generateBasic(prompt, true);
+    return sanitizePersonaBuildDraft(parsed, { forcePersonaType: opts?.forcePersonaType });
+  },
+
+  /**
+   * Refine the main "describe your persona" notes via a short chat turn (assistant reply + merged notes).
+   */
+  refinePersonaBuildNotesViaChat: async (
+    currentNotes: string,
+    history: { role: "user" | "assistant"; text: string }[],
+    userMessage: string
+  ): Promise<{ assistant_reply: string; updated_notes: string }> => {
+    const hist = history
+      .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.text}`)
+      .join("\n");
+    const prompt = `You help refine notes for a persona-building wizard.
+
+Current notes:
+${truncate(currentNotes, 24000)}
+
+Chat so far:
+${truncate(hist, 12000)}
+
+New user message:
+${truncate(userMessage, 6000)}
+
+Return ONE JSON object only, no markdown fences:
+{
+  "assistant_reply": string (brief, helpful),
+  "updated_notes": string (full updated notes: merge the user's request; preserve facts unless they asked to remove; keep third person; ready to re-send to "Build it for me")
+}`;
+
+    const parsed = await geminiService.generateBasic(prompt, true);
+    const ar =
+      typeof (parsed as { assistant_reply?: unknown })?.assistant_reply === "string"
+        ? String((parsed as { assistant_reply: string }).assistant_reply).trim()
+        : "";
+    const un =
+      typeof (parsed as { updated_notes?: unknown })?.updated_notes === "string"
+        ? String((parsed as { updated_notes: string }).updated_notes).trim()
+        : "";
+    return { assistant_reply: ar || "Updated your notes.", updated_notes: un || currentNotes };
   },
 
   /**

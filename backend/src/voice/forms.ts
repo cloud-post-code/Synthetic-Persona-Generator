@@ -50,6 +50,20 @@ const yesNoCount: { value: string; label: string }[] = [1, 2, 3, 4, 5].map((n) =
 
 export const ALL_FORMS: BackendFormSchema[] = [
   {
+    formKey: 'build.persona.assistant',
+    page: '/build',
+    title: 'Build persona — voice assistant',
+    purpose:
+      'Voice and text describe; Build it for me routes to Synthetic user or Advisor and fills fields. Refine with chat adjusts notes.',
+    fields: [
+      { key: 'describe', label: 'Describe your persona', type: 'textarea' },
+      { key: 'mic_toggle', label: 'Voice describe persona', type: 'button', action: 'click' },
+      { key: 'generate', label: 'Build persona form from description', type: 'button', action: 'click' },
+      { key: 'chat_input', label: 'Refine persona description chat', type: 'textarea' },
+      { key: 'chat_send', label: 'Send refine chat', type: 'button', action: 'click' },
+    ],
+  },
+  {
     formKey: 'login',
     page: '/login',
     title: 'Sign in',

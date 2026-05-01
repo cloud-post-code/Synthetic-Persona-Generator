@@ -1,5 +1,26 @@
 import type { FormSchema } from './types.js';
 
+/** Voice + LLM assistant strip on /build (describe, mic, build, optional refine chat). */
+export const buildPersonaAssistantSchema: FormSchema = {
+  formKey: 'build.persona.assistant',
+  page: '/build',
+  title: 'Build persona — voice assistant',
+  purpose:
+    'Natural-language and voice input to route Synthetic user vs Advisor, pick sub-method, and pre-fill build forms.',
+  fields: [
+    {
+      key: 'describe',
+      label: 'Describe your persona',
+      type: 'textarea',
+      description: 'Type or dictate; Build it for me fills the wizard. Refine with chat adjusts notes.',
+    },
+    { key: 'mic_toggle', label: 'Voice describe persona', type: 'button', action: 'click' },
+    { key: 'generate', label: 'Build persona form from description', type: 'button', action: 'click' },
+    { key: 'chat_input', label: 'Refine persona description chat', type: 'textarea' },
+    { key: 'chat_send', label: 'Send refine chat', type: 'button', action: 'click' },
+  ],
+};
+
 /** Picker on /build before any wizard opens. */
 export const buildPersonaPickerSchema: FormSchema = {
   formKey: 'build.persona.picker',
@@ -173,6 +194,7 @@ export const buildPersonaVisibilitySchema: FormSchema = {
 };
 
 export const buildPersonaSchemas: FormSchema[] = [
+  buildPersonaAssistantSchema,
   buildPersonaPickerSchema,
   buildSyntheticProblemSolutionSchema,
   buildSyntheticSupportingDocsSchema,
