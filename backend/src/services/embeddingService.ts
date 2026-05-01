@@ -2,6 +2,11 @@ import { GoogleGenAI } from '@google/genai';
 import { createHash } from 'crypto';
 import pool from '../config/database.js';
 import type { UiSemanticDoc, UiSemanticType, UiSemanticsCorpus } from '../voice/uiSemantics.js';
+import {
+  BUSINESS_PROFILE_SPEC,
+  compileFrameworkPlainText,
+  parseBusinessProfileAnswersJson,
+} from '../constants/businessProfileSpec.js';
 
 export const UI_SEMANTIC_SOURCE_TYPES: UiSemanticType[] = [
   'ui_node',
@@ -182,55 +187,34 @@ export async function indexPersona(personaId: string): Promise<void> {
 }
 
 export async function indexBusinessProfile(userId: string): Promise<void> {
-  const result = await pool.query(
-    `SELECT business_name, mission_statement, vision_statement, description_main_offerings,
-            key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments,
-            geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams,
-            distribution_channels, key_personnel, major_achievements, revenue,
-            key_performance_indicators, funding_rounds, website
-     FROM business_profiles WHERE user_id = $1`,
-    [userId]
-  );
+  const result = await pool.query(`SELECT answers FROM business_profiles WHERE user_id = $1`, [userId]);
   if (result.rows.length === 0) return;
 
-  const profile = result.rows[0];
-  const labels: [string, string][] = [
-    ['Business name', profile.business_name],
-    ['Mission', profile.mission_statement],
-    ['Vision', profile.vision_statement],
-    ['Main offerings', profile.description_main_offerings],
-    ['Key features/benefits', profile.key_features_or_benefits],
-    ['USP', profile.unique_selling_proposition],
-    ['Pricing model', profile.pricing_model],
-    ['Customer segments', profile.customer_segments],
-    ['Geographic focus', profile.geographic_focus],
-    ['Industry served', profile.industry_served],
-    ['What differentiates', profile.what_differentiates],
-    ['Market niche', profile.market_niche],
-    ['Revenue streams', profile.revenue_streams],
-    ['Distribution channels', profile.distribution_channels],
-    ['Key personnel', profile.key_personnel],
-    ['Major achievements', profile.major_achievements],
-    ['Revenue', profile.revenue],
-    ['KPIs', profile.key_performance_indicators],
-    ['Funding', profile.funding_rounds],
-    ['Website', profile.website],
-  ];
+  const answers = parseBusinessProfileAnswersJson(result.rows[0].answers);
+  const allChunks: { text: string; sourceName: string; chunkIndex: number }[] = [];
+  let flatIndex = 0;
 
-  const profileText = labels
-    .filter(([, v]) => v && String(v).trim())
-    .map(([label, value]) => `${label}: ${String(value).trim()}`)
-    .join('\n');
+  for (const sec of BUSINESS_PROFILE_SPEC) {
+    for (const fw of sec.frameworks) {
+      const frameworkText = compileFrameworkPlainText(sec.key, fw.key, answers);
+      if (!frameworkText.trim()) continue;
+      const parts = chunkText(frameworkText);
+      for (let idx = 0; idx < parts.length; idx++) {
+        allChunks.push({
+          text: parts[idx]!,
+          sourceName: `${sec.key}/${fw.key}`,
+          chunkIndex: flatIndex++,
+        });
+      }
+    }
+  }
 
-  if (!profileText) return;
+  if (allChunks.length === 0) return;
 
-  const chunks = chunkText(profileText);
-  if (chunks.length === 0) return;
-
-  const embeddings = await embedTexts(chunks);
+  const embeddings = await embedTexts(allChunks.map((c) => c.text));
 
   await pool.query(
-    `DELETE FROM knowledge_chunks WHERE user_id = $1 AND source_type = 'business_profile'`,
+    `DELETE FROM knowledge_chunks WHERE user_id = $1 AND source_type IN ('business_profile', 'business_profile.framework')`,
     [userId]
   );
 
@@ -238,13 +222,22 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
   const insertParams: any[] = [];
   let paramIdx = 1;
 
-  for (let i = 0; i < chunks.length; i++) {
-    const hash = sha256(chunks[i]);
+  for (let i = 0; i < allChunks.length; i++) {
+    const chunk = allChunks[i]!;
+    const hash = sha256(chunk.text);
     const embeddingPgArray = `{${embeddings[i].join(',')}}`;
     insertValues.push(
       `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}::float8[], $${paramIdx + 6})`
     );
-    insertParams.push(userId, 'business_profile', 'business_profile', chunks[i], i, embeddingPgArray, hash);
+    insertParams.push(
+      userId,
+      'business_profile.framework',
+      chunk.sourceName,
+      chunk.text,
+      chunk.chunkIndex,
+      embeddingPgArray,
+      hash
+    );
     paramIdx += 7;
   }
 
@@ -256,7 +249,7 @@ export async function indexBusinessProfile(userId: string): Promise<void> {
     );
   }
 
-  console.log(`[EMBED] Indexed ${chunks.length} business profile chunks for user ${userId}`);
+  console.log(`[EMBED] Indexed ${allChunks.length} business profile framework chunks for user ${userId}`);
 }
 
 export async function indexSessionContext(sessionId: string, fields: Record<string, string>): Promise<void> {
@@ -322,37 +315,6 @@ function truncateFullDocument(text: string, maxChars = MAX_FULL_DOCUMENT_CHARS):
   const t = (text || '').trim();
   if (!t) return '';
   return t.length > maxChars ? `${t.slice(0, maxChars)}\n\n...[truncated]` : t;
-}
-
-function formatBusinessProfileRow(profile: Record<string, unknown>): string {
-  const labels: [string, string][] = [
-    ['Business name', 'business_name'],
-    ['Mission', 'mission_statement'],
-    ['Vision', 'vision_statement'],
-    ['Main offerings', 'description_main_offerings'],
-    ['Key features/benefits', 'key_features_or_benefits'],
-    ['USP', 'unique_selling_proposition'],
-    ['Pricing model', 'pricing_model'],
-    ['Customer segments', 'customer_segments'],
-    ['Geographic focus', 'geographic_focus'],
-    ['Industry served', 'industry_served'],
-    ['What differentiates', 'what_differentiates'],
-    ['Market niche', 'market_niche'],
-    ['Revenue streams', 'revenue_streams'],
-    ['Distribution channels', 'distribution_channels'],
-    ['Key personnel', 'key_personnel'],
-    ['Major achievements', 'major_achievements'],
-    ['Revenue', 'revenue'],
-    ['KPIs', 'key_performance_indicators'],
-    ['Funding', 'funding_rounds'],
-    ['Website', 'website'],
-  ];
-  const lines: string[] = [];
-  for (const [label, key] of labels) {
-    const v = profile[key];
-    if (v != null && String(v).trim()) lines.push(`${label}: ${String(v).trim()}`);
-  }
-  return lines.join('\n');
 }
 
 /**
@@ -422,23 +384,19 @@ export async function loadFullKnowledgeDocuments(
   }
 
   if (userId) {
-    const br = await pool.query(
-      `SELECT business_name, mission_statement, vision_statement, description_main_offerings,
-              key_features_or_benefits, unique_selling_proposition, pricing_model, customer_segments,
-              geographic_focus, industry_served, what_differentiates, market_niche, revenue_streams,
-              distribution_channels, key_personnel, major_achievements, revenue,
-              key_performance_indicators, funding_rounds, website
-       FROM business_profiles WHERE user_id = $1`,
-      [userId]
-    );
+    const br = await pool.query(`SELECT answers FROM business_profiles WHERE user_id = $1`, [userId]);
     if (br.rows.length > 0) {
-      const profileText = formatBusinessProfileRow(br.rows[0] as Record<string, unknown>);
-      if (profileText.trim()) {
-        push(
-          'full_business_profile',
-          "Runner's business profile — client company (from simulation runner, not the persona)",
-          profileText
-        );
+      const answers = parseBusinessProfileAnswersJson(br.rows[0].answers);
+      for (const sec of BUSINESS_PROFILE_SPEC) {
+        for (const fw of sec.frameworks) {
+          const frameworkText = compileFrameworkPlainText(sec.key, fw.key, answers);
+          if (!frameworkText.trim()) continue;
+          push(
+            'business_profile.framework',
+            `Runner business profile — ${sec.title} / ${fw.title}`,
+            frameworkText
+          );
+        }
       }
     }
   }

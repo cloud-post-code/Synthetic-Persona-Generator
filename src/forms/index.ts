@@ -18,6 +18,7 @@ import {
   buildAdvisorFreeTextSchema,
 } from './buildPersonaFormSchemas.js';
 import { simulationTemplateFormSchema } from './simulationTemplateFormSchema.js';
+import { simulateRunAssistantSchema } from './simulateRunAssistantSchema.js';
 import { settingsTabsSchema, settingsProfileSchema } from './settingsFormSchema.js';
 import { chatComposerSchema, chatSessionSchema } from './chatFormSchema.js';
 import { loginFormSchema } from './loginFormSchema.js';
@@ -32,6 +33,7 @@ export const ALL_FORM_SCHEMAS: FormSchema[] = [
   businessProfileFormSchema,
   ...buildPersonaSchemas,
   simulationTemplateFormSchema,
+  simulateRunAssistantSchema,
   settingsTabsSchema,
   settingsProfileSchema,
   chatComposerSchema,
@@ -54,6 +56,7 @@ export {
   buildAdvisorPdfSchema,
   buildAdvisorFreeTextSchema,
   simulationTemplateFormSchema,
+  simulateRunAssistantSchema,
   settingsTabsSchema,
   settingsProfileSchema,
   chatComposerSchema,

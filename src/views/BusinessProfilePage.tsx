@@ -1,119 +1,90 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
-import { CheckCircle2, AlertTriangle, Sparkles, Upload, Loader2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FileDown,
+  Loader2,
+  Printer,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { businessProfileFormSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
+import {
+  BUSINESS_PROFILE_SPEC,
+  type BusinessProfileSectionKey,
+  businessProfileAnswerKey,
+  getAllBusinessProfileAnswerKeys,
+} from '../constants/businessProfileSpec.js';
+import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
 
 type VoiceFieldRef = { id: string; label: string };
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-    <h3 className="text-lg font-black text-gray-900 mb-6 uppercase tracking-tight">{title}</h3>
-    {children}
-  </div>
-);
+function emptyAnswers(): Record<string, string> {
+  const o: Record<string, string> = {};
+  for (const k of getAllBusinessProfileAnswerKeys()) o[k] = '';
+  return o;
+}
 
-const InputField: React.FC<{
-  label: string;
-  type?: string;
-  value?: string;
-  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  icon?: any;
-  prefix?: string;
-  placeholder?: string;
-  inputRef?: React.RefObject<HTMLInputElement | null>;
-  voiceTarget?: VoiceFieldRef;
-}> = ({ label, type = 'text', value, onChange, icon: Icon, prefix, placeholder, inputRef, voiceTarget }) => {
-  const internalRef = useRef<HTMLInputElement | null>(null);
-  const ref = (inputRef ?? internalRef) as React.RefObject<HTMLInputElement | null>;
-  useVoiceTarget({
-    id: voiceTarget?.id ?? '',
-    label: voiceTarget?.label ?? label,
-    action: 'fill',
-    ref: ref as React.RefObject<HTMLElement | null>,
-    enabled: !!voiceTarget?.id,
-  });
-  return (
-    <div className="space-y-2">
-      <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-      <div className="relative">
-        {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />}
-        {prefix && <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">{prefix}</span>}
-        <input
-          ref={ref}
-          type={type}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          className={`w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none ${Icon || prefix ? 'pl-12' : ''}`}
-        />
-      </div>
-    </div>
-  );
-};
-
-const TextAreaField: React.FC<{
-  label: string;
-  value?: string;
-  onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  placeholder?: string;
-  rows?: number;
-  voiceTarget?: VoiceFieldRef;
-}> = ({ label, value, onChange, placeholder, rows = 3, voiceTarget }) => {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-  useVoiceTarget({
-    id: voiceTarget?.id ?? '',
-    label: voiceTarget?.label ?? label,
-    action: 'fill',
-    ref: ref as React.RefObject<HTMLElement | null>,
-    enabled: !!voiceTarget?.id,
-  });
-  return (
-    <div className="space-y-2">
-      <label className="text-sm font-black text-gray-400 uppercase tracking-widest">{label}</label>
-      <textarea
-        ref={ref}
-        value={value ?? ''}
-        onChange={onChange}
-        placeholder={placeholder}
-        rows={rows}
-        className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none resize-none"
-      />
-    </div>
-  );
-};
+function answersForApi(a: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(a)) {
+    const t = (v ?? '').trim();
+    if (t) out[k] = t;
+  }
+  return out;
+}
 
 const bp = (key: string): VoiceFieldRef => ({
   id: fieldTargetId(businessProfileFormSchema.formKey, key),
   label: businessProfileFormSchema.fields.find((f) => f.key === key)?.label ?? key,
 });
 
+const TextArea: React.FC<{
+  qKey: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}> = ({ qKey, label, value, onChange }) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useVoiceTarget({
+    id: fieldTargetId(businessProfileFormSchema.formKey, qKey),
+    label,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: true,
+  });
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-gray-600">{label}</label>
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
+        className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300"
+      />
+    </div>
+  );
+};
+
 const BusinessProfilePage: React.FC = () => {
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const [businessName, setBusinessName] = useState('');
-  const [missionStatement, setMissionStatement] = useState('');
-  const [visionStatement, setVisionStatement] = useState('');
-  const [descriptionMainOfferings, setDescriptionMainOfferings] = useState('');
-  const [keyFeaturesOrBenefits, setKeyFeaturesOrBenefits] = useState('');
-  const [uniqueSellingProposition, setUniqueSellingProposition] = useState('');
-  const [pricingModel, setPricingModel] = useState('');
-  const [customerSegments, setCustomerSegments] = useState('');
-  const [geographicFocus, setGeographicFocus] = useState('');
-  const [industryServed, setIndustryServed] = useState('');
-  const [whatDifferentiates, setWhatDifferentiates] = useState('');
-  const [marketNiche, setMarketNiche] = useState('');
-  const [revenueStreams, setRevenueStreams] = useState('');
-  const [distributionChannels, setDistributionChannels] = useState('');
-  const [keyPersonnel, setKeyPersonnel] = useState('');
-  const [majorAchievements, setMajorAchievements] = useState('');
-  const [revenue, setRevenue] = useState('');
-  const [keyPerformanceIndicators, setKeyPerformanceIndicators] = useState('');
-  const [fundingRounds, setFundingRounds] = useState('');
-  const [website, setWebsite] = useState('');
-  const [businessProfileLoading, setBusinessProfileLoading] = useState(true);
+  const [answers, setAnswers] = useState<Record<string, string>>(emptyAnswers);
+  const [activeTab, setActiveTab] = useState<BusinessProfileSectionKey>('who_is_customer');
+  const [collapsedFw, setCollapsedFw] = useState<Record<string, boolean>>({});
+  const [viewFull, setViewFull] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const loadedRef = useRef(false);
+  const saveBtnRef = useRef<HTMLButtonElement>(null);
 
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateStage, setGenerateStage] = useState<string | null>(null);
@@ -122,91 +93,104 @@ const BusinessProfilePage: React.FC = () => {
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
   const [companyHint, setCompanyHint] = useState('');
   const generateCancelledRef = useRef(false);
-  const businessSaveRef = useRef<HTMLButtonElement>(null);
 
-  // Legacy aliases keep prior voice phrases working alongside the new schema-driven IDs.
   useVoiceTarget({
     id: 'business.save',
     label: 'Save business profile (legacy alias)',
     action: 'click',
-    ref: businessSaveRef as React.RefObject<HTMLElement | null>,
-    enabled: !businessProfileLoading,
+    ref: saveBtnRef as React.RefObject<HTMLElement | null>,
+    enabled: !loading,
   });
   useVoiceTarget({
     id: fieldTargetId(businessProfileFormSchema.formKey, 'save'),
     label: 'Save business profile',
     action: 'click',
-    ref: businessSaveRef as React.RefObject<HTMLElement | null>,
-    enabled: !businessProfileLoading,
+    ref: saveBtnRef as React.RefObject<HTMLElement | null>,
+    enabled: !loading,
   });
 
   useEffect(() => {
+    const hash = (window.location.hash || '').replace(/^#/, '') as BusinessProfileSectionKey;
+    const valid = BUSINESS_PROFILE_SPEC.some((s) => s.key === hash);
+    if (valid) setActiveTab(hash);
+  }, []);
+
+  useEffect(() => {
+    window.location.hash = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
     let cancelled = false;
-    setBusinessProfileLoading(true);
+    setLoading(true);
     getBusinessProfile()
       .then((profile) => {
         if (cancelled) return;
-        if (profile) {
-          setBusinessName(profile.business_name ?? '');
-          setMissionStatement(profile.mission_statement ?? '');
-          setVisionStatement(profile.vision_statement ?? '');
-          setDescriptionMainOfferings(profile.description_main_offerings ?? '');
-          setKeyFeaturesOrBenefits(profile.key_features_or_benefits ?? '');
-          setUniqueSellingProposition(profile.unique_selling_proposition ?? '');
-          setPricingModel(profile.pricing_model ?? '');
-          setCustomerSegments(profile.customer_segments ?? '');
-          setGeographicFocus(profile.geographic_focus ?? '');
-          setIndustryServed(profile.industry_served ?? '');
-          setWhatDifferentiates(profile.what_differentiates ?? '');
-          setMarketNiche(profile.market_niche ?? '');
-          setRevenueStreams(profile.revenue_streams ?? '');
-          setDistributionChannels(profile.distribution_channels ?? '');
-          setKeyPersonnel(profile.key_personnel ?? '');
-          setMajorAchievements(profile.major_achievements ?? '');
-          setRevenue(profile.revenue ?? '');
-          setKeyPerformanceIndicators(profile.key_performance_indicators ?? '');
-          setFundingRounds(profile.funding_rounds ?? '');
-          setWebsite(profile.website ?? '');
+        const next = emptyAnswers();
+        if (profile?.answers) {
+          for (const [k, v] of Object.entries(profile.answers)) {
+            if (k in next && typeof v === 'string') next[k] = v;
+          }
         }
+        setAnswers(next);
+        loadedRef.current = true;
       })
       .finally(() => {
-        if (!cancelled) setBusinessProfileLoading(false);
+        if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleSaveBusiness = async () => {
-    const payload = {
-      business_name: businessName || null,
-      mission_statement: missionStatement || null,
-      vision_statement: visionStatement || null,
-      description_main_offerings: descriptionMainOfferings || null,
-      key_features_or_benefits: keyFeaturesOrBenefits || null,
-      unique_selling_proposition: uniqueSellingProposition || null,
-      pricing_model: pricingModel || null,
-      customer_segments: customerSegments || null,
-      geographic_focus: geographicFocus || null,
-      industry_served: industryServed || null,
-      what_differentiates: whatDifferentiates || null,
-      market_niche: marketNiche || null,
-      revenue_streams: revenueStreams || null,
-      distribution_channels: distributionChannels || null,
-      key_personnel: keyPersonnel || null,
-      major_achievements: majorAchievements || null,
-      revenue: revenue || null,
-      key_performance_indicators: keyPerformanceIndicators || null,
-      funding_rounds: fundingRounds || null,
-      website: website || null,
-    };
+  const persist = useCallback(async (payload: Record<string, string>) => {
+    setSaveState('saving');
+    setSaveMessage(null);
     try {
-      await saveBusinessProfile(payload);
+      await saveBusinessProfile({ answers: payload });
       commandBus.emit({ type: 'business_profile:saved' });
-      setSaveStatus('Business Profile saved successfully!');
-      setTimeout(() => setSaveStatus(null), 3000);
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
     } catch (err) {
-      setSaveStatus(err instanceof Error ? err.message : 'Failed to save Business Profile');
-      setTimeout(() => setSaveStatus(null), 5000);
+      setSaveState('error');
+      setSaveMessage(err instanceof Error ? err.message : 'Save failed');
+      setTimeout(() => setSaveState('idle'), 4000);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!loadedRef.current || loading) return;
+    const id = window.setTimeout(() => {
+      void persist(answersForApi(answers));
+    }, 750);
+    return () => window.clearTimeout(id);
+  }, [answers, loading, persist]);
+
+  const handleManualSave = () => {
+    void persist(answersForApi(answers));
+  };
+
+  const setQuestion = (key: string, val: string) => {
+    setAnswers((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const toggleFw = (fwId: string) => {
+    setCollapsedFw((c) => ({ ...c, [fwId]: !c[fwId] }));
+  };
+
+  const mdExport = useMemo(() => compileBusinessProfileMarkdown(answers), [answers]);
+
+  const downloadMarkdown = () => {
+    const blob = new Blob([mdExport], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'business-profile.md';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const printPdf = () => {
+    window.print();
   };
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,7 +202,7 @@ const BusinessProfilePage: React.FC = () => {
     }
     setGenerateFileName(file.name);
     setGenerateError(null);
-    const isBinary = ['application/pdf', 'image/'].some(t => (file.type || '').startsWith(t) || file.type === 'application/pdf');
+    const isBinary = ['application/pdf', 'image/'].some((t) => (file.type || '').startsWith(t));
     if (isBinary || !['text/plain', 'text/csv', 'application/json'].includes(file.type)) {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -234,30 +218,17 @@ const BusinessProfilePage: React.FC = () => {
     }
   };
 
-  const applyResultToForm = (result: Record<string, string | null>) => {
-    if (result.business_name != null) setBusinessName(result.business_name ?? '');
-    if (result.mission_statement != null) setMissionStatement(result.mission_statement ?? '');
-    if (result.vision_statement != null) setVisionStatement(result.vision_statement ?? '');
-    if (result.description_main_offerings != null) setDescriptionMainOfferings(result.description_main_offerings ?? '');
-    if (result.key_features_or_benefits != null) setKeyFeaturesOrBenefits(result.key_features_or_benefits ?? '');
-    if (result.unique_selling_proposition != null) setUniqueSellingProposition(result.unique_selling_proposition ?? '');
-    if (result.pricing_model != null) setPricingModel(result.pricing_model ?? '');
-    if (result.customer_segments != null) setCustomerSegments(result.customer_segments ?? '');
-    if (result.geographic_focus != null) setGeographicFocus(result.geographic_focus ?? '');
-    if (result.industry_served != null) setIndustryServed(result.industry_served ?? '');
-    if (result.what_differentiates != null) setWhatDifferentiates(result.what_differentiates ?? '');
-    if (result.market_niche != null) setMarketNiche(result.market_niche ?? '');
-    if (result.revenue_streams != null) setRevenueStreams(result.revenue_streams ?? '');
-    if (result.distribution_channels != null) setDistributionChannels(result.distribution_channels ?? '');
-    if (result.key_personnel != null) setKeyPersonnel(result.key_personnel ?? '');
-    if (result.major_achievements != null) setMajorAchievements(result.major_achievements ?? '');
-    if (result.revenue != null) setRevenue(result.revenue ?? '');
-    if (result.key_performance_indicators != null) setKeyPerformanceIndicators(result.key_performance_indicators ?? '');
-    if (result.funding_rounds != null) setFundingRounds(result.funding_rounds ?? '');
-    if (result.website != null) setWebsite(result.website ?? '');
+  const mergeGenerated = (partial: Record<string, string | null>) => {
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(partial)) {
+        if (v != null && String(v).trim()) next[k] = String(v).trim();
+      }
+      return next;
+    });
   };
 
-  const handleGenerateBusinessProfile = async () => {
+  const handleGenerate = async () => {
     if (!generateFileData?.data && !companyHint.trim()) {
       setGenerateError('Upload a document and/or enter a company name or website to generate from.');
       return;
@@ -269,26 +240,19 @@ const BusinessProfilePage: React.FC = () => {
     const opts = { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined };
     const input = generateFileData?.data ?? companyHint.trim();
     try {
-      setGenerateStage('Extracting Company Overview...');
-      const company = await geminiService.generateBusinessProfileCompanyOverview(input, opts);
-      if (generateCancelledRef.current) return;
-      applyResultToForm(company);
-
-      setGenerateStage('Extracting Market & Positioning...');
-      const market = await geminiService.generateBusinessProfileMarketPositioning(input, opts);
-      if (generateCancelledRef.current) return;
-      applyResultToForm(market);
-
-      setGenerateStage('Extracting Performance & Funding...');
-      const performance = await geminiService.generateBusinessProfilePerformanceFunding(input, opts);
-      if (generateCancelledRef.current) return;
-      applyResultToForm(performance);
-
-      setSaveStatus('Business Profile generated. Review and click Save to keep changes.');
-      setTimeout(() => setSaveStatus(null), 5000);
+      for (const sec of BUSINESS_PROFILE_SPEC) {
+        if (generateCancelledRef.current) return;
+        setGenerateStage(`Filling: ${sec.title}…`);
+        const part = await geminiService.generateBusinessProfileSection(sec.key, input, opts);
+        mergeGenerated(part);
+      }
+      if (!generateCancelledRef.current) {
+        setSaveMessage('Generated. Review answers; auto-save will sync.');
+        setTimeout(() => setSaveMessage(null), 4000);
+      }
     } catch (err) {
       if (!generateCancelledRef.current) {
-        setGenerateError(err instanceof Error ? err.message : 'Failed to generate Business Profile.');
+        setGenerateError(err instanceof Error ? err.message : 'Generation failed.');
       }
     } finally {
       if (!generateCancelledRef.current) {
@@ -298,151 +262,228 @@ const BusinessProfilePage: React.FC = () => {
     }
   };
 
-  const handleCancelGenerate = () => {
-    generateCancelledRef.current = true;
-    setGenerateLoading(false);
-    setGenerateStage(null);
-  };
+  const activeSection = BUSINESS_PROFILE_SPEC.find((s) => s.key === activeTab)!;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-12 w-full">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-gray-900 tracking-tight">Business Profile</h1>
-          <p className="text-gray-500 font-medium">Your company background. Used when building personas or running simulations.</p>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#fafafa] print:bg-white">
+      <div className="mx-auto max-w-4xl px-4 py-10 print:max-w-none print:px-6 print:py-6">
+        <header className="mb-8 flex flex-col gap-4 print:hidden sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Business Profile</h1>
+            <p className="mt-1 max-w-xl text-sm text-gray-500">
+              Structured frameworks across six categories. Answers auto-save. Used when building personas and running
+              simulations.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setViewFull((v) => !v)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                viewFull ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+              }`}
+            >
+              {viewFull ? 'Edit sections' : 'View full profile'}
+            </button>
+            <div className="relative inline-flex rounded-lg border border-gray-200 bg-white">
+              <button
+                type="button"
+                onClick={downloadMarkdown}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              >
+                <FileDown className="h-4 w-4" />
+                Markdown
+              </button>
+              <span className="w-px self-stretch bg-gray-200" />
+              <button
+                type="button"
+                onClick={printPdf}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              >
+                <Printer className="h-4 w-4" />
+                PDF
+              </button>
+            </div>
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                saveState === 'saving'
+                  ? 'bg-amber-50 text-amber-800'
+                  : saveState === 'saved'
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : saveState === 'error'
+                      ? 'bg-red-50 text-red-800'
+                      : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {saveState === 'saving' && 'Saving…'}
+              {saveState === 'saved' && 'Saved'}
+              {saveState === 'error' && (saveMessage || 'Error')}
+              {saveState === 'idle' && 'Auto-save on'}
+            </span>
+            <button
+              ref={saveBtnRef}
+              type="button"
+              onClick={handleManualSave}
+              className="sr-only"
+              aria-hidden
+            >
+              Save
+            </button>
+          </div>
+        </header>
 
-      <div className="space-y-6">
-        <p className="text-sm text-gray-500">Profile info about your company. Saved once here and used when building personas or running simulations. All fields are optional.</p>
-        {businessProfileLoading ? (
-          <div className="flex items-center justify-center py-12 text-gray-500 font-medium">Loading Business Profile...</div>
+        {loading ? (
+          <div className="py-16 text-center text-sm text-gray-500">Loading…</div>
+        ) : viewFull ? (
+          <article className="prose prose-sm max-w-none rounded-xl border border-gray-200 bg-white p-8 prose-headings:font-semibold print:border-0 print:shadow-none">
+            <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{mdExport || '_No answers yet._'}</pre>
+          </article>
         ) : (
           <>
-            <Section title="Generate with AI">
-              <p className="text-sm text-gray-500 mb-4">Upload a document (business plan, 10-K, pitch deck, etc.) and optionally add a company name or website. AI will fill in all profile fields using the document and public information.</p>
-              <div className="space-y-4">
+            <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 print:hidden" aria-label="Sections">
+              {BUSINESS_PROFILE_SPEC.map((sec) => (
+                <button
+                  key={sec.key}
+                  type="button"
+                  onClick={() => setActiveTab(sec.key)}
+                  className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
+                    activeTab === sec.key
+                      ? 'border-gray-900 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  {sec.shortLabel}
+                </button>
+              ))}
+            </nav>
+
+            <div className="print:hidden space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
+              {activeSection.frameworks.map((fw) => {
+                const fwId = `${activeSection.key}.${fw.key}`;
+                const collapsed = collapsedFw[fwId];
+                return (
+                  <section key={fwId} className="rounded-lg border border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => toggleFw(fwId)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-gray-50/80"
+                    >
+                      {collapsed ? (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                      )}
+                      <span>
+                        <span className="block font-medium text-gray-900">{fw.title}</span>
+                        <span className="block text-xs text-gray-500">{fw.description}</span>
+                      </span>
+                    </button>
+                    {!collapsed && (
+                      <div className="space-y-4 border-t border-gray-100 px-4 py-4">
+                        {fw.questions.map((q) => {
+                          const qKey = businessProfileAnswerKey(activeSection.key, fw.key, q.key);
+                          return (
+                            <TextArea
+                              key={qKey}
+                              qKey={qKey}
+                              label={q.label}
+                              value={answers[qKey] ?? ''}
+                              onChange={(v) => setQuestion(qKey, v)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+
+            <section className="mt-8 print:hidden space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-6">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
+                <Sparkles className="h-4 w-4 text-indigo-600" />
+                Generate with AI
+              </h3>
+              <p className="text-xs text-indigo-900/80">
+                Upload a document and/or a company hint. We fill each section (six model calls) into your profile.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Document (optional)</label>
-                  <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:border-indigo-200 transition-all bg-gray-50/50">
-                    <Upload className="w-10 h-10 text-gray-400 mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-3">PDF, Word, text, or spreadsheet</p>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">Document (optional)</label>
+                  <div className="flex flex-col items-center rounded-lg border border-dashed border-indigo-200 bg-white/80 py-4">
+                    <Upload className="mb-2 h-8 w-8 text-indigo-300" />
                     <input
                       type="file"
-                      id="generate-bp-file"
+                      id="bp-gen-file"
                       className="hidden"
                       accept={GEMINI_FILE_INPUT_ACCEPT}
                       onChange={handleGenerateFileChange}
                     />
-                    <label htmlFor="generate-bp-file" className="cursor-pointer px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all">
-                      {generateFileName || 'Select document'}
+                    <label htmlFor="bp-gen-file" className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
+                      {generateFileName || 'Choose file'}
                     </label>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Company name or website (optional)</label>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">Company name or website (optional)</label>
                   <input
                     type="text"
                     value={companyHint}
-                    onChange={(e) => { setCompanyHint(e.target.value); setGenerateError(null); }}
-                    placeholder="e.g. Acme Inc or https://acme.com"
-                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-medium focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
+                    onChange={(e) => {
+                      setCompanyHint(e.target.value);
+                      setGenerateError(null);
+                    }}
+                    placeholder="e.g. Acme Inc"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Adds context from public information (filings, website, news).</p>
-                </div>
-                {generateError && (
-                  <div className="flex items-start gap-2 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm">
-                    <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <span>{generateError}</span>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleGenerateBusinessProfile}
-                    disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
-                    className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    {generateLoading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        {generateStage || 'Generating...'}
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" />
-                        Generate from document
-                      </>
-                    )}
-                  </button>
-                  {generateLoading && (
-                    <button
-                      type="button"
-                      onClick={handleCancelGenerate}
-                      className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition-all"
-                    >
-                      <X className="w-5 h-5" />
-                      Cancel
-                    </button>
-                  )}
                 </div>
               </div>
-            </Section>
-            <Section title="Company Overview">
-              <div className="space-y-4">
-                <InputField
-                  label="Business Name"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  voiceTarget={bp('business_name')}
-                />
-                <TextAreaField label="Mission Statement" value={missionStatement} onChange={(e) => setMissionStatement(e.target.value)} placeholder="What is your company's mission?" voiceTarget={bp('mission_statement')} />
-                <TextAreaField label="Vision Statement" value={visionStatement} onChange={(e) => setVisionStatement(e.target.value)} placeholder="Where is your company headed?" voiceTarget={bp('vision_statement')} />
-                <TextAreaField label="Description of Main Offerings" value={descriptionMainOfferings} onChange={(e) => setDescriptionMainOfferings(e.target.value)} placeholder="Describe your main products or services" voiceTarget={bp('description_main_offerings')} />
-                <TextAreaField label="Key Features or Benefits" value={keyFeaturesOrBenefits} onChange={(e) => setKeyFeaturesOrBenefits(e.target.value)} placeholder="List key features or benefits" voiceTarget={bp('key_features_or_benefits')} />
-                <TextAreaField label="Unique Selling Proposition (USP)" value={uniqueSellingProposition} onChange={(e) => setUniqueSellingProposition(e.target.value)} placeholder="What makes you unique?" voiceTarget={bp('unique_selling_proposition')} />
-                <TextAreaField label="Pricing Model (if relevant)" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)} placeholder="e.g. subscription, one-time, tiered" voiceTarget={bp('pricing_model')} />
-                <InputField label="Website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." voiceTarget={bp('website')} />
-              </div>
-            </Section>
-            <Section title="Market & Positioning">
-              <div className="space-y-4">
-                <TextAreaField label="Customer Segments" value={customerSegments} onChange={(e) => setCustomerSegments(e.target.value)} placeholder="Who are your target customers?" voiceTarget={bp('customer_segments')} />
-                <TextAreaField label="Geographic Focus" value={geographicFocus} onChange={(e) => setGeographicFocus(e.target.value)} placeholder="Regions or markets you serve" voiceTarget={bp('geographic_focus')} />
-                <InputField label="Industry Served (B2B or B2C)" value={industryServed} onChange={(e) => setIndustryServed(e.target.value)} placeholder="e.g. B2B, B2C, both" voiceTarget={bp('industry_served')} />
-                <TextAreaField label="What Differentiates the Company" value={whatDifferentiates} onChange={(e) => setWhatDifferentiates(e.target.value)} placeholder="What sets you apart from competitors?" voiceTarget={bp('what_differentiates')} />
-                <TextAreaField label="Market Niche" value={marketNiche} onChange={(e) => setMarketNiche(e.target.value)} placeholder="Your specific market niche" voiceTarget={bp('market_niche')} />
-                <TextAreaField label="Distribution Channels" value={distributionChannels} onChange={(e) => setDistributionChannels(e.target.value)} placeholder="How you reach customers" voiceTarget={bp('distribution_channels')} />
-              </div>
-            </Section>
-            <Section title="Performance & Funding">
-              <div className="space-y-4">
-                <TextAreaField label="Key Personnel" value={keyPersonnel} onChange={(e) => setKeyPersonnel(e.target.value)} placeholder="Key team members or roles" voiceTarget={bp('key_personnel')} />
-                <TextAreaField label="Major Achievements" value={majorAchievements} onChange={(e) => setMajorAchievements(e.target.value)} placeholder="Notable milestones or wins" voiceTarget={bp('major_achievements')} />
-                <TextAreaField label="Revenue" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="Revenue or revenue range (if relevant)" voiceTarget={bp('revenue')} />
-                <TextAreaField label="Key Performance Indicators" value={keyPerformanceIndicators} onChange={(e) => setKeyPerformanceIndicators(e.target.value)} placeholder="KPIs you track" voiceTarget={bp('key_performance_indicators')} />
-                <TextAreaField label="Funding Rounds" value={fundingRounds} onChange={(e) => setFundingRounds(e.target.value)} placeholder="e.g. Seed, Series A" voiceTarget={bp('funding_rounds')} />
-                <TextAreaField label="Revenue Streams" value={revenueStreams} onChange={(e) => setRevenueStreams(e.target.value)} placeholder="How you generate revenue" voiceTarget={bp('revenue_streams')} />
-              </div>
-            </Section>
-            <div className="flex justify-end items-center gap-4">
-              {saveStatus && (
-                <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold border animate-in fade-in slide-in-from-bottom-2 ${saveStatus.includes('saved successfully') || saveStatus.includes('generated') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
-                  {saveStatus.includes('saved successfully') || saveStatus.includes('generated') ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-                  {saveStatus}
+              {generateError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {generateError}
                 </div>
               )}
-              <button
-                ref={businessSaveRef}
-                type="button"
-                onClick={handleSaveBusiness}
-                className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
-              >
-                Save Business Profile
-              </button>
-            </div>
+              {saveMessage && !generateError && (
+                <div className="flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {saveMessage}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
+                  onClick={() => void handleGenerate()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {generateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {generateLoading ? generateStage || 'Generating…' : 'Generate from document'}
+                </button>
+                {generateLoading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      generateCancelledRef.current = true;
+                      setGenerateLoading(false);
+                      setGenerateStage(null);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </section>
           </>
         )}
+
+        {/* Print-only full profile */}
+        <div className="hidden print:block">
+          <pre className="whitespace-pre-wrap font-sans text-sm">{mdExport}</pre>
+        </div>
       </div>
     </div>
   );

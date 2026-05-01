@@ -3,6 +3,11 @@
  * Used by `generateUiSemantics` to emit the RAG corpus that grounds the planner.
  */
 
+import {
+  BUSINESS_PROFILE_SPEC,
+  businessProfileAnswerKey,
+} from '../constants/businessProfileSpec.js';
+
 export type BackendFormFieldType =
   | 'text'
   | 'textarea'
@@ -48,19 +53,37 @@ const yesNoCount: { value: string; label: string }[] = [1, 2, 3, 4, 5].map((n) =
   label: `${n}`,
 }));
 
+function businessProfileBackendFormFields(): BackendFormFieldDef[] {
+  const fields: BackendFormFieldDef[] = [];
+  for (const sec of BUSINESS_PROFILE_SPEC) {
+    for (const fw of sec.frameworks) {
+      for (const q of fw.questions) {
+        const key = businessProfileAnswerKey(sec.key, fw.key, q.key);
+        fields.push({
+          key,
+          dbColumn: key,
+          label: q.label,
+          type: 'textarea',
+          description: `${sec.title} — ${fw.title}`,
+        });
+      }
+    }
+  }
+  fields.push({ key: 'save', label: 'Save business profile (sync)', type: 'button', action: 'click' });
+  return fields;
+}
+
 export const ALL_FORMS: BackendFormSchema[] = [
   {
     formKey: 'build.persona.assistant',
     page: '/build',
     title: 'Build persona — voice assistant',
     purpose:
-      'Voice and text describe; Build it for me routes to Synthetic user or Advisor and fills fields. Refine with chat adjusts notes.',
+      'Voice and text describe; Build it for me routes to Synthetic user or Advisor and fills fields.',
     fields: [
       { key: 'describe', label: 'Describe your persona', type: 'textarea' },
       { key: 'mic_toggle', label: 'Voice describe persona', type: 'button', action: 'click' },
       { key: 'generate', label: 'Build persona form from description', type: 'button', action: 'click' },
-      { key: 'chat_input', label: 'Refine persona description chat', type: 'textarea' },
-      { key: 'chat_send', label: 'Send refine chat', type: 'button', action: 'click' },
     ],
   },
   {
@@ -80,32 +103,11 @@ export const ALL_FORMS: BackendFormSchema[] = [
     formKey: 'business.profile',
     page: '/business-profile',
     title: 'Business profile',
-    purpose: 'Edit the runner company background. Saves to business_profiles.',
+    purpose:
+      'Structured Business Profile Builder (disciplined entrepreneurship). Answers auto-save to business_profiles.answers (JSON).',
     persistsTo: ['business_profiles'],
     submitTargetId: 'business.profile.save',
-    fields: [
-      { key: 'business_name', dbColumn: 'business_name', label: 'Business name', type: 'text' },
-      { key: 'mission_statement', dbColumn: 'mission_statement', label: 'Mission statement', type: 'textarea' },
-      { key: 'vision_statement', dbColumn: 'vision_statement', label: 'Vision statement', type: 'textarea' },
-      { key: 'description_main_offerings', dbColumn: 'description_main_offerings', label: 'Description of main offerings', type: 'textarea' },
-      { key: 'key_features_or_benefits', dbColumn: 'key_features_or_benefits', label: 'Key features or benefits', type: 'textarea' },
-      { key: 'unique_selling_proposition', dbColumn: 'unique_selling_proposition', label: 'Unique selling proposition', type: 'textarea' },
-      { key: 'pricing_model', dbColumn: 'pricing_model', label: 'Pricing model', type: 'textarea' },
-      { key: 'website', dbColumn: 'website', label: 'Website', type: 'url' },
-      { key: 'customer_segments', dbColumn: 'customer_segments', label: 'Customer segments', type: 'textarea' },
-      { key: 'geographic_focus', dbColumn: 'geographic_focus', label: 'Geographic focus', type: 'textarea' },
-      { key: 'industry_served', dbColumn: 'industry_served', label: 'Industry served', type: 'text', examples: ['B2B', 'B2C', 'both'] },
-      { key: 'what_differentiates', dbColumn: 'what_differentiates', label: 'What differentiates the company', type: 'textarea' },
-      { key: 'market_niche', dbColumn: 'market_niche', label: 'Market niche', type: 'textarea' },
-      { key: 'distribution_channels', dbColumn: 'distribution_channels', label: 'Distribution channels', type: 'textarea' },
-      { key: 'key_personnel', dbColumn: 'key_personnel', label: 'Key personnel', type: 'textarea' },
-      { key: 'major_achievements', dbColumn: 'major_achievements', label: 'Major achievements', type: 'textarea' },
-      { key: 'revenue', dbColumn: 'revenue', label: 'Revenue', type: 'textarea' },
-      { key: 'key_performance_indicators', dbColumn: 'key_performance_indicators', label: 'Key performance indicators', type: 'textarea' },
-      { key: 'funding_rounds', dbColumn: 'funding_rounds', label: 'Funding rounds', type: 'textarea' },
-      { key: 'revenue_streams', dbColumn: 'revenue_streams', label: 'Revenue streams', type: 'textarea' },
-      { key: 'save', label: 'Save business profile', type: 'button', action: 'click' },
-    ],
+    fields: businessProfileBackendFormFields(),
   },
   {
     formKey: 'build.persona.picker',
@@ -265,6 +267,23 @@ export const ALL_FORMS: BackendFormSchema[] = [
       { key: 'review_back', label: 'Back to form from review', type: 'button', action: 'click' },
       { key: 'review_save', label: 'Save reviewed system prompt', type: 'button', action: 'click' },
       { key: 'system_prompt', label: 'System prompt review', type: 'textarea', dbColumn: 'system_prompt' },
+    ],
+  },
+  {
+    formKey: 'simulate.run.assistant',
+    page: '/simulate',
+    title: 'Run simulation — voice assistant',
+    purpose:
+      'Pick a template the user can access, select personas within allowed types and counts, and pre-fill runner text fields. Does not start the simulation.',
+    fields: [
+      {
+        key: 'describe',
+        label: 'Describe what you want to simulate',
+        type: 'textarea',
+        description: 'Build it for me fills template choice, personas, and inputs where possible.',
+      },
+      { key: 'mic_toggle', label: 'Voice describe simulation run', type: 'button', action: 'click' },
+      { key: 'generate', label: 'Fill simulation run from description', type: 'button', action: 'click' },
     ],
   },
   {

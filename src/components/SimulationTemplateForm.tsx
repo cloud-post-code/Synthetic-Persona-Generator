@@ -16,6 +16,8 @@ import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { simulationTemplateFormSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
 import { sanitizeDraft, type SimulationDraft } from '../services/simulationDraft.js';
+import { BusinessProfileScopePicker } from './BusinessProfileScopePicker.js';
+import { normalizeBusinessProfileScope } from '../constants/businessProfileSpec.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -1155,6 +1157,20 @@ ${description.trim() || '(empty - please create an initial description based on 
               </div>
             </div>
           ))}
+          {inputFields.some((f) => f.type === 'business_profile' || f.name === 'businessProfile') && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-gray-900">Business profile — default scope</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Which parts of the runner&apos;s saved Business Profile are injected by default. Runners can change this per run on the simulation page.
+              </p>
+              <div className="mt-3">
+                <BusinessProfileScopePicker
+                  value={normalizeBusinessProfileScope(typeSpecificConfig.business_profile_scope)}
+                  onChange={(next) => setConfig('business_profile_scope', next)}
+                />
+              </div>
+            </div>
+          )}
           <button type="button" onClick={handleAddField} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-400 flex items-center justify-center gap-2">
             <Plus className="w-4 h-4" /> Add input field
           </button>

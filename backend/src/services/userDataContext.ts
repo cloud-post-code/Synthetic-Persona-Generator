@@ -6,6 +6,10 @@ import { getPersonasAvailableForUser } from './personaService.js';
 import { getFocusGroup, getFocusGroups } from './focusGroupService.js';
 import { getAccessibleTemplatesForUser } from './simulationTemplateService.js';
 import { getByUserId as getBusinessProfileByUserId } from './businessProfileService.js';
+import {
+  BUSINESS_PROFILE_SPEC,
+  compileFrameworkPlainText,
+} from '../constants/businessProfileSpec.js';
 import { getChatSessionsByUserId } from './chatService.js';
 import { getSimulationSessionsByUserId } from './simulationService.js';
 import pool from '../config/database.js';
@@ -21,6 +25,18 @@ export type Domain =
   | 'chat'
   | 'settings'
   | 'profile';
+
+/** Merge transcript-hinted digest domains with path defaults (e.g. /simulate always sees templates + personas). */
+export function mergeVoiceDigestDomains(pathname: string | undefined, fromTranscript: Domain[]): Domain[] {
+  const set = new Set<Domain>(fromTranscript);
+  const p = (pathname || '').trim();
+  if (p === '/simulate') {
+    set.add('simulationTemplate');
+    set.add('persona');
+    set.add('businessProfile');
+  }
+  return [...set];
+}
 
 export type ResolveHit = { id: string; name: string; meta?: Record<string, string> };
 
@@ -106,13 +122,25 @@ export async function getDigest(
     case 'businessProfile': {
       const bp = await getBusinessProfileByUserId(userId);
       if (!bp) return [];
-      return [
-        {
-          id: bp.id,
-          name: bp.business_name || 'Business',
-          meta: { industry: bp.industry_served || '' },
-        },
-      ];
+      const hits: ResolveHit[] = [];
+      hits.push({
+        id: bp.id,
+        name: 'Business profile (all frameworks)',
+        meta: { scope: 'all' },
+      });
+      const answers = bp.answers || {};
+      for (const sec of BUSINESS_PROFILE_SPEC) {
+        for (const fw of sec.frameworks) {
+          const text = compileFrameworkPlainText(sec.key, fw.key, answers);
+          if (!text.trim()) continue;
+          hits.push({
+            id: `${bp.id}:${sec.key}.${fw.key}`,
+            name: `${sec.shortLabel}: ${fw.title}`,
+            meta: { frameworkId: `${sec.key}.${fw.key}` },
+          });
+        }
+      }
+      return hits.slice(0, Math.max(1, limit));
     }
     case 'chat': {
       const sessions = await getChatSessionsByUserId(userId);

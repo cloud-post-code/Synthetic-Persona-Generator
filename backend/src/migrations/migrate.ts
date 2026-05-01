@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { migrateBusinessProfilesToJsonb } from './businessProfilesJsonb.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,50 +14,8 @@ async function migrate() {
     const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
     
     await pool.query(schema);
-    
-    // Ensure business_profiles exists (for DBs created before this table was in schema)
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS business_profiles (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-          business_name TEXT,
-          mission_statement TEXT,
-          vision_statement TEXT,
-          description_main_offerings TEXT,
-          key_features_or_benefits TEXT,
-          unique_selling_proposition TEXT,
-          pricing_model TEXT,
-          customer_segments TEXT,
-          geographic_focus TEXT,
-          industry_served TEXT,
-          what_differentiates TEXT,
-          market_niche TEXT,
-          revenue_streams TEXT,
-          distribution_channels TEXT,
-          key_personnel TEXT,
-          major_achievements TEXT,
-          revenue TEXT,
-          key_performance_indicators TEXT,
-          funding_rounds TEXT,
-          website TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query('CREATE INDEX IF NOT EXISTS idx_business_profiles_user_id ON business_profiles(user_id)');
-    } catch (err: any) {
-      if (err.code !== '42P07') throw err;
-    }
 
-    // Widen business_profiles text columns (VARCHAR -> TEXT) so long content doesn't fail
-    for (const col of ['business_name', 'industry_served', 'website']) {
-      try {
-        await pool.query(`ALTER TABLE business_profiles ALTER COLUMN ${col} TYPE TEXT`);
-      } catch (err: any) {
-        if (err.code !== '42P01') throw err;
-      }
-    }
+    await migrateBusinessProfilesToJsonb(pool);
 
     // Add is_admin column if it doesn't exist (for existing databases)
     try {

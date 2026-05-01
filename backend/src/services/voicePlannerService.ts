@@ -21,7 +21,7 @@ import {
 } from './embeddingService.js';
 import type { UiSemanticType } from '../voice/uiSemantics.js';
 import type { Domain } from './userDataContext.js';
-import { getDigest, type DigestViewer } from './userDataContext.js';
+import { getDigest, mergeVoiceDigestDomains, type DigestViewer } from './userDataContext.js';
 import { hintedDomainsFromTranscript, transcriptSuggestsMultiStep } from './voiceIntentService.js';
 
 const MODEL = 'gemini-2.5-flash';
@@ -272,7 +272,7 @@ Intent object shapes:
 - **Same screen**: batch multiple **action** steps (several fills, then click Save) in one response when all targets are listed below.
 
 ### STABLE TARGET IDS
-Form field target_ids follow \`pageDomain.formKey.fieldKey\`, e.g. \`business.profile.mission_statement\`, \`build.persona.problem_solution.problem\`, \`simulations.template.title\`. Look these up in the UI_SEMANTICS block for the current screen and form.
+Form field target_ids follow \`pageDomain.formKey.fieldKey\`, e.g. \`business.profile.who_is_customer.target_customer_persona.primary_customer\`, \`build.persona.problem_solution.problem\`, \`simulations.template.title\`. Look these up in the UI_SEMANTICS block for the current screen and form.
 
 ### WHEN TO ASK (clarify)
 - If you lack essential info (which persona, which simulation, ambiguous destination, password), output **clarify** with one short **question** and 2–5 **options**.
@@ -352,7 +352,8 @@ export async function planVoiceTurn(
 ): Promise<VoiceIntentResult> {
   const ai = getAI();
 
-  const domains = call?.domains ?? hintedDomainsFromTranscript(body.transcript);
+  const hinted = call?.domains ?? hintedDomainsFromTranscript(body.transcript);
+  const domains = mergeVoiceDigestDomains(body.context.pathname, hinted);
   const digestBlock =
     auth.userId && domains.length > 0 ? await buildDigestBlock(auth.userId, domains, viewer) : '';
   const semanticsQuery = call?.replan

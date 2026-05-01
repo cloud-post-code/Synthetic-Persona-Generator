@@ -222,30 +222,14 @@ const DB_TABLES: DbTable[] = [
   },
   {
     name: 'business_profiles',
-    purpose: 'One company-context row per user. Fed into persona generation and simulations.',
+    purpose:
+      'One structured Business Profile per user (disciplined entrepreneurship frameworks). JSON answers keyed as section.framework.question.',
     columns: [
       { name: 'id', type: 'uuid' },
       { name: 'user_id', type: 'uuid', notes: 'fk users.id, unique' },
-      { name: 'business_name', type: 'text' },
-      { name: 'mission_statement', type: 'text' },
-      { name: 'vision_statement', type: 'text' },
-      { name: 'description_main_offerings', type: 'text' },
-      { name: 'key_features_or_benefits', type: 'text' },
-      { name: 'unique_selling_proposition', type: 'text' },
-      { name: 'pricing_model', type: 'text' },
-      { name: 'customer_segments', type: 'text' },
-      { name: 'geographic_focus', type: 'text' },
-      { name: 'industry_served', type: 'text' },
-      { name: 'what_differentiates', type: 'text' },
-      { name: 'market_niche', type: 'text' },
-      { name: 'distribution_channels', type: 'text' },
-      { name: 'key_personnel', type: 'text' },
-      { name: 'major_achievements', type: 'text' },
-      { name: 'revenue', type: 'text' },
-      { name: 'key_performance_indicators', type: 'text' },
-      { name: 'funding_rounds', type: 'text' },
-      { name: 'revenue_streams', type: 'text' },
-      { name: 'website', type: 'text' },
+      { name: 'answers', type: 'jsonb', notes: 'Map of answerKey -> string' },
+      { name: 'created_at', type: 'timestamp' },
+      { name: 'updated_at', type: 'timestamp' },
     ],
   },
   {
@@ -420,12 +404,12 @@ Replan triggers:
     title: 'Edit and save the business profile',
     body: `# Workflow: edit business profile
 
-The user wants to update fields on \`/business-profile\` (table business_profiles).
+The user wants to update the structured Business Profile on \`/business-profile\` (table \`business_profiles\`, column \`answers\` JSONB).
 
 Steps:
 1. navigate /business-profile if not there (UI node \`business.profile\`).
-2. For each field the user mentioned, action target_id \`business.profile.<dbColumn>\` value=<text>. Examples: \`business.profile.mission_statement\`, \`business.profile.unique_selling_proposition\`, \`business.profile.website\`.
-3. Click \`business.profile.save\` (legacy alias \`business.save\`).
+2. For each question the user mentioned, action target_id \`business.profile.<section>.<framework>.<questionKey>\` value=<text>. Keys match the spec (e.g. \`business.profile.who_is_customer.target_customer_persona.primary_customer\`).
+3. Answers auto-save; optional: click \`business.profile.save\` (legacy alias \`business.save\`) to force sync.
 `,
   },
   {

@@ -1,54 +1,17 @@
 import pool from '../config/database.js';
 import { BusinessProfile, CreateOrUpdateBusinessProfileRequest } from '../types/index.js';
 import { indexBusinessProfile } from './embeddingService.js';
-
-const COLUMNS = [
-  'business_name',
-  'mission_statement',
-  'vision_statement',
-  'description_main_offerings',
-  'key_features_or_benefits',
-  'unique_selling_proposition',
-  'pricing_model',
-  'customer_segments',
-  'geographic_focus',
-  'industry_served',
-  'what_differentiates',
-  'market_niche',
-  'revenue_streams',
-  'distribution_channels',
-  'key_personnel',
-  'major_achievements',
-  'revenue',
-  'key_performance_indicators',
-  'funding_rounds',
-  'website',
-];
+import {
+  businessProfileAnswerKey,
+  getBusinessProfileAllowedAnswerKeySet,
+  parseBusinessProfileAnswersJson,
+} from '../constants/businessProfileSpec.js';
 
 function mapRow(row: Record<string, unknown>): BusinessProfile {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
-    business_name: row.business_name as string | null ?? undefined,
-    mission_statement: row.mission_statement as string | null ?? undefined,
-    vision_statement: row.vision_statement as string | null ?? undefined,
-    description_main_offerings: row.description_main_offerings as string | null ?? undefined,
-    key_features_or_benefits: row.key_features_or_benefits as string | null ?? undefined,
-    unique_selling_proposition: row.unique_selling_proposition as string | null ?? undefined,
-    pricing_model: row.pricing_model as string | null ?? undefined,
-    customer_segments: row.customer_segments as string | null ?? undefined,
-    geographic_focus: row.geographic_focus as string | null ?? undefined,
-    industry_served: row.industry_served as string | null ?? undefined,
-    what_differentiates: row.what_differentiates as string | null ?? undefined,
-    market_niche: row.market_niche as string | null ?? undefined,
-    revenue_streams: row.revenue_streams as string | null ?? undefined,
-    distribution_channels: row.distribution_channels as string | null ?? undefined,
-    key_personnel: row.key_personnel as string | null ?? undefined,
-    major_achievements: row.major_achievements as string | null ?? undefined,
-    revenue: row.revenue as string | null ?? undefined,
-    key_performance_indicators: row.key_performance_indicators as string | null ?? undefined,
-    funding_rounds: row.funding_rounds as string | null ?? undefined,
-    website: row.website as string | null ?? undefined,
+    answers: parseBusinessProfileAnswersJson(row.answers),
     created_at: row.created_at as Date,
     updated_at: row.updated_at as Date,
   };
@@ -56,7 +19,7 @@ function mapRow(row: Record<string, unknown>): BusinessProfile {
 
 export async function getByUserId(userId: string): Promise<BusinessProfile | null> {
   const result = await pool.query(
-    `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
+    `SELECT id, user_id, answers, created_at, updated_at
      FROM business_profiles
      WHERE user_id = $1`,
     [userId]
@@ -66,71 +29,77 @@ export async function getByUserId(userId: string): Promise<BusinessProfile | nul
     return null;
   }
 
-  return mapRow(result.rows[0]);
+  return mapRow(result.rows[0] as Record<string, unknown>);
+}
+
+/** Full replace of allowed keys when `answers` is provided; otherwise keep existing profile. */
+function answersFromRequest(
+  data: CreateOrUpdateBusinessProfileRequest,
+  existing: BusinessProfile | null,
+  allowed: Set<string>
+): Record<string, string> {
+  const raw = data.answers;
+  if (raw !== undefined && raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!allowed.has(k)) continue;
+      if (v === undefined || v === null) continue;
+      const s = typeof v === 'string' ? v.trim() : String(v).trim();
+      if (s) out[k] = s;
+    }
+    return out;
+  }
+  return { ...(existing?.answers ?? {}) };
 }
 
 export async function upsert(
   userId: string,
   data: CreateOrUpdateBusinessProfileRequest
 ): Promise<BusinessProfile> {
-  const allowedKeys = new Set(COLUMNS);
-  const sanitized: Record<string, string | null> = {};
-  const input = (data != null && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, unknown>;
-  for (const [key, value] of Object.entries(input)) {
-    if (allowedKeys.has(key)) {
-      if (value === undefined || value === null || value === '') {
-        sanitized[key] = null;
-      } else {
-        const s = typeof value === 'string' ? value : String(value);
-        sanitized[key] = s.trim() || null;
-      }
-    }
-  }
-  const valuesForColumns = COLUMNS.map((c) => {
-    const v = sanitized[c];
-    return v === undefined ? null : (v === null ? null : String(v));
-  });
-
-  const cols = ['user_id', ...COLUMNS];
-  const values = [userId, ...valuesForColumns];
-  const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
-  const updateSet = COLUMNS.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  const allowed = getBusinessProfileAllowedAnswerKeySet();
+  const existing = await getByUserId(userId);
+  const mergedClean = answersFromRequest(data, existing, allowed);
+  const answersJson = JSON.stringify(mergedClean);
 
   try {
     const result = await pool.query(
-      `INSERT INTO business_profiles (${cols.join(', ')})
-       VALUES (${placeholders})
-       ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = CURRENT_TIMESTAMP
-       RETURNING id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at`,
-      values
+      `INSERT INTO business_profiles (user_id, answers)
+       VALUES ($1, $2::jsonb)
+       ON CONFLICT (user_id) DO UPDATE SET
+         answers = EXCLUDED.answers,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id, user_id, answers, created_at, updated_at`,
+      [userId, answersJson]
     );
 
     let profile: BusinessProfile;
     if (result.rows && result.rows.length > 0) {
-      profile = mapRow(result.rows[0]);
+      profile = mapRow(result.rows[0] as Record<string, unknown>);
     } else {
       const refetch = await pool.query(
-        `SELECT id, user_id, ${COLUMNS.join(', ')}, created_at, updated_at
+        `SELECT id, user_id, answers, created_at, updated_at
          FROM business_profiles WHERE user_id = $1`,
         [userId]
       );
       if (refetch.rows.length === 0) {
         throw new Error('Business profile upsert returned no row');
       }
-      profile = mapRow(refetch.rows[0]);
+      profile = mapRow(refetch.rows[0] as Record<string, unknown>);
     }
 
     (async () => {
       try {
         await indexBusinessProfile(userId);
-      } catch (err: any) {
-        console.error(`[EMBEDDING] Business profile indexing failed for user ${userId}:`, err?.message || err);
-        await new Promise(r => setTimeout(r, 2000));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[EMBEDDING] Business profile indexing failed for user ${userId}:`, msg);
+        await new Promise((r) => setTimeout(r, 2000));
         try {
           await indexBusinessProfile(userId);
           console.log(`[EMBEDDING] Business profile retry succeeded for user ${userId}`);
-        } catch (retryErr: any) {
-          console.error(`[EMBEDDING] Business profile retry also failed for user ${userId}:`, retryErr?.message || retryErr);
+        } catch (retryErr: unknown) {
+          const rmsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          console.error(`[EMBEDDING] Business profile retry also failed for user ${userId}:`, rmsg);
         }
       }
     })();
@@ -142,4 +111,48 @@ export async function upsert(
     console.error('businessProfileService.upsert error:', msg, code, err);
     throw err;
   }
+}
+
+/** Map legacy flat columns into spec answer keys (best-effort). Exported for migrate script. */
+export function legacyFlatColumnsToAnswers(row: Record<string, unknown>): Record<string, string> {
+  const a: Record<string, string> = {};
+  const add = (section: string, fw: string, q: string, val: unknown) => {
+    if (val == null) return;
+    const s = String(val).trim();
+    if (!s) return;
+    const key = businessProfileAnswerKey(section, fw, q);
+    if (a[key]) a[key] = `${a[key]}\n\n${s}`;
+    else a[key] = s;
+  };
+
+  add('problem_solution', 'value_proposition', 'why_care', row.mission_statement);
+  add('problem_solution', 'value_proposition', 'outcome', row.vision_statement);
+  add('problem_solution', 'your_solution', 'product', row.description_main_offerings);
+  add('product_design', 'core_features', 'must_have', row.key_features_or_benefits);
+  add('problem_solution', 'your_solution', 'uniqueness', row.unique_selling_proposition);
+  add('monetization', 'revenue_model', 'charge_model', row.pricing_model);
+  add('who_is_customer', 'customer_segmentation', 'segments', row.customer_segments);
+  add('who_is_customer', 'beachhead_market', 'group_accessible', row.geographic_focus);
+  add('who_is_customer', 'target_customer_persona', 'industry', row.industry_served);
+  add('product_design', 'differentiation', 'stand_out', row.what_differentiates);
+  add('who_is_customer', 'beachhead_market', 'niche_first', row.market_niche);
+  add('monetization', 'scaling_revenue', 'long_term_growth', row.revenue_streams);
+  add('acquisition', 'acquisition_channels', 'channels_list', row.distribution_channels);
+  add('building_scaling', 'team', 'key_roles', row.key_personnel);
+  add('building_scaling', 'go_to_market_plan', 'traction_strategy', row.major_achievements);
+  add('monetization', 'willingness_to_pay', 'current_spend', row.revenue);
+  add('building_scaling', 'go_to_market_plan', 'success_metrics', row.key_performance_indicators);
+  add('building_scaling', 'operations', 'tools_systems', row.funding_rounds);
+  const web = row.website != null ? String(row.website).trim() : '';
+  if (web) {
+    add('acquisition', 'customer_journey', 'discovery', `Company website: ${web}`);
+  }
+
+  const bn = row.business_name != null ? String(row.business_name).trim() : '';
+  if (bn) {
+    const pk = businessProfileAnswerKey('who_is_customer', 'target_customer_persona', 'primary_customer');
+    a[pk] = a[pk] ? `Company: ${bn}\n\n${a[pk]}` : `Company: ${bn}`;
+  }
+
+  return a;
 }

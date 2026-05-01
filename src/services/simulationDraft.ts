@@ -4,6 +4,7 @@ import type {
   SimulationType,
   SurveyQuestion,
 } from './simulationTemplateApi.js';
+import { normalizeBusinessProfileScope } from '../constants/businessProfileSpec.js';
 
 const SIMULATION_TYPES: SimulationType[] = [
   'report',
@@ -231,12 +232,23 @@ export function sanitizeDraft(raw: unknown): SimulationDraft {
     [persona_count_min, persona_count_max] = [persona_count_max, persona_count_min];
   }
 
-  const type_specific_config = stripTypeSpecificConfig(
+  let type_specific_config = stripTypeSpecificConfig(
     simulation_type,
     o.type_specific_config && typeof o.type_specific_config === 'object'
       ? (o.type_specific_config as Record<string, unknown>)
       : undefined
   );
+
+  const rawTsc =
+    o.type_specific_config && typeof o.type_specific_config === 'object'
+      ? (o.type_specific_config as Record<string, unknown>)
+      : undefined;
+  if (rawTsc && 'business_profile_scope' in rawTsc) {
+    type_specific_config = {
+      ...type_specific_config,
+      business_profile_scope: normalizeBusinessProfileScope(rawTsc.business_profile_scope),
+    };
+  }
 
   const required_input_fields = normalizeInputFields(o.required_input_fields);
 

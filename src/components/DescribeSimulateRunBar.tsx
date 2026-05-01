@@ -1,28 +1,32 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
 import { geminiService } from '../services/gemini.js';
+import type { SimulationRunDraft } from '../services/simulationRunDraft.js';
+import type { Persona } from '../models/types.js';
+import type { SimulationTemplate } from '../services/simulationTemplateApi.js';
 import {
   createSpeechRecognition,
   isSpeechRecognitionSupported,
   isSecureContextForMic,
 } from '../voice/speechRecognition.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
-import { buildPersonaAssistantSchema } from '../forms/index.js';
+import { simulateRunAssistantSchema } from '../forms/simulateRunAssistantSchema.js';
 import { fieldTargetId } from '../forms/types.js';
 
-export type BuildPersonaMode = 'synthetic_user' | 'advisor';
-
-export type DescribePersonaBarProps = {
-  onApplyDraft: (draft: PersonaBuildDraft) => void;
+export type DescribeSimulateRunBarProps = {
+  templates: SimulationTemplate[];
+  personas: Persona[];
+  hasSavedBusinessProfile: boolean;
+  onApplyDraft: (draft: SimulationRunDraft) => void;
   disabled?: boolean;
-  /** When set, the planner only returns that persona kind (user already opened that builder). */
-  lockPersonaType?: BuildPersonaMode | null;
 };
 
-export const DescribePersonaBar: React.FC<DescribePersonaBarProps> = ({
+export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
+  templates,
+  personas,
+  hasSavedBusinessProfile,
   onApplyDraft,
   disabled = false,
-  lockPersonaType = null,
 }) => {
   const [text, setText] = useState('');
   const [interim, setInterim] = useState('');
@@ -34,26 +38,26 @@ export const DescribePersonaBar: React.FC<DescribePersonaBarProps> = ({
   const describeRef = useRef<HTMLTextAreaElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const generateRef = useRef<HTMLButtonElement>(null);
-  const formKey = buildPersonaAssistantSchema.formKey;
+  const formKey = simulateRunAssistantSchema.formKey;
   const voiceSupported = isSpeechRecognitionSupported() && isSecureContextForMic();
 
   useVoiceTarget({
     id: fieldTargetId(formKey, 'describe'),
-    label: 'Describe your persona',
+    label: 'Describe what you want to simulate',
     action: 'fill',
     ref: describeRef as React.RefObject<HTMLElement | null>,
     enabled: !disabled,
   });
   useVoiceTarget({
     id: fieldTargetId(formKey, 'mic_toggle'),
-    label: 'Voice describe persona',
+    label: 'Voice describe simulation run',
     action: 'click',
     ref: micRef as React.RefObject<HTMLElement | null>,
     enabled: !disabled && voiceSupported,
   });
   useVoiceTarget({
     id: fieldTargetId(formKey, 'generate'),
-    label: 'Build persona form from description',
+    label: 'Fill simulation run from description',
     action: 'click',
     ref: generateRef as React.RefObject<HTMLElement | null>,
     enabled: !disabled && !isGenerating,
@@ -122,24 +126,30 @@ export const DescribePersonaBar: React.FC<DescribePersonaBarProps> = ({
     setSuccessSummary(null);
     setIsGenerating(true);
     try {
-      const draft = await geminiService.draftPersonaBuildFromDescription(trimmed, {
-        forcePersonaType: lockPersonaType ?? undefined,
+      const draft = await geminiService.draftSimulationRunFromDescription(trimmed, {
+        templates,
+        personas,
+        hasSavedBusinessProfile,
       });
+      if (!draft.template_id) {
+        setError([draft.routing_rationale, ...draft.notes].filter(Boolean).join(' ') || 'No matching template.');
+        return;
+      }
       onApplyDraft(draft);
-      const kind = draft.persona_type === 'advisor' ? 'Advisor' : 'Synthetic user';
-      const sub =
-        draft.persona_type === 'advisor'
-          ? draft.advisor_source ?? 'source'
-          : draft.synthetic_method ?? 'method';
-      setSuccessSummary(
-        `${kind} · ${sub}. ${draft.routing_rationale} Review the fields below, then submit when ready.`
-      );
+      const nFields = Object.keys(draft.input_values).length;
+      const pCount = draft.persona_ids.length;
+      const parts = [
+        draft.routing_rationale,
+        `Template + ${pCount} persona(s) + ${nFields} runner field(s) updated. Review below, then start when ready.`,
+      ];
+      if (draft.notes.length) parts.push(draft.notes.join(' '));
+      setSuccessSummary(parts.filter(Boolean).join(' '));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
       setIsGenerating(false);
     }
-  }, [disabled, isGenerating, lockPersonaType, onApplyDraft, text]);
+  }, [disabled, hasSavedBusinessProfile, isGenerating, onApplyDraft, personas, templates, text]);
 
   if (disabled) return null;
 
@@ -147,10 +157,11 @@ export const DescribePersonaBar: React.FC<DescribePersonaBarProps> = ({
     <div className="mb-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm ring-1 ring-indigo-950/5 sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">Describe your persona</h3>
+          <h3 className="text-lg font-bold text-slate-900">Describe your simulation run</h3>
           <p className="mt-1 text-sm text-slate-600">
-            Type or use the mic, then <span className="font-semibold text-indigo-700">Build it for me</span> to pick
-            Synthetic user vs Advisor, choose the best method, and fill the form.
+            Type or use the mic, then <span className="font-semibold text-indigo-700">Build it for me</span> to pick a
+            template, personas, and text fields. Image, PDF, and table inputs still need manual upload.{' '}
+            <span className="font-semibold text-slate-800">Start simulation</span> when you are ready.
           </p>
         </div>
       </div>
@@ -171,7 +182,7 @@ export const DescribePersonaBar: React.FC<DescribePersonaBarProps> = ({
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={5}
-            placeholder="Example: I need three B2B buyer personas for a new analytics product—we're solving reporting sprawl for mid-market ops teams. Or: Build an advisor from this expert: former McKinsey partner, specializes in pricing strategy, based in London…"
+            placeholder='Example: "Run the CFO persuasion test with my skeptical finance persona and paste our pricing page summary as background."'
             className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
           {interim ? <p className="mt-1 text-xs text-slate-500">Listening: {interim}</p> : null}

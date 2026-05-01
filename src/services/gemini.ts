@@ -2,7 +2,16 @@ import { GoogleGenAI } from "@google/genai";
 import type { CreateSimulationRequest } from "./simulationTemplateApi.js";
 import { sanitizeDraft, type SimulationDraft } from "./simulationDraft.js";
 import { sanitizePersonaBuildDraft, type PersonaBuildDraft } from "./personaBuildDraft.js";
-import { customerSegmentTemplate } from "../../templates/customerSegmentTemplate.js";
+import {
+  sanitizeSimulationRunDraft,
+  type SimulationRunDraft,
+  type SimulationRunDraftContext,
+} from "./simulationRunDraft.js";
+import {
+  BUSINESS_PROFILE_SPEC,
+  businessProfileAnswerKey,
+  type BusinessProfileSectionKey,
+} from '../constants/businessProfileSpec.js';
 import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
 
 const MAX_PART_CHARS = 500000;
@@ -442,28 +451,43 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
   },
 
   /**
-   * Generate Company Overview section only (one API call).
-   * Fields: business_name, mission_statement, vision_statement, description_main_offerings,
-   * key_features_or_benefits, unique_selling_proposition, pricing_model, website.
+   * Fill one Business Profile section (tab) from a document / company hint.
+   * Keys are full answer slugs: section.framework.question
    */
-  generateBusinessProfileCompanyOverview: async (
+  generateBusinessProfileSection: async (
+    sectionKey: BusinessProfileSectionKey,
     documentInput: string,
     options: { mimeType?: string; companyHint?: string } = {}
   ): Promise<Record<string, string | null>> => {
-    const keys = ['business_name', 'mission_statement', 'vision_statement', 'description_main_offerings', 'key_features_or_benefits', 'unique_selling_proposition', 'pricing_model', 'website'];
+    const sec = BUSINESS_PROFILE_SPEC.find((s) => s.key === sectionKey);
+    if (!sec) return {};
+    const keys: string[] = [];
+    const keyLines: string[] = [];
+    for (const fw of sec.frameworks) {
+      for (const q of fw.questions) {
+        const k = businessProfileAnswerKey(sec.key, fw.key, q.key);
+        keys.push(k);
+        keyLines.push(`- "${k}": ${q.label}`);
+      }
+    }
     const hintSection = options.companyHint?.trim()
       ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
       : '';
-    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
+    const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
-TASK: Fill in ONLY the Company Overview section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+TASK: Fill in ONLY this section of a Business Profile from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
 
-OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
+SECTION TITLE: ${sec.title}
+
+OUTPUT: A single JSON object only. No markdown code fences, no explanation. Use exactly these keys (use null for any missing value):
 ${keys.join(', ')}
+
+Each key corresponds to one guided question:
+${keyLines.join('\n')}
 
 RULES:
 - Extract and infer from the document; for public companies you may use known facts to fill gaps.
-- Keep each value concise but informative.
+- Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - If a field cannot be determined, use null for that key.
 - Output only the JSON object.`;
 
@@ -472,86 +496,21 @@ RULES:
   },
 
   /**
-   * Generate Market & Positioning section only (one API call).
-   * Includes customer_segments generated using the customer profile template.
-   * Fields: customer_segments, geographic_focus, industry_served, what_differentiates, market_niche, distribution_channels.
-   */
-  generateBusinessProfileMarketPositioning: async (
-    documentInput: string,
-    options: { mimeType?: string; companyHint?: string } = {}
-  ): Promise<Record<string, string | null>> => {
-    const keys = ['customer_segments', 'geographic_focus', 'industry_served', 'what_differentiates', 'market_niche', 'distribution_channels'];
-    const hintSection = options.companyHint?.trim()
-      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
-      : '';
-    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
-
-TASK: Fill in ONLY the Market & Positioning section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
-
-IMPORTANT - Customer Segments: For "customer_segments", use the following customer profile template structure. Generate 2–4 target customer segments. Output the customer_segments value as a single text block (markdown or structured bullets).
-
-Template structure to follow:
-${customerSegmentTemplate}
-
-OUTPUT FORMAT: Respond with a single JSON object only. No markdown code fence around the JSON, no explanation. Use exactly these keys (use null for any missing value):
-${keys.join(', ')}
-
-RULES:
-- customer_segments must be written using the customer profile template structure above (identity, needs, behaviors, how we reach them).
-- Keep each value concise but informative.
-- If a field cannot be determined, use null for that key.
-- Output only the JSON object.`;
-
-    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
-    return normalizeBusinessProfileResult(rawResult, keys);
-  },
-
-  /**
-   * Generate Performance & Funding section only (one API call).
-   * Fields: key_personnel, major_achievements, revenue, key_performance_indicators, funding_rounds, revenue_streams.
-   */
-  generateBusinessProfilePerformanceFunding: async (
-    documentInput: string,
-    options: { mimeType?: string; companyHint?: string } = {}
-  ): Promise<Record<string, string | null>> => {
-    const keys = ['key_personnel', 'major_achievements', 'revenue', 'key_performance_indicators', 'funding_rounds', 'revenue_streams'];
-    const hintSection = options.companyHint?.trim()
-      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
-      : '';
-    const prompt = `You are an expert at extracting structured business information from documents and public knowledge.
-
-TASK: Fill in ONLY the Performance & Funding section from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
-
-OUTPUT FORMAT: Respond with a single JSON object only. No markdown, no code fence, no explanation. Use exactly these keys (use null for any missing value):
-${keys.join(', ')}
-
-RULES:
-- Extract and infer from the document; for public companies you may use known facts (10-K, news) to fill gaps.
-- Keep each value concise but informative.
-- If a field cannot be determined, use null for that key.
-- Output only the JSON object.`;
-
-    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
-    return normalizeBusinessProfileResult(rawResult, keys);
-  },
-
-  /**
-   * Generate a full business profile by making three separate API calls:
-   * 1) Company Overview, 2) Market & Positioning (with customer profile template for segments), 3) Performance & Funding.
-   * Returns merged partial BusinessProfile with snake_case keys.
+   * Generate the full structured business profile (six section API calls in parallel).
+   * Returns merged map of answerKey -> string|null.
    */
   generateBusinessProfileFromDocument: async (
     documentInput: string,
     options: { mimeType?: string; companyHint?: string } = {}
   ): Promise<Record<string, string | null>> => {
-    const [company, market, performance] = await Promise.all([
-      geminiService.generateBusinessProfileCompanyOverview(documentInput, options),
-      geminiService.generateBusinessProfileMarketPositioning(documentInput, options),
-      geminiService.generateBusinessProfilePerformanceFunding(documentInput, options),
-    ]);
+    const parts = await Promise.all(
+      BUSINESS_PROFILE_SPEC.map((sec) =>
+        geminiService.generateBusinessProfileSection(sec.key, documentInput, options)
+      )
+    );
     const result: Record<string, string | null> = {};
-    for (const obj of [company, market, performance]) {
-      for (const [k, v] of Object.entries(obj)) {
+    for (const part of parts) {
+      for (const [k, v] of Object.entries(part)) {
         if (v !== undefined) result[k] = v;
       }
     }
@@ -767,6 +726,79 @@ Omit keys not needed for the chosen persona_type (use "" for unused strings). pe
 
     const parsed = await geminiService.generateBasic(prompt, true);
     return sanitizePersonaBuildDraft(parsed, { forcePersonaType: opts?.forcePersonaType });
+  },
+
+  /**
+   * Map a natural-language run intent to a template id, persona ids, and runner text fields.
+   */
+  draftSimulationRunFromDescription: async (
+    description: string,
+    ctx: SimulationRunDraftContext
+  ): Promise<SimulationRunDraft> => {
+    const trimmed = (description || "").trim();
+    if (!trimmed) {
+      throw new Error("Describe what you want to run (text or voice) before using Build it for me.");
+    }
+    if (!ctx.templates.length) {
+      throw new Error("No simulations are available to run yet.");
+    }
+
+    const templatePayload = ctx.templates.map((t) => ({
+      id: t.id,
+      title: t.title,
+      description: truncate(t.description || "", 800),
+      simulation_type: t.simulation_type || "report",
+      persona_count_min: t.persona_count_min ?? 1,
+      persona_count_max: t.persona_count_max ?? 1,
+      allowed_persona_types: t.allowed_persona_types || [],
+      required_input_fields: (t.required_input_fields || []).map((f) => ({
+        name: f.name,
+        type: f.type,
+        required: f.required,
+        options: f.options,
+      })),
+    }));
+
+    const personaPayload = ctx.personas.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type || "",
+      description: truncate(p.description || "", 400),
+    }));
+
+    const prompt = `You help a user configure a **simulation run** (not create a template). Pick one template and personas from the lists only. Pre-fill text runner fields from the user's description.
+
+## User description
+${truncate(trimmed, 12000)}
+
+## Accessible simulation templates (JSON)
+${JSON.stringify(templatePayload)}
+
+## Personas the user can select (JSON)
+${JSON.stringify(personaPayload)}
+
+## Saved business profile
+${ctx.hasSavedBusinessProfile ? "The user has a saved business profile—business_profile-type inputs are satisfied at runtime." : "The user has NO saved business profile—do not rely on business_profile fields being auto-filled."}
+
+## Rules
+- template_id MUST be exactly one of the template ids from the list, or null if truly impossible—prefer the best match.
+- Optionally set template_title_hint if the user named a simulation loosely (helps recovery); short string.
+- persona_ids: only ids from the persona list. Respect each template's persona_count_min and persona_count_max and allowed_persona_types.
+- input_values: object mapping **required_input_fields[].name** to string content for types **text** (use long text in a single string), **multiple_choice** (value must exactly match one of options), or **textarea**-style prompts. Omit keys for: image, pdf, table, business_profile, survey_questions.
+- If a common context field is named bgInfo or "Background" or similar in required_input_fields, fill it with scenario context from the user.
+- routing_rationale: one or two sentences for the UI.
+
+Return ONE JSON object only (no markdown fences):
+{
+  "template_id": string | null,
+  "template_title_hint": string | "",
+  "persona_ids": string[],
+  "input_values": { },
+  "routing_rationale": string
+}`;
+
+    const parsed = await geminiService.generateBasic(prompt, true);
+    return sanitizeSimulationRunDraft(parsed, ctx);
   },
 
   /**

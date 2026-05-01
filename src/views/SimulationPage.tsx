@@ -42,13 +42,26 @@ import type { AgentPipelineEvent, RetrievalInfo, ValidationInfo } from '../servi
 import AgentPipelineViewer from '../components/AgentPipelineViewer.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { BusinessProfileInlineGenerate } from '../components/BusinessProfileInlineGenerate.js';
-import { businessProfileToPromptString } from '../utils/businessProfile.js';
+import { BusinessProfileScopePicker } from '../components/BusinessProfileScopePicker.js';
+import {
+  DEFAULT_BUSINESS_PROFILE_SCOPE,
+  normalizeBusinessProfileScope,
+  type BusinessProfileScope,
+} from '../constants/businessProfileSpec.js';
+import {
+  businessProfileHasAnswers,
+  businessProfileSummaryLine,
+  businessProfileToPromptString,
+} from '../utils/businessProfile.js';
 import { simulationTemplateApi, SimulationTemplate } from '../services/simulationTemplateApi.js';
 import { focusGroupApi } from '../services/focusGroupApi.js';
 import type { SurveyQuestion } from '../services/simulationTemplateApi.js';
 import { getSimulationIcon } from '../utils/simulationIcons.js';
 import { useAuth } from '../context/AuthContext.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
+import { DescribeSimulateRunBar } from '../components/DescribeSimulateRunBar.js';
+import type { SimulationRunDraft } from '../services/simulationRunDraft.js';
+import { fieldTargetId } from '../forms/types.js';
 import { getRunnerDisplayName, getStablePersonaFallbackName, getPersonaDisplayName } from '../utils/humanNames.js';
 import { coerceSinglePersuasionScore, parseLastPersuasionPercentFromText } from '../utils/persuasionScore.js';
 import {
@@ -70,6 +83,8 @@ import {
 } from '../utils/simulationLocalStorage.js';
 
 const MAX_PERSONA_TURNS = 20;
+
+type HubTab = 'find' | 'yours' | 'saved';
 
 /** Persist think / RAG / validation on simulation messages (local + API). */
 function messageMetadataFromAgentTurn(agent: {
@@ -115,8 +130,6 @@ function truncateDescriptionToWords(text: string, maxWords: number = 25): string
   return words.slice(0, maxWords).join(' ') + '...';
 }
 const getIcon = (iconName?: string): LucideIcon => getSimulationIcon(iconName);
-
-type HubTab = 'find' | 'yours' | 'saved';
 
 function creatorLabel(sim: SimulationTemplate): string {
   if (sim.visibility === 'global') return 'Admin';
@@ -303,6 +316,133 @@ const FormattedSimulationResponse: React.FC<{ content: string; isUser?: boolean 
   );
 };
 
+const INPUTS_FORM_KEY = 'simulate.run.inputs';
+
+const SimulateRunVoiceTextarea: React.FC<{
+  fieldName: string;
+  fieldLabel: string;
+  value: string;
+  onChange: (next: string) => void;
+  required?: boolean;
+  rows?: number;
+}> = ({ fieldName, fieldLabel, value, onChange, required, rows = 4 }) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useVoiceTarget({
+    id: fieldTargetId(INPUTS_FORM_KEY, fieldName),
+    label: `Simulation input: ${fieldLabel}`,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: true,
+  });
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      required={required}
+      rows={rows}
+      className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-y min-h-[120px]"
+    />
+  );
+};
+
+const SimulateRunVoiceSelect: React.FC<{
+  fieldName: string;
+  fieldLabel: string;
+  value: string;
+  options: string[];
+  onChange: (next: string) => void;
+  required?: boolean;
+}> = ({ fieldName, fieldLabel, value, options, onChange, required }) => {
+  const ref = useRef<HTMLSelectElement>(null);
+  useVoiceTarget({
+    id: fieldTargetId(INPUTS_FORM_KEY, fieldName),
+    label: `Simulation input: ${fieldLabel}`,
+    action: 'fill',
+    ref: ref as React.RefObject<HTMLElement | null>,
+    enabled: true,
+  });
+  return (
+    <select
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      required={required}
+      className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+    >
+      <option value="">Select...</option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
+  );
+};
+
+const SimulateRunPersonaCard: React.FC<{
+  persona: Persona;
+  isSelected: boolean;
+  atMax: boolean;
+  voiceEnabled: boolean;
+  onToggle: () => void;
+}> = ({ persona: p, isSelected, atMax, voiceEnabled, onToggle }) => {
+  const ref = useRef<HTMLButtonElement>(null);
+  const canToggle = isSelected || !atMax;
+  useVoiceTarget({
+    id: fieldTargetId('simulate.run.persona', p.id),
+    label: `Toggle persona: ${getPersonaDisplayName(p)}`,
+    action: 'click',
+    ref,
+    enabled: voiceEnabled && canToggle,
+  });
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={() => {
+        if (!canToggle) return;
+        onToggle();
+      }}
+      className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'} ${!canToggle ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+    >
+      <img src={p.avatarUrl || ''} alt={getPersonaDisplayName(p)} className="w-10 h-10 rounded-xl object-cover" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-black text-gray-900 truncate">{getPersonaDisplayName(p)}</p>
+        {p.description?.trim() ? <p className="text-[10px] text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : null}
+        {isSelected && <p className="text-[10px] text-indigo-600 font-bold">Selected</p>}
+      </div>
+    </button>
+  );
+};
+
+const SimulationHubTabButton: React.FC<{
+  tabId: HubTab;
+  label: string;
+  active: boolean;
+  onPick: () => void;
+}> = ({ tabId, label, active, onPick }) => {
+  const ref = useRef<HTMLButtonElement>(null);
+  useVoiceTarget({
+    id: `simulate.hub.tab.${tabId}`,
+    label: `Simulation templates tab: ${label}`,
+    action: 'click',
+    ref,
+  });
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onPick}
+      className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+        active ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+      }`}
+    >
+      {label}
+    </button>
+  );
+};
+
 const ConfigureSimulationTemplateButton: React.FC<{
   templateId: string;
   templateTitle: string;
@@ -332,6 +472,9 @@ const SimulationPage: React.FC = () => {
   const [stage, setStage] = useState<'selection' | 'inputs' | 'result'>('selection');
   const [selectedSimulation, setSelectedSimulation] = useState<SimulationTemplate | null>(null);
   const [simulations, setSimulations] = useState<SimulationTemplate[]>([]);
+  /** All templates the user can run (for voice / Build it for me); independent of hub tab. */
+  const [accessibleTemplatesForVoice, setAccessibleTemplatesForVoice] = useState<SimulationTemplate[]>([]);
+  const [voiceAssistantBusinessProfile, setVoiceAssistantBusinessProfile] = useState<BusinessProfile | null>(null);
   const [mode, setMode] = useState<SimulationMode | null>(null); // Keep for backward compatibility with existing sessions
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonas, setSelectedPersonas] = useState<Persona[]>([]);
@@ -356,6 +499,7 @@ const SimulationPage: React.FC = () => {
   const [inputFields, setInputFields] = useState<Record<string, string>>({});
   const [savedBusinessProfile, setSavedBusinessProfile] = useState<BusinessProfile | null>(null);
   const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
+  const [businessProfileScope, setBusinessProfileScope] = useState<BusinessProfileScope>(DEFAULT_BUSINESS_PROFILE_SCOPE);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSimulations, setIsLoadingSimulations] = useState(true);
@@ -391,6 +535,7 @@ const SimulationPage: React.FC = () => {
   const simGotoHubRef = useRef<HTMLButtonElement>(null);
   const simHubSearchRef = useRef<HTMLInputElement>(null);
   const simStartRef = useRef<HTMLButtonElement>(null);
+  const simBackToTemplatesRef = useRef<HTMLButtonElement>(null);
 
   useVoiceTarget({
     id: 'simulate.new_session',
@@ -418,6 +563,13 @@ const SimulationPage: React.FC = () => {
     label: 'Start simulation',
     action: 'click',
     ref: simStartRef,
+    enabled: stage === 'inputs',
+  });
+  useVoiceTarget({
+    id: 'simulate.run.back',
+    label: 'Back to templates',
+    action: 'click',
+    ref: simBackToTemplatesRef,
     enabled: stage === 'inputs',
   });
 
@@ -519,7 +671,7 @@ const SimulationPage: React.FC = () => {
       (f.type === 'business_profile' || f.name === 'businessProfile') && f.required
     ) &&
     !businessProfileLoading &&
-    !savedBusinessProfile
+    !businessProfileHasAnswers(savedBusinessProfile)
   );
 
   const loadStarredIds = useCallback(async () => {
@@ -658,6 +810,91 @@ const SimulationPage: React.FC = () => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    simulationTemplateApi
+      .getAll()
+      .then((list) => {
+        if (!cancelled) setAccessibleTemplatesForVoice(list);
+      })
+      .catch(() => {
+        if (!cancelled) setAccessibleTemplatesForVoice([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getBusinessProfile()
+      .then((p) => {
+        if (!cancelled) setVoiceAssistantBusinessProfile(p ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setVoiceAssistantBusinessProfile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSimulationRunDraft = useCallback(
+    (draft: SimulationRunDraft) => {
+      if (!draft.template_id) return;
+      const tpl =
+        accessibleTemplatesForVoice.find((t) => t.id === draft.template_id) ||
+        simulations.find((t) => t.id === draft.template_id);
+      if (!tpl) return;
+      const changing = selectedSimulation?.id !== tpl.id;
+      setSelectedSimulation(tpl);
+      setStage('inputs');
+      if (changing) {
+        setInputFields({});
+        setSurveyGeneratedAnswers({});
+        setRunnerSurveyQuestions({});
+        setStimulusImage(null);
+        setMimeType(null);
+        setBgInfo('');
+        setOpeningLine('');
+      }
+      const picked = draft.persona_ids
+        .map((id) => personas.find((p) => p.id === id))
+        .filter((p): p is Persona => p != null);
+      const allowedTypes = tpl.allowed_persona_types;
+      const filtered = allowedTypes?.length
+        ? picked.filter((p) => Boolean(p.type) && allowedTypes.includes(p.type))
+        : picked;
+      const maxP = tpl.persona_count_max ?? 1;
+      const minP = tpl.persona_count_min ?? 1;
+      let nextPersonas = filtered.slice(0, maxP);
+      if (nextPersonas.length < minP) {
+        const pool = allowedTypes?.length
+          ? personas.filter((p) => Boolean(p.type) && allowedTypes.includes(p.type))
+          : personas;
+        for (const p of pool) {
+          if (nextPersonas.length >= minP) break;
+          if (nextPersonas.some((x) => x.id === p.id)) continue;
+          nextPersonas = [...nextPersonas, p];
+          if (nextPersonas.length >= maxP) break;
+        }
+        nextPersonas = nextPersonas.slice(0, maxP);
+      }
+      setSelectedPersonas(nextPersonas);
+
+      setInputFields((prev) => {
+        const base = changing ? {} : { ...prev };
+        return { ...base, ...draft.input_values };
+      });
+      if (draft.input_values.bgInfo !== undefined) {
+        setBgInfo(draft.input_values.bgInfo);
+      } else if (changing) {
+        setBgInfo('');
+      }
+    },
+    [accessibleTemplatesForVoice, simulations, selectedSimulation?.id, personas]
+  );
+
+  useEffect(() => {
     if (selectedSimulation) {
       focusGroupApi.getAll().then(setFocusGroups).catch(() => setFocusGroups([]));
     }
@@ -764,6 +1001,11 @@ const SimulationPage: React.FC = () => {
       .finally(() => { if (!cancelled) setBusinessProfileLoading(false); });
     return () => { cancelled = true; };
   }, [hasBusinessProfileField]);
+
+  useEffect(() => {
+    const raw = selectedSimulation?.type_specific_config?.business_profile_scope;
+    setBusinessProfileScope(normalizeBusinessProfileScope(raw));
+  }, [selectedSimulation?.id]);
 
   // Restore last active simulation session after history is loaded
   useEffect(() => {
@@ -957,7 +1199,7 @@ const SimulationPage: React.FC = () => {
     if (savedBusinessProfile && selectedSimulation.required_input_fields) {
       for (const field of selectedSimulation.required_input_fields) {
         if (field.type === 'business_profile' || field.name === 'businessProfile') {
-          fieldMap[field.name] = businessProfileToPromptString(savedBusinessProfile);
+          fieldMap[field.name] = businessProfileToPromptString(savedBusinessProfile, businessProfileScope);
         }
       }
     }
@@ -1910,30 +2152,24 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
               </button>
             </div>
 
+            <DescribeSimulateRunBar
+              templates={accessibleTemplatesForVoice}
+              personas={personas}
+              hasSavedBusinessProfile={businessProfileHasAnswers(voiceAssistantBusinessProfile)}
+              onApplyDraft={handleSimulationRunDraft}
+              disabled={isLoadingSimulations || !!simulationsError}
+            />
+
             <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex flex-wrap gap-4" aria-label="Simulation templates">
-                {(
-                  [
-                    { id: 'find' as const, label: 'Find' },
-                    { id: 'yours' as const, label: 'Your simulations' },
-                    { id: 'saved' as const, label: 'Saved' },
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      setHubTab(tab.id);
-                    }}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                      hubTab === tab.id
-                        ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                <SimulationHubTabButton tabId="find" label="Find" active={hubTab === 'find'} onPick={() => setHubTab('find')} />
+                <SimulationHubTabButton
+                  tabId="yours"
+                  label="Your simulations"
+                  active={hubTab === 'yours'}
+                  onPick={() => setHubTab('yours')}
+                />
+                <SimulationHubTabButton tabId="saved" label="Saved" active={hubTab === 'saved'} onPick={() => setHubTab('saved')} />
               </nav>
             </div>
 
@@ -2130,9 +2366,21 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
 
         {stage === 'inputs' && (
           <div className="max-w-4xl mx-auto px-6 py-12 w-full overflow-y-auto">
-            <button onClick={() => setStage('selection')} className="flex items-center text-sm font-black text-gray-400 uppercase tracking-widest mb-8 hover:text-indigo-600 transition-colors">
+            <button
+              ref={simBackToTemplatesRef}
+              type="button"
+              onClick={() => setStage('selection')}
+              className="flex items-center text-sm font-black text-gray-400 uppercase tracking-widest mb-8 hover:text-indigo-600 transition-colors"
+            >
               <ArrowLeft className="w-4 h-4 mr-2" /> Back to templates
             </button>
+
+            <DescribeSimulateRunBar
+              templates={accessibleTemplatesForVoice}
+              personas={personas}
+              hasSavedBusinessProfile={businessProfileHasAnswers(voiceAssistantBusinessProfile)}
+              onApplyDraft={handleSimulationRunDraft}
+            />
 
             <div className="bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-gray-100 p-8 sm:p-14 space-y-12">
               <div className="flex items-center gap-6 pb-8 border-b border-gray-50">
@@ -2205,32 +2453,26 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                         </div>
                       )}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {allowedPersonasForSimulation.map(p => {
-                        const isSelected = selectedPersonas.some(sp => sp.id === p.id);
+                      {allowedPersonasForSimulation.map((p) => {
+                        const isSelected = selectedPersonas.some((sp) => sp.id === p.id);
                         const atMax = selectedPersonas.length >= personaCountMax;
-                        const canToggle = isSelected || !atMax;
                         return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => {
-                            if (!canToggle) return;
-                            if (isSelected) {
-                              setSelectedPersonas(prev => prev.filter(sp => sp.id !== p.id));
-                            } else {
-                              setSelectedPersonas(prev => [...prev, p]);
-                            }
-                          }}
-                          className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-gray-50 hover:border-indigo-100 bg-white'} ${!canToggle ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
-                        >
-                          <img src={p.avatarUrl} alt={getPersonaDisplayName(p)} className="w-10 h-10 rounded-xl object-cover" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-black text-gray-900 truncate">{getPersonaDisplayName(p)}</p>
-                            {(p.description?.trim()) ? <p className="text-[10px] text-gray-500 truncate mt-0.5">{p.description.trim()}</p> : null}
-                            {isSelected && <p className="text-[10px] text-indigo-600 font-bold">Selected</p>}
-                          </div>
-                        </button>
-                      ); })}
+                          <SimulateRunPersonaCard
+                            key={p.id}
+                            persona={p}
+                            isSelected={isSelected}
+                            atMax={atMax}
+                            voiceEnabled
+                            onToggle={() => {
+                              if (isSelected) {
+                                setSelectedPersonas((prev) => prev.filter((sp) => sp.id !== p.id));
+                              } else {
+                                setSelectedPersonas((prev) => [...prev, p]);
+                              }
+                            }}
+                          />
+                        );
+                      })}
                     </div>
                     </>
                   )}
@@ -2295,9 +2537,19 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                               <Loader2 className="w-5 h-5 animate-spin" /> Loading business background...
                             </div>
                           ) : savedBusinessProfile ? (
-                            <div>
-                              <p className="text-sm font-bold text-indigo-700 mb-1">Using your saved business background</p>
-                              <p className="text-sm text-gray-600">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Details from your Business Profile are included as context.</p>
+                            <div className="space-y-3">
+                              <p className="text-sm font-bold text-indigo-700">Using your saved business background</p>
+                              <p className="text-sm text-gray-600">{businessProfileSummaryLine(savedBusinessProfile)}</p>
+                              <div>
+                                <span className="mb-1 block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                  Context scope
+                                </span>
+                                <BusinessProfileScopePicker
+                                  value={businessProfileScope}
+                                  onChange={setBusinessProfileScope}
+                                  compact
+                                />
+                              </div>
                             </div>
                           ) : (
                             <div className="space-y-4">
@@ -2569,17 +2821,14 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                         <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           {fieldNumber}. {field.name} {field.required && '*'}
                         </span>
-                        <select
+                        <SimulateRunVoiceSelect
+                          fieldName={field.name}
+                          fieldLabel={field.name}
                           value={value}
-                          onChange={(e) => setInputFields({ ...inputFields, [field.name]: e.target.value })}
+                          options={options}
+                          onChange={(next) => setInputFields({ ...inputFields, [field.name]: next })}
                           required={field.required}
-                          className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                        >
-                          <option value="">Select...</option>
-                          {options.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     );
                   }
@@ -2589,16 +2838,16 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
                       <span className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         {fieldNumber}. {field.name} {field.required && '*'}
                       </span>
-                      <textarea
+                      <SimulateRunVoiceTextarea
+                        fieldName={field.name}
+                        fieldLabel={field.name}
                         value={value}
-                        onChange={(e) => {
-                          const newValue = e.target.value;
-                          setInputFields({ ...inputFields, [field.name]: newValue });
-                          if (field.name === 'bgInfo') setBgInfo(newValue);
+                        onChange={(next) => {
+                          setInputFields({ ...inputFields, [field.name]: next });
+                          if (field.name === 'bgInfo') setBgInfo(next);
                         }}
                         required={field.required}
                         rows={4}
-                        className="w-full p-6 bg-gray-50 border border-gray-100 rounded-3xl font-medium focus:ring-4 focus:ring-indigo-100 outline-none transition-all resize-y min-h-[120px]"
                       />
                     </div>
                   );

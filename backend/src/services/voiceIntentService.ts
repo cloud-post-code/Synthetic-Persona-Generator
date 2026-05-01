@@ -7,7 +7,7 @@ import { classifyIntent } from './intentClassifier.js';
 import { expandTemplate } from './templateExpander.js';
 import { topKIntentsByKeyword } from '../voice/intentTemplates.js';
 import type { Domain } from './userDataContext.js';
-import { getDigest, type DigestViewer } from './userDataContext.js';
+import { getDigest, mergeVoiceDigestDomains, type DigestViewer } from './userDataContext.js';
 
 const MODEL = 'gemini-2.5-flash';
 /** Enough for navigate + several fills + Save/Continue on wizards */
@@ -382,7 +382,7 @@ export async function resolveVoiceIntent(
     }
   }
 
-  const hinted = hintedDomainsFromTranscript(body.transcript);
+  const hinted = mergeVoiceDigestDomains(body.context.pathname, hintedDomainsFromTranscript(body.transcript));
   let digestBlock = '';
   if (auth.userId && hinted.length > 0) {
     digestBlock = await buildDigestBlock(auth.userId, hinted, viewer);

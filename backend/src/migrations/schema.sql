@@ -9,30 +9,11 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Business profiles table (1:1 with users)
+-- Business profiles table (1:1 with users) — structured answers (disciplined entrepreneurship frameworks)
 CREATE TABLE IF NOT EXISTS business_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  business_name TEXT,
-  mission_statement TEXT,
-  vision_statement TEXT,
-  description_main_offerings TEXT,
-  key_features_or_benefits TEXT,
-  unique_selling_proposition TEXT,
-  pricing_model TEXT,
-  customer_segments TEXT,
-  geographic_focus TEXT,
-  industry_served TEXT,
-  what_differentiates TEXT,
-  market_niche TEXT,
-  revenue_streams TEXT,
-  distribution_channels TEXT,
-  key_personnel TEXT,
-  major_achievements TEXT,
-  revenue TEXT,
-  key_performance_indicators TEXT,
-  funding_rounds TEXT,
-  website TEXT,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

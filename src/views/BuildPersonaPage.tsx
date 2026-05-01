@@ -5,8 +5,17 @@ import { personaApi } from '../services/personaApi.js';
 import { geminiService, GEMINI_ACCEPTED_MIME_TYPES, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile } from '../services/businessProfileApi.js';
 import { BusinessProfileInlineGenerate } from '../components/BusinessProfileInlineGenerate.js';
+import { BusinessProfileScopePicker } from '../components/BusinessProfileScopePicker.js';
 import type { BusinessProfile } from '../models/types.js';
-import { businessProfileToPromptString } from '../utils/businessProfile.js';
+import {
+  DEFAULT_BUSINESS_PROFILE_SCOPE,
+  type BusinessProfileScope,
+} from '../constants/businessProfileSpec.js';
+import {
+  businessProfileHasAnswers,
+  businessProfileSummaryLine,
+  businessProfileToPromptString,
+} from '../utils/businessProfile.js';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
@@ -219,6 +228,7 @@ const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () =
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [savedBusinessProfile, setSavedBusinessProfile] = useState<BusinessProfile | null>(null);
   const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
+  const [businessProfileScope, setBusinessProfileScope] = useState<BusinessProfileScope>(DEFAULT_BUSINESS_PROFILE_SCOPE);
   const [formData, setFormData] = useState({
     q1: '', q2: '', q3: '', q4: '', q5: 'B2B' as 'B2B' | 'B2C', q6: '', q7: 1,
     specificUserType: '', // optional, for business_profile: "specific type of user"
@@ -321,7 +331,9 @@ const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () =
       } else if (method === 'supporting_docs') {
         userQInputs = `Supporting Docs (${q6FileName || 'document'}): ${formData.q6}`;
       } else if (method === 'business_profile') {
-        const profileText = savedBusinessProfile ? businessProfileToPromptString(savedBusinessProfile) : 'No business background saved. Add it in Business Profile.';
+        const profileText = savedBusinessProfile
+          ? businessProfileToPromptString(savedBusinessProfile, businessProfileScope)
+          : 'No business background saved. Add it in Business Profile.';
         const specificPart = formData.specificUserType.trim() ? `\n\nSpecific type of user requested: ${formData.specificUserType.trim()}` : '';
         userQInputs = `Business background:\n${profileText}${specificPart}`;
       }
@@ -587,9 +599,15 @@ const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () =
             {businessProfileLoading ? (
               <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="animate-spin w-8 h-8 mr-2" /> Loading business background...</div>
             ) : savedBusinessProfile ? (
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-6 space-y-2">
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-6 space-y-3">
                 <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">Using your saved business background</h4>
-                <p className="text-sm text-gray-600 font-medium">{savedBusinessProfile.business_name || 'Unnamed'} — {savedBusinessProfile.industry_served || 'No industry'}. Other details from Business Profile will be included in generation.</p>
+                <p className="text-sm text-gray-600 font-medium">{businessProfileSummaryLine(savedBusinessProfile)}</p>
+                <div>
+                  <label className="mb-2 block text-xs font-black text-gray-400 uppercase tracking-widest">
+                    Include in generation
+                  </label>
+                  <BusinessProfileScopePicker value={businessProfileScope} onChange={setBusinessProfileScope} />
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -638,7 +656,7 @@ const SyntheticUserForm = forwardRef<SyntheticUserFormHandle, { onComplete: () =
             loading ||
             (method === 'problem_solution' && (!formData.q1.trim() || !formData.q2.trim() || !formData.q3.trim() || !formData.q4.trim())) ||
             (method === 'supporting_docs' && !formData.q6.trim()) ||
-            (method === 'business_profile' && !savedBusinessProfile)
+            (method === 'business_profile' && !businessProfileHasAnswers(savedBusinessProfile))
           }
           className="flex-1 min-w-[200px] py-6 bg-indigo-600 text-white font-black text-lg rounded-3xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all"
         >

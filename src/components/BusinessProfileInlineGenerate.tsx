@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
-import { saveBusinessProfile } from '../services/businessProfileApi.js';
+import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import type { BusinessProfile } from '../models/types.js';
 
 export type BusinessProfileInlineGenerateProps = {
@@ -11,14 +11,15 @@ export type BusinessProfileInlineGenerateProps = {
   variant?: 'default' | 'compact';
 };
 
-function generatedRecordToPayload(result: Record<string, string | null>): Partial<BusinessProfile> {
-  const out: Partial<BusinessProfile> = {};
+function mergeGeneratedIntoAnswers(
+  existing: Record<string, string> | undefined,
+  result: Record<string, string | null>
+): Record<string, string> {
+  const base = { ...(existing ?? {}) };
   for (const [k, v] of Object.entries(result)) {
-    if (v != null && String(v).trim() !== '') {
-      (out as Record<string, string>)[k] = String(v).trim();
-    }
+    if (v != null && String(v).trim() !== '') base[k] = String(v).trim();
   }
-  return out;
+  return base;
 }
 
 /**
@@ -80,8 +81,9 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
     try {
       const merged = await geminiService.generateBusinessProfileFromDocument(input, opts);
       if (cancelledRef.current) return;
-      const payload = generatedRecordToPayload(merged);
-      const saved = await saveBusinessProfile(payload);
+      const current = await getBusinessProfile();
+      const answers = mergeGeneratedIntoAnswers(current?.answers, merged);
+      const saved = await saveBusinessProfile({ answers });
       if (cancelledRef.current) return;
       onSaved(saved);
     } catch (err) {
