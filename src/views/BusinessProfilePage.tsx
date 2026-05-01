@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
@@ -76,8 +77,28 @@ const TextArea: React.FC<{
 };
 
 const BusinessProfilePage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [answers, setAnswers] = useState<Record<string, string>>(emptyAnswers);
-  const [activeTab, setActiveTab] = useState<BusinessProfileSectionKey>('who_is_customer');
+
+  const activeTab = useMemo((): BusinessProfileSectionKey => {
+    const t = searchParams.get('tab');
+    if (t && BUSINESS_PROFILE_SPEC.some((s) => s.key === t)) return t as BusinessProfileSectionKey;
+    return 'who_is_customer';
+  }, [searchParams]);
+
+  const setActiveTab = useCallback(
+    (tab: BusinessProfileSectionKey) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', tab);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [collapsedFw, setCollapsedFw] = useState<Record<string, boolean>>({});
   const [viewFull, setViewFull] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -108,16 +129,6 @@ const BusinessProfilePage: React.FC = () => {
     ref: saveBtnRef as React.RefObject<HTMLElement | null>,
     enabled: !loading,
   });
-
-  useEffect(() => {
-    const hash = (window.location.hash || '').replace(/^#/, '') as BusinessProfileSectionKey;
-    const valid = BUSINESS_PROFILE_SPEC.some((s) => s.key === hash);
-    if (valid) setActiveTab(hash);
-  }, []);
-
-  useEffect(() => {
-    window.location.hash = activeTab;
-  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
