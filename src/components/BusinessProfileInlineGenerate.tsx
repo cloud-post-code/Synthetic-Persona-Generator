@@ -133,9 +133,10 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
           </h4>
           <p className="text-xs text-indigo-800/80 mt-1 max-w-xl">
             Optionally upload a deck, plan, or 10-K and/or enter a company or website hint (pre-filled from your
-            Business Profile when set there). With files, we only fill answers those sources support. With neither
-            file nor hint, generation still runs but stays conservative (entity-specific fields often stay empty). Same
-            pipeline as the{' '}
+            Business Profile when set there). With text we can read from your files, we first choose which profile
+            sections match the material, then fill only what those sources clearly support. PDF- or image-only runs
+            every section against the file. With neither file nor hint, generation stays conservative (entity-specific
+            fields often stay empty). Same pipeline as the{' '}
             <Link to="/business-profile" className="font-semibold text-indigo-700 underline hover:text-indigo-900">
               Business Profile
             </Link>{' '}

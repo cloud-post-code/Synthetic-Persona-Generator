@@ -36,7 +36,7 @@ export function createSpeechRecognition(callbacks: RecognitionCallbacks): {
 } {
   const Ctor = getRecognitionCtor() as new () => SpeechRecognition;
   const rec = new Ctor();
-  rec.continuous = false;
+  rec.continuous = true;
   rec.interimResults = true;
   rec.lang = 'en-US';
 

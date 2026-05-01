@@ -134,6 +134,8 @@ export type BusinessProfileSectionSource = {
 };
 
 const BP_EXISTING_VALUE_PROMPT_MAX = 3500;
+/** Max chars of plain-text corpus sent to the section-router prompt. */
+const BP_ROUTE_TEXT_MAX = 16000;
 
 function sliceExistingAnswersForKeys(
   existing: Record<string, string> | undefined,
@@ -651,6 +653,79 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
   },
 
   /**
+   * From plain-text excerpts (plus optional filenames), pick which Business Profile section tabs
+   * plausibly relate to the material. Returns keys in spec order.
+   * When there is no text excerpt (e.g. PDF-only uploads), returns all six sections so each file-backed pass still runs.
+   */
+  routeBusinessProfileSectionKeys: async (
+    source: BusinessProfileSectionSource
+  ): Promise<BusinessProfileSectionKey[]> => {
+    const allOrdered = BUSINESS_PROFILE_SPEC.map((s) => s.key);
+    const textCorpus = (source.textCorpus ?? '').trim();
+    const hasFiles = (source.inlineFiles?.length ?? 0) > 0;
+    const hasMaterial = Boolean(textCorpus) || hasFiles;
+    if (!hasMaterial) return allOrdered;
+
+    if (!textCorpus) {
+      return allOrdered;
+    }
+
+    const hint = source.companyHint?.trim();
+    const sectionLines = BUSINESS_PROFILE_SPEC.map(
+      (s) => `- "${s.key}": ${s.title} (${s.shortLabel})`
+    ).join('\n');
+
+    const names =
+      hasFiles && source.inlineFiles
+        ? source.inlineFiles.map((f, i) => f.name?.trim() || `file-${i + 1}`).join(', ')
+        : '';
+    const fileNote = hasFiles
+      ? `The user also attached ${source.inlineFiles!.length} file(s): ${names}. You do not see file contents—use filenames only as weak hints. When in doubt, **include** the section.`
+      : '';
+
+    const prompt = `You map business materials to profile **section** themes (high-level tabs, not individual form fields).
+
+## Plain-text excerpt (may be truncated)
+${truncate(textCorpus, BP_ROUTE_TEXT_MAX)}
+${hint ? `\nCompany / disambiguation hint: "${hint}"` : ''}
+${fileNote ? `\n${fileNote}` : ''}
+
+## Sections (exact keys)
+${sectionLines}
+
+## Task
+Return ONE JSON object only: { "sections": [ "<key>", ... ] }
+
+Include every section key from the list where the excerpt (and filenames, weakly) could plausibly inform **any part** of that section. **Err toward including** a section when overlap is plausible.
+
+**Exclude** a key from the array only when the material is clearly irrelevant to that entire theme.
+
+Allowed keys only: ${BUSINESS_PROFILE_SPEC.map((s) => `"${s.key}"`).join(', ')}`;
+
+    try {
+      const raw = await geminiService.generateBasic(prompt, true, 'business_profile');
+      const arr =
+        raw &&
+        typeof raw === 'object' &&
+        raw !== null &&
+        'sections' in raw &&
+        Array.isArray((raw as { sections: unknown }).sections)
+          ? (raw as { sections: unknown[] }).sections
+          : null;
+      if (!arr || arr.length === 0) return allOrdered;
+      const allowed = new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key));
+      const picked = new Set<string>();
+      for (const item of arr) {
+        if (typeof item === 'string' && allowed.has(item)) picked.add(item);
+      }
+      if (picked.size === 0) return allOrdered;
+      return allOrdered.filter((k) => picked.has(k));
+    } catch {
+      return allOrdered;
+    }
+  },
+
+  /**
    * Fill one Business Profile section (tab) from a document / company hint.
    * Keys are full answer slugs: section.framework.question
    */
@@ -738,8 +813,9 @@ ${mergeBlock}`;
   },
 
   /**
-   * Generate the full structured business profile (six section API calls in parallel).
-   * Returns merged map of answerKey -> string|null.
+   * Generate structured business profile fields from a document (parallel section calls).
+   * When plain-text excerpts exist, a short routing pass selects which section tabs to run; PDF-only
+   * uploads run all six sections against the files. Returns answerKey -> string|null.
    */
   generateBusinessProfileFromDocument: async (
     documentInput: string,
@@ -757,8 +833,18 @@ ${mergeBlock}`;
     const textOnly = documentInput.trim() && !options.mimeType;
     const fullExisting = options.existingAnswers;
 
+    const sectionSourceBase: BusinessProfileSectionSource = {
+      companyHint: options.companyHint,
+      textCorpus: textOnly ? documentInput : undefined,
+      inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
+    };
+
+    const sectionKeysToRun = await geminiService.routeBusinessProfileSectionKeys(sectionSourceBase);
+
     const parts = await Promise.all(
-      BUSINESS_PROFILE_SPEC.map((sec) => {
+      sectionKeysToRun.map((sectionKey) => {
+        const sec = BUSINESS_PROFILE_SPEC.find((s) => s.key === sectionKey);
+        if (!sec) return Promise.resolve({} as Record<string, string | null>);
         const sectionKeys = getAnswerKeysForSection(sec.key);
         let existingAnswers: Record<string, string> | undefined;
         if (fullExisting) {
@@ -770,12 +856,10 @@ ${mergeBlock}`;
           if (Object.keys(slice).length > 0) existingAnswers = slice;
         }
         const sectionSource: BusinessProfileSectionSource = {
-          companyHint: options.companyHint,
-          textCorpus: textOnly ? documentInput : undefined,
-          inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
+          ...sectionSourceBase,
           ...(existingAnswers ? { existingAnswers } : {}),
         };
-        return geminiService.generateBusinessProfileSection(sec.key, sectionSource);
+        return geminiService.generateBusinessProfileSection(sectionKey, sectionSource);
       })
     );
     const result: Record<string, string | null> = {};

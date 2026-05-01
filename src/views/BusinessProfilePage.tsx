@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
   AlertTriangle,
-  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -34,48 +33,11 @@ import {
   getAnswerKeysForSection,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
+import { KB_MAX_DOCS, readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 
 type VoiceFieldRef = { id: string; label: string };
-
-const BP_GEN_MAX_FILES = 12;
-
-const TAB_KNOWLEDGE_BASE = 'knowledge_base' as const;
-type BusinessProfilePageTab = BusinessProfileSectionKey | typeof TAB_KNOWLEDGE_BASE;
-
-function bpFileReadsAsBinary(file: File): boolean {
-  const t = file.type || '';
-  if (t.startsWith('application/pdf') || t.startsWith('image/')) return true;
-  return !['text/plain', 'text/csv', 'application/json'].includes(t);
-}
-
-async function readBpGenFile(file: File): Promise<BusinessProfileKnowledgeDocument> {
-  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Could not read “${file.name}”.`));
-    reader.onload = () => {
-      const data = String(reader.result ?? '');
-      if (!data.trim()) {
-        reject(new Error(`“${file.name}” appears empty.`));
-        return;
-      }
-      if (bpFileReadsAsBinary(file)) {
-        resolve({
-          id,
-          name: file.name,
-          data,
-          mimeType: file.type || 'application/octet-stream',
-        });
-      } else {
-        resolve({ id, name: file.name, data });
-      }
-    };
-    if (bpFileReadsAsBinary(file)) reader.readAsDataURL(file);
-    else reader.readAsText(file);
-  });
-}
 
 function buildBpGenerationSource(
   files: BusinessProfileKnowledgeDocument[],
@@ -149,15 +111,14 @@ const BusinessProfilePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [answers, setAnswers] = useState<Record<string, string>>(emptyAnswers);
 
-  const activeTab = useMemo((): BusinessProfilePageTab => {
+  const activeTab = useMemo((): BusinessProfileSectionKey => {
     const t = searchParams.get('tab');
-    if (t === TAB_KNOWLEDGE_BASE) return TAB_KNOWLEDGE_BASE;
     if (t && BUSINESS_PROFILE_SPEC.some((s) => s.key === t)) return t as BusinessProfileSectionKey;
     return 'who_is_customer';
   }, [searchParams]);
 
   const setActiveTab = useCallback(
-    (tab: BusinessProfilePageTab) => {
+    (tab: BusinessProfileSectionKey) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -277,12 +238,6 @@ const BusinessProfilePage: React.FC = () => {
     return () => window.clearTimeout(id);
   }, [answers, knowledgeFiles, companyHint, loading, persist]);
 
-  useEffect(() => {
-    if (activeTab === TAB_KNOWLEDGE_BASE && knowledgeFiles.length === 0) {
-      setActiveTab('who_is_customer');
-    }
-  }, [activeTab, knowledgeFiles.length, setActiveTab]);
-
   const handleManualSave = () => {
     void persist(answersForApi(answers), knowledgeFiles, companyHint);
   };
@@ -296,7 +251,7 @@ const BusinessProfilePage: React.FC = () => {
     if (!hasBusinessProfileContent || loading) return;
     if (
       !window.confirm(
-        'Clear the entire business profile? This removes all section answers, uploaded knowledge documents, and the company or website hint used for generation. This cannot be undone.',
+        'Clear the entire business profile? This removes all section answers, every file in your Knowledge base, and the company or website hint used for generation. This cannot be undone.',
       )
     ) {
       return;
@@ -358,9 +313,9 @@ const BusinessProfilePage: React.FC = () => {
     e.target.value = '';
     if (!list?.length) return;
     setGenerateError(null);
-    const remaining = BP_GEN_MAX_FILES - knowledgeFiles.length;
+    const remaining = KB_MAX_DOCS - knowledgeFiles.length;
     if (remaining <= 0) {
-      setGenerateError(`You can add at most ${BP_GEN_MAX_FILES} files. Remove some to add more.`);
+      setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
@@ -454,7 +409,11 @@ const BusinessProfilePage: React.FC = () => {
     setGenerateError(null);
     setGenerateStage(null);
     try {
-      for (const sec of BUSINESS_PROFILE_SPEC) {
+      setGenerateStage('Finding profile sections that match your documents…');
+      const sectionKeysToRun = await geminiService.routeBusinessProfileSectionKeys(source);
+      for (const secKey of sectionKeysToRun) {
+        const sec = BUSINESS_PROFILE_SPEC.find((s) => s.key === secKey);
+        if (!sec) continue;
         if (generateCancelledRef.current) return;
         setGenerateStage(`Filling: ${sec.title}…`);
         const sectionKeys = getAnswerKeysForSection(sec.key);
@@ -467,7 +426,7 @@ const BusinessProfilePage: React.FC = () => {
           ...source,
           ...(Object.keys(existingAnswers).length > 0 ? { existingAnswers } : {}),
         };
-        const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
+        const part = await geminiService.generateBusinessProfileSection(secKey, secSource);
         mergeGenerated(part);
       }
       if (!generateCancelledRef.current) {
@@ -486,8 +445,7 @@ const BusinessProfilePage: React.FC = () => {
     }
   };
 
-  const activeSection =
-    activeTab === TAB_KNOWLEDGE_BASE ? undefined : BUSINESS_PROFILE_SPEC.find((s) => s.key === activeTab);
+  const activeSection = BUSINESS_PROFILE_SPEC.find((s) => s.key === activeTab);
 
   return (
     <div className="min-h-screen bg-[#fafafa] print:bg-white">
@@ -609,9 +567,11 @@ const BusinessProfilePage: React.FC = () => {
                 Generate with AI
               </h3>
               <p className="text-xs text-indigo-900/80">
-                Upload one or more documents (PDF, images, Word, text, CSV, JSON). With documents, we only pre-fill
-                answers the files clearly support (six section calls); other fields stay empty. Optionally add a
-                company name or website for general-knowledge grounding. With neither, generation still runs using
+                Upload one or more documents (PDF, images, Word, text, CSV, JSON). When we have readable text from
+                your uploads, we first pick which of the six profile sections plausibly match that content, then run
+                generation only for those tabs—each field is still filled only where the sources clearly support it.
+                PDF- or image-only uploads run all sections against the files. Optionally add a company name or website
+                for general-knowledge grounding. With neither documents nor a hint, generation still runs using
                 conservative, non-specific guidance (many fields may stay empty).
               </p>
               <div>
@@ -636,7 +596,14 @@ const BusinessProfilePage: React.FC = () => {
                         {knowledgeFiles.length ? 'Add more files' : 'Choose files'}
                       </label>
                       <p className="mt-2 text-center text-[11px] text-indigo-900/70">
-                        Up to {BP_GEN_MAX_FILES} files · hold Cmd/Ctrl to select several
+                        Up to {KB_MAX_DOCS} files · hold Cmd/Ctrl to select several
+                      </p>
+                      <p className="mt-1 text-center text-[11px] text-indigo-900/70">
+                        Saved files appear in your{' '}
+                        <Link to="/knowledge-base" className="font-semibold text-indigo-800 underline hover:text-indigo-950">
+                          Knowledge base
+                        </Link>
+                        .
                       </p>
                     </div>
                     {knowledgeFiles.length > 0 && (
@@ -728,58 +695,10 @@ const BusinessProfilePage: React.FC = () => {
                   {sec.shortLabel}
                 </button>
               ))}
-              {knowledgeFiles.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab(TAB_KNOWLEDGE_BASE)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
-                    activeTab === TAB_KNOWLEDGE_BASE
-                      ? 'border-gray-900 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
-                  Knowledge base
-                </button>
-              )}
             </nav>
 
             <div className="print:hidden space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              {activeTab === TAB_KNOWLEDGE_BASE ? (
-                <>
-                  <h2 className="text-lg font-semibold text-gray-900">Knowledge base</h2>
-                  <p className="text-sm text-gray-600">
-                    Files you upload under “Generate with AI” are saved automatically. They are included when building
-                    personas, running simulations, and in agent context alongside your structured profile answers.
-                  </p>
-                  <ul className="space-y-3">
-                    {knowledgeFiles.map((f) => (
-                      <li key={f.id} className="rounded-lg border border-gray-100 bg-gray-50/40 p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-900">{f.name}</p>
-                            <p className="text-xs text-gray-500">{f.mimeType ?? 'Plain text'}</p>
-                            <KnowledgeDocumentUploadPreview
-                              doc={f}
-                              density="comfortable"
-                              maxTextChars={800}
-                              tone="neutral"
-                              className="mt-1"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeKnowledgeFile(f.id)}
-                            className="shrink-0 self-start rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : activeSection ? (
+              {activeSection ? (
                 <>
                   <h2 className="text-lg font-semibold text-gray-900">{activeSection.title}</h2>
                   {activeSection.frameworks.map((fw) => {

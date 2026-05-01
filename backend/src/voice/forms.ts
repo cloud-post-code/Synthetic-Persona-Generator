@@ -301,16 +301,14 @@ export const ALL_FORMS: BackendFormSchema[] = [
     page: '/simulate',
     title: 'Run simulation — voice assistant',
     purpose:
-      'Pick a template the user can access, select personas within allowed types and counts, and pre-fill runner text fields. Does not start the simulation.',
+      'Voice-first: tap the mic to describe the run, tap again to pick a template, personas, and pre-fill runner fields. Does not start the simulation.',
     fields: [
       {
-        key: 'describe',
-        label: 'Describe what you want to simulate',
-        type: 'textarea',
-        description: 'Build it for me fills template choice, personas, and inputs where possible.',
+        key: 'mic_toggle',
+        label: 'Tap to speak your run; tap again to build from what you said',
+        type: 'button',
+        action: 'click',
       },
-      { key: 'mic_toggle', label: 'Voice describe simulation run', type: 'button', action: 'click' },
-      { key: 'generate', label: 'Fill simulation run from description', type: 'button', action: 'click' },
     ],
   },
   {

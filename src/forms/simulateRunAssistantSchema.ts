@@ -1,20 +1,18 @@
 import type { FormSchema } from './types.js';
 
-/** Voice + LLM assistant strip on /simulate (describe, mic, pre-fill run). */
+/** Voice-first assistant strip on /simulate: mic captures speech; second tap builds the run. */
 export const simulateRunAssistantSchema: FormSchema = {
   formKey: 'simulate.run.assistant',
   page: '/simulate',
   title: 'Run simulation — voice assistant',
   purpose:
-    'Natural-language and voice input to pick an accessible simulation template, personas, and runner inputs. Does not start the run—user reviews then Configure test / Start simulation.',
+    'Voice-first: tap the mic to describe the run, tap again to pick an accessible template, personas, and pre-fill runner text fields. Does not start the run—user reviews then Configure test / Start simulation.',
   fields: [
     {
-      key: 'describe',
-      label: 'Describe what you want to simulate',
-      type: 'textarea',
-      description: 'Type or dictate; Build it for me picks template, personas, and fills text fields where possible.',
+      key: 'mic_toggle',
+      label: 'Tap to speak your run; tap again to build from what you said',
+      type: 'button',
+      action: 'click',
     },
-    { key: 'mic_toggle', label: 'Voice describe simulation run', type: 'button', action: 'click' },
-    { key: 'generate', label: 'Fill simulation run from description', type: 'button', action: 'click' },
   ],
 };

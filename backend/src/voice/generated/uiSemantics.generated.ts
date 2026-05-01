@@ -179,7 +179,7 @@ export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
       "type": "form_schema",
       "id": "simulate.run.assistant",
       "title": "Form — Run simulation — voice assistant",
-      "body": "# Form simulate.run.assistant\n\nTitle: Run simulation — voice assistant\nPage: /simulate\nPurpose: Pick a template the user can access, select personas within allowed types and counts, and pre-fill runner text fields. Does not start the simulation.\n\n\n\n## Fields (target ids)\n- simulate.run.assistant.describe | label=\"Describe what you want to simulate\" type=textarea action=fill\n- simulate.run.assistant.mic_toggle | label=\"Voice describe simulation run\" type=button action=click\n- simulate.run.assistant.generate | label=\"Fill simulation run from description\" type=button action=click\n"
+      "body": "# Form simulate.run.assistant\n\nTitle: Run simulation — voice assistant\nPage: /simulate\nPurpose: Voice-first: tap the mic to describe the run, tap again to pick a template, personas, and pre-fill runner text fields. Does not start the simulation.\n\n\n\n## Fields (target ids)\n- simulate.run.assistant.mic_toggle | label=\"Tap to speak your run; tap again to build from what you said\" type=button action=click\n"
     },
     {
       "type": "form_schema",

@@ -2050,9 +2050,8 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
       clearing: adminClearingSimulationLogs,
       isAdmin,
     });
-    return () => {
-      setSimulationLogsBridge(null);
-    };
+    // Bridge is cleared or replaced by `GlobalSimulationLogsBridge` when leaving this route;
+    // clearing here in a passive-effect cleanup runs after layout and would wipe the global bridge.
   }, [
     simulationHistory,
     currentSessionId,
@@ -2060,6 +2059,33 @@ Deliver your simulation result as human-readable plain text only. Never use JSON
     isAdmin,
     setSimulationLogsBridge,
   ]);
+
+  const resumeSimulationForUrlRef = useRef(resumeSimulation);
+  resumeSimulationForUrlRef.current = resumeSimulation;
+  const resumeSessionId = searchParams.get('resumeSession');
+  useEffect(() => {
+    if (!resumeSessionId || allPersonas.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await simulationApi.getById(resumeSessionId);
+        if (cancelled) return;
+        await resumeSimulationForUrlRef.current(session);
+        if (cancelled) return;
+        const next = new URLSearchParams(searchParams);
+        next.delete('resumeSession');
+        setSearchParams(next, { replace: true });
+      } catch {
+        if (cancelled) return;
+        const next = new URLSearchParams(searchParams);
+        next.delete('resumeSession');
+        setSearchParams(next, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeSessionId, allPersonas.length, searchParams, setSearchParams]);
 
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-white">

@@ -13,6 +13,9 @@ import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { simulateRunAssistantSchema } from '../forms/simulateRunAssistantSchema.js';
 import { fieldTargetId } from '../forms/types.js';
 
+/** Display label for the model that builds the run (see `generateBasic` in gemini.ts — `gemini-2.5-flash`). */
+const BUILD_AGENT_LABEL = 'Gemini 2.5 Flash';
+
 export type DescribeSimulateRunBarProps = {
   templates: SimulationTemplate[];
   personas: Persona[];
@@ -35,32 +38,21 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successSummary, setSuccessSummary] = useState<string | null>(null);
   const recRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
-  const describeRef = useRef<HTMLTextAreaElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
-  const generateRef = useRef<HTMLButtonElement>(null);
+  const textRef = useRef('');
+  const interimRef = useRef('');
   const formKey = simulateRunAssistantSchema.formKey;
   const voiceSupported = isSpeechRecognitionSupported() && isSecureContextForMic();
 
-  useVoiceTarget({
-    id: fieldTargetId(formKey, 'describe'),
-    label: 'Describe what you want to simulate',
-    action: 'fill',
-    ref: describeRef as React.RefObject<HTMLElement | null>,
-    enabled: !disabled,
-  });
+  textRef.current = text;
+  interimRef.current = interim;
+
   useVoiceTarget({
     id: fieldTargetId(formKey, 'mic_toggle'),
-    label: 'Voice describe simulation run',
+    label: simulateRunAssistantSchema.fields[0]?.label ?? 'Voice: speak run, tap again to build',
     action: 'click',
     ref: micRef as React.RefObject<HTMLElement | null>,
-    enabled: !disabled && voiceSupported,
-  });
-  useVoiceTarget({
-    id: fieldTargetId(formKey, 'generate'),
-    label: 'Fill simulation run from description',
-    action: 'click',
-    ref: generateRef as React.RefObject<HTMLElement | null>,
-    enabled: !disabled && !isGenerating,
+    enabled: !disabled && voiceSupported && !isGenerating,
   });
 
   const stopRec = useCallback(() => {
@@ -77,16 +69,66 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
     };
   }, []);
 
+  const handleGenerate = useCallback(
+    async (descriptionOverride?: string) => {
+      if (disabled || isGenerating) return;
+      const source = descriptionOverride ?? text;
+      const trimmed = source.trim();
+      if (!trimmed) {
+        setError('Speak your simulation run first (tap Mic, then Stop & build).');
+        return;
+      }
+      setError(null);
+      setSuccessSummary(null);
+      setIsGenerating(true);
+      try {
+        const draft = await geminiService.draftSimulationRunFromDescription(trimmed, {
+          templates,
+          personas,
+          hasSavedBusinessProfile,
+        });
+        if (!draft.template_id) {
+          setError([draft.routing_rationale, ...draft.notes].filter(Boolean).join(' ') || 'No matching template.');
+          return;
+        }
+        onApplyDraft(draft);
+        const nFields = Object.keys(draft.input_values).length;
+        const pCount = draft.persona_ids.length;
+        const parts = [
+          draft.routing_rationale,
+          `Template + ${pCount} persona(s) + ${nFields} runner field(s) updated. Review below, then start when ready.`,
+        ];
+        if (draft.notes.length) parts.push(draft.notes.join(' '));
+        setSuccessSummary(parts.filter(Boolean).join(' '));
+        setText('');
+        setInterim('');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Something went wrong.');
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [disabled, hasSavedBusinessProfile, isGenerating, onApplyDraft, personas, templates, text],
+  );
+
   const toggleMic = useCallback(() => {
     if (disabled || !voiceSupported || isGenerating) return;
     if (isRecording) {
+      const merged = [textRef.current.trim(), interimRef.current.trim()].filter(Boolean).join('\n\n').trim();
       stopRec();
+      setText(merged);
+      textRef.current = merged;
+      interimRef.current = '';
+      void handleGenerate(merged);
       return;
     }
     setError(null);
     setSuccessSummary(null);
-    setIsRecording(true);
+    setText('');
     setInterim('');
+    textRef.current = '';
+    interimRef.current = '';
+    setIsRecording(true);
     try {
       const rec = createSpeechRecognition({
         onResult: (t, isFinal) => {
@@ -95,8 +137,11 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
             return;
           }
           setInterim('');
-          setText((prev) => (prev ? `${prev.trimEnd()}\n\n${t.trim()}` : t.trim()));
-          stopRec();
+          setText((prev) => {
+            const next = prev ? `${prev.trimEnd()}\n\n${t.trim()}` : t.trim();
+            textRef.current = next;
+            return next;
+          });
         },
         onError: (msg) => {
           setError(msg);
@@ -113,54 +158,26 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
       setError(e instanceof Error ? e.message : 'Could not start voice input.');
       setIsRecording(false);
     }
-  }, [disabled, voiceSupported, isGenerating, isRecording, stopRec]);
-
-  const handleGenerate = useCallback(async () => {
-    if (disabled || isGenerating) return;
-    const trimmed = text.trim();
-    if (!trimmed) {
-      setError('Add a description (type or dictate) first.');
-      return;
-    }
-    setError(null);
-    setSuccessSummary(null);
-    setIsGenerating(true);
-    try {
-      const draft = await geminiService.draftSimulationRunFromDescription(trimmed, {
-        templates,
-        personas,
-        hasSavedBusinessProfile,
-      });
-      if (!draft.template_id) {
-        setError([draft.routing_rationale, ...draft.notes].filter(Boolean).join(' ') || 'No matching template.');
-        return;
-      }
-      onApplyDraft(draft);
-      const nFields = Object.keys(draft.input_values).length;
-      const pCount = draft.persona_ids.length;
-      const parts = [
-        draft.routing_rationale,
-        `Template + ${pCount} persona(s) + ${nFields} runner field(s) updated. Review below, then start when ready.`,
-      ];
-      if (draft.notes.length) parts.push(draft.notes.join(' '));
-      setSuccessSummary(parts.filter(Boolean).join(' '));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [disabled, hasSavedBusinessProfile, isGenerating, onApplyDraft, personas, templates, text]);
+  }, [disabled, voiceSupported, isGenerating, isRecording, stopRec, handleGenerate]);
 
   if (disabled) return null;
 
   return (
     <div className="mb-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm ring-1 ring-indigo-950/5 sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Describe your simulation run</h3>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 gap-y-2">
+            <h3 className="text-lg font-bold text-slate-900">Describe your simulation run</h3>
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
+              title={`Build agent: ${BUILD_AGENT_LABEL}`}
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Agent: {BUILD_AGENT_LABEL}
+            </span>
+          </div>
           <p className="mt-1 text-sm text-slate-600">
-            Type or use the mic, then <span className="font-semibold text-indigo-700">Build it for me</span> to pick a
-            template, personas, and text fields. Image, PDF, and table inputs still need manual upload.{' '}
+            Tap the mic, speak your run, tap again to build. Image, PDF, and table inputs still need manual upload.{' '}
             <span className="font-semibold text-slate-800">Start simulation</span> when you are ready.
           </p>
         </div>
@@ -175,53 +192,63 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
           {successSummary}
         </p>
       )}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
-        <div className="min-w-0 flex-1">
-          <textarea
-            ref={describeRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={5}
-            placeholder='Example: "Run the CFO persuasion test with my skeptical finance persona and paste our pricing page summary as background."'
-            className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          />
-          {interim ? <p className="mt-1 text-xs text-slate-500">Listening: {interim}</p> : null}
-        </div>
-        <div className="flex shrink-0 flex-row gap-2 sm:w-auto sm:flex-col">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+        <div className="flex shrink-0 flex-col sm:max-w-[220px]">
           <button
             ref={micRef}
             type="button"
             onClick={toggleMic}
             disabled={!voiceSupported || isGenerating}
-            title={voiceSupported ? (isRecording ? 'Stop recording' : 'Speak to add text') : 'Voice not available in this browser'}
-            className={`inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-initial ${
-              isRecording
-                ? 'border-red-300 bg-red-50 text-red-700 ring-2 ring-red-200'
-                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40'
+            title={
+              voiceSupported
+                ? isGenerating
+                  ? 'Building your run…'
+                  : isRecording
+                    ? 'Stop and build from what you said'
+                    : 'Speak your run'
+                : 'Voice not available in this browser'
+            }
+            className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${
+              isGenerating
+                ? 'cursor-wait border-slate-200 bg-slate-100 text-slate-600'
+                : isRecording
+                  ? 'border-red-300 bg-red-50 text-red-700 ring-2 ring-red-200'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40'
             }`}
-          >
-            {isRecording ? <MicOff className="h-5 w-5" aria-hidden /> : <Mic className="h-5 w-5" aria-hidden />}
-            {isRecording ? 'Stop' : 'Mic'}
-          </button>
-          <button
-            ref={generateRef}
-            type="button"
-            onClick={() => void handleGenerate()}
-            disabled={isGenerating}
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-700 disabled:opacity-50 sm:flex-initial"
           >
             {isGenerating ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
                 Building…
               </>
+            ) : isRecording ? (
+              <>
+                <MicOff className="h-5 w-5" aria-hidden />
+                Stop &amp; build
+              </>
             ) : (
               <>
-                <Sparkles className="h-5 w-5" aria-hidden />
-                Build it for me
+                <Mic className="h-5 w-5" aria-hidden />
+                Mic
               </>
             )}
           </button>
+        </div>
+        <div
+          className="min-h-[120px] min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-inner"
+          aria-live="polite"
+          aria-label="Live transcription"
+        >
+          {isGenerating ? (
+            <p className="text-slate-500">Building your run from what you said…</p>
+          ) : text || interim ? (
+            <p className="whitespace-pre-wrap">
+              {text}
+              {interim ? <span className="text-slate-500"> {interim}</span> : null}
+            </p>
+          ) : (
+            <p className="text-slate-400">Speak to see your words here…</p>
+          )}
         </div>
       </div>
     </div>
