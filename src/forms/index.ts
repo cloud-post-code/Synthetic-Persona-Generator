@@ -5,6 +5,7 @@
  */
 
 import { businessProfileFormSchema } from './businessProfileFormSchema.js';
+import { businessProfileAssistantSchema } from './businessProfileAssistantSchema.js';
 import {
   buildPersonaSchemas,
   buildPersonaAssistantSchema,
@@ -31,6 +32,7 @@ import type { FormSchema } from './types.js';
 export const ALL_FORM_SCHEMAS: FormSchema[] = [
   loginFormSchema,
   businessProfileFormSchema,
+  businessProfileAssistantSchema,
   ...buildPersonaSchemas,
   simulationTemplateFormSchema,
   simulateRunAssistantSchema,
@@ -45,6 +47,7 @@ export const ALL_FORM_SCHEMAS: FormSchema[] = [
 export {
   loginFormSchema,
   businessProfileFormSchema,
+  businessProfileAssistantSchema,
   buildPersonaSchemas,
   buildPersonaAssistantSchema,
   buildPersonaPickerSchema,

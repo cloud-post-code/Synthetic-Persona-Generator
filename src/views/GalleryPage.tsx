@@ -165,6 +165,7 @@ const GalleryPage: React.FC = () => {
     try {
       await personaApi.star(id);
       await fetchPersonas();
+      setLibraryPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, starred: true } : p)));
     } catch (err: any) {
       alert(err?.message || 'Could not save persona. Please try again.');
     } finally {
@@ -177,6 +178,7 @@ const GalleryPage: React.FC = () => {
     try {
       await personaApi.unstar(id);
       await fetchPersonas();
+      setLibraryPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, starred: false } : p)));
     } catch (err: any) {
       alert(err.message || 'Could not remove persona. Please try again.');
     } finally {
@@ -351,7 +353,7 @@ const GalleryPage: React.FC = () => {
               onStar={activeTab === 'library' || persona.source === 'owned' ? () => handleStar(persona.id) : undefined}
               onUnstar={
                 activeTab === 'library'
-                  ? (starredIds.has(persona.id) ? () => handleUnstar(persona.id) : undefined)
+                  ? (persona.starred ? () => handleUnstar(persona.id) : undefined)
                   : ((persona.source === 'starred' || (persona.source === 'owned' && persona.starred)) ? () => handleUnstar(persona.id) : undefined)
               }
               onVisibilityChange={activeTab === 'my' && persona.source === 'owned' ? (visibility) => handleVisibilityChange(persona.id, visibility) : undefined}

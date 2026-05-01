@@ -15,7 +15,8 @@ import {
   X,
 } from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
-import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
+import { DescribeBusinessProfileBar } from '../components/DescribeBusinessProfileBar.js';
+import { geminiService, GEMINI_FILE_INPUT_ACCEPT, type BusinessProfileVoiceDraft } from '../services/gemini.js';
 import { businessProfileFormSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
 import {
@@ -239,6 +240,61 @@ const BusinessProfilePage: React.FC = () => {
     });
   };
 
+  const handleVoiceDraft = useCallback(async (draft: BusinessProfileVoiceDraft) => {
+    const filled = draft.filled;
+    const validSections = new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key));
+
+    const bySection: Partial<Record<BusinessProfileSectionKey, Record<string, string>>> = {};
+    for (const [k, v] of Object.entries(filled)) {
+      const sec = k.split('.')[0];
+      if (!validSections.has(sec as BusinessProfileSectionKey)) continue;
+      const sk = sec as BusinessProfileSectionKey;
+      if (!bySection[sk]) bySection[sk] = {};
+      bySection[sk]![k] = v;
+    }
+
+    const sectionsInOrder = BUSINESS_PROFILE_SPEC.map((s) => s.key).filter((k) => bySection[k]);
+
+    const applyPartial = (partial: Record<string, string>) => {
+      setAnswers((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(partial)) {
+          const t = String(v).trim();
+          if (t) next[k] = t;
+        }
+        return next;
+      });
+    };
+
+    for (const sectionKey of sectionsInOrder) {
+      const partial = bySection[sectionKey];
+      if (!partial) continue;
+      setActiveTab(sectionKey);
+
+      const fwIds = new Set<string>();
+      for (const key of Object.keys(partial)) {
+        const parts = key.split('.');
+        if (parts.length >= 3) fwIds.add(`${parts[0]}.${parts[1]}`);
+      }
+      if (fwIds.size > 0) {
+        setCollapsedFw((c) => {
+          const next = { ...c };
+          for (const id of fwIds) next[id] = false;
+          return next;
+        });
+      }
+      applyPartial(partial);
+      await new Promise<void>((r) => window.setTimeout(r, 450));
+    }
+
+    const labels = sectionsInOrder.map(
+      (k) => BUSINESS_PROFILE_SPEC.find((s) => s.key === k)?.shortLabel ?? k,
+    );
+    const summary = [`Applied to ${labels.join(', ')}.`, draft.routing_rationale].filter(Boolean).join(' ');
+    setSaveMessage(summary);
+    window.setTimeout(() => setSaveMessage(null), 6000);
+  }, [setActiveTab]);
+
   const handleGenerate = async () => {
     if (!generateFileData?.data && !companyHint.trim()) {
       setGenerateError('Upload a document and/or enter a company name or website to generate from.');
@@ -351,6 +407,8 @@ const BusinessProfilePage: React.FC = () => {
           </article>
         ) : (
           <>
+            <DescribeBusinessProfileBar onApplyDraft={handleVoiceDraft} disabled={generateLoading} />
+
             <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-200 print:hidden" aria-label="Sections">
               {BUSINESS_PROFILE_SPEC.map((sec) => (
                 <button

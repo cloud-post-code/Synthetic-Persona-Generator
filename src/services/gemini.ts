@@ -10,6 +10,7 @@ import {
 import {
   BUSINESS_PROFILE_SPEC,
   businessProfileAnswerKey,
+  getBusinessProfileAllowedAnswerKeySet,
   type BusinessProfileSectionKey,
 } from '../constants/businessProfileSpec.js';
 import { parseLastPersuasionPercentFromText } from "../utils/persuasionScore.js";
@@ -146,6 +147,69 @@ function normalizeBusinessProfileResult(rawResult: string | object, keys: string
     result[k] = v === undefined || v === null ? null : String(v).trim() || null;
   }
   return result;
+}
+
+/** Sparse Business Profile fill from natural language (voice assistant bar). */
+export type BusinessProfileVoiceDraft = {
+  routing_rationale: string;
+  filled: Record<string, string>;
+  notes: string[];
+};
+
+const BP_VOICE_FIELD_MAX_CHARS = 16000;
+
+function buildBusinessProfileKeyCatalogForPrompt(): string {
+  const lines: string[] = [];
+  for (const sec of BUSINESS_PROFILE_SPEC) {
+    lines.push(`### ${sec.title} [section key: ${sec.key}]`);
+    for (const fw of sec.frameworks) {
+      lines.push(`  Framework: ${fw.title} (${fw.key})`);
+      for (const q of fw.questions) {
+        const k = businessProfileAnswerKey(sec.key, fw.key, q.key);
+        lines.push(`  - "${k}": ${q.label}`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+function sanitizeBusinessProfileVoiceDraft(parsed: unknown): BusinessProfileVoiceDraft {
+  const allowed = getBusinessProfileAllowedAnswerKeySet();
+  const filled: Record<string, string> = {};
+  const rawFilled =
+    parsed &&
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    'filled' in parsed &&
+    typeof (parsed as { filled: unknown }).filled === 'object' &&
+    (parsed as { filled: unknown }).filled !== null &&
+    !Array.isArray((parsed as { filled: unknown }).filled)
+      ? ((parsed as { filled: Record<string, unknown> }).filled as Record<string, unknown>)
+      : null;
+  if (rawFilled) {
+    for (const [k, v] of Object.entries(rawFilled)) {
+      if (!allowed.has(k)) continue;
+      if (v === undefined || v === null) continue;
+      const s = String(v).trim();
+      if (!s) continue;
+      filled[k] = s.length > BP_VOICE_FIELD_MAX_CHARS ? s.slice(0, BP_VOICE_FIELD_MAX_CHARS) : s;
+    }
+  }
+  let routing_rationale = '';
+  if (parsed && typeof parsed === 'object' && parsed !== null && 'routing_rationale' in parsed) {
+    const r = (parsed as { routing_rationale: unknown }).routing_rationale;
+    if (typeof r === 'string') routing_rationale = r.trim().slice(0, 2000);
+  }
+  const notes: string[] = [];
+  if (parsed && typeof parsed === 'object' && parsed !== null && 'notes' in parsed) {
+    const n = (parsed as { notes: unknown }).notes;
+    if (Array.isArray(n)) {
+      for (const item of n) {
+        if (typeof item === 'string' && item.trim()) notes.push(item.trim().slice(0, 500));
+      }
+    }
+  }
+  return { routing_rationale, filled, notes };
 }
 
 export const geminiService = {
@@ -515,6 +579,48 @@ RULES:
       }
     }
     return result;
+  },
+
+  /**
+   * Map spoken or typed business description to sparse Business Profile answer keys
+   * (one or more sections / "reports"). Keys use section.framework.question slugs.
+   */
+  draftBusinessProfileFromDescription: async (description: string): Promise<BusinessProfileVoiceDraft> => {
+    const trimmed = (description || '').trim();
+    if (!trimmed) {
+      throw new Error('Describe your business (text or voice) before using Build it for me.');
+    }
+    const catalog = buildBusinessProfileKeyCatalogForPrompt();
+    const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
+
+The user is filling a structured **Business Profile** with six thematic sections (tabs). Each field has a stable JSON key in the form section.framework.question.
+
+## User description (voice or typed)
+${truncate(trimmed, 14000)}
+
+## Allowed fields (only these keys may appear in "filled")
+${catalog}
+
+## Task
+1. Read the description and map facts and reasonable inferences to the **most relevant** field keys.
+2. You may populate **multiple sections** in one response—include every key the description supports.
+3. Use **sparse** output: include only keys with substantive non-empty text. Omit keys you cannot support (do not output null for every key).
+4. Infer reasonably when the user is vague (e.g. name the likely ICP, beachhead, pricing motion) and mention assumptions in "notes".
+5. Do **not** invent unrelated content just to fill fields; stay grounded in the description.
+6. Keep each value concise but useful (typically 1–4 short paragraphs per field unless a list is clearly needed).
+
+## Output
+Return ONE JSON object only (no markdown fences):
+{
+  "routing_rationale": string (one or two sentences, user-facing — what you mapped and where),
+  "filled": { "<section.framework.question>": "<text>", ... },
+  "notes": string[] (optional — assumptions or caveats)
+}
+
+If nothing in the description maps to any field, return "filled": {} and explain in routing_rationale.`;
+
+    const parsed = await geminiService.generateBasic(prompt, true);
+    return sanitizeBusinessProfileVoiceDraft(parsed);
   },
 
   /** Chat with retry on 503/502/504 for persona conversation resilience. */
