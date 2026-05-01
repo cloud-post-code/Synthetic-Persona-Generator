@@ -114,20 +114,39 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw lastError;
 }
 
+export type BusinessProfileSectionSource = {
+  companyHint?: string;
+  /** Combined plain text from text files or pasted content. */
+  textCorpus?: string;
+  /** Binary uploads (PDF, images, Word, etc.); `data` may be data URL or raw base64. */
+  inlineFiles?: { data: string; mimeType: string; name?: string }[];
+};
+
 async function runBusinessProfileGeneration(
-  documentInput: string,
-  mimeType: string | undefined,
-  prompt: string
+  prompt: string,
+  source: BusinessProfileSectionSource
 ): Promise<string | object> {
-  const hasFile = Boolean(mimeType && documentInput);
-  if (hasFile) {
-    let base64Data: string = documentInput;
-    if (documentInput.includes(',')) base64Data = documentInput.split(',')[1];
-    if (!base64Data?.trim()) throw new Error('Invalid file data.');
-    return await geminiService.runSimulation(prompt, base64Data, mimeType!);
+  const textCorpus = (source.textCorpus ?? '').trim();
+  const inlineFiles = (source.inlineFiles ?? []).filter((f) => f.data && f.mimeType);
+
+  if (inlineFiles.length > 0) {
+    let fullPrompt = prompt;
+    if (textCorpus) {
+      fullPrompt += `\n\n--- Plain-text sources (from text files or pasted content) ---\n${truncate(textCorpus, 80000)}`;
+    }
+    const names = inlineFiles.map((f, i) => f.name?.trim() || `document-${i + 1}`).join(', ');
+    fullPrompt += `\n\nThe user attached ${inlineFiles.length} file(s) as inline media (${names}). Use every attachment as source material; reconcile overlaps consistently.`;
+
+    const [first, ...rest] = inlineFiles;
+    return await geminiService.runSimulation(fullPrompt, first.data, first.mimeType, rest);
   }
-  const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(documentInput, 100000)}`;
-  return await geminiService.generateBasic(fullPrompt, true);
+
+  if (textCorpus) {
+    const fullPrompt = `${prompt}\n\nDOCUMENT CONTENT:\n${truncate(textCorpus, 100000)}`;
+    return await geminiService.generateBasic(fullPrompt, true);
+  }
+
+  return await geminiService.generateBasic(prompt, true);
 }
 
 function normalizeBusinessProfileResult(rawResult: string | object, keys: string[]): Record<string, string | null> {
@@ -443,7 +462,12 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
    * Run a specialized simulation with optional multi-modal input.
    * Uses retry with exponential backoff on 503/502/504 for resilience.
    */
-  runSimulation: async (prompt: string, imageData?: string, mimeType?: string): Promise<string> => {
+  runSimulation: async (
+    prompt: string,
+    imageData?: string,
+    mimeType?: string,
+    extraInlineFiles?: { data: string; mimeType: string }[]
+  ): Promise<string> => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-api-key-here') {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
@@ -453,32 +477,32 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
       const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = [{ text: prompt }];
 
-    if (imageData && mimeType) {
-      // imageData should already be pure base64 (without data URL prefix)
-      // But handle both cases: if it has a comma (data URL), extract base64; otherwise use as-is
+    const pushInline = (rawData: string, mt: string) => {
       let base64Data: string;
-      if (imageData.includes(',')) {
-        base64Data = imageData.split(',')[1];
+      if (rawData.includes(',')) {
+        base64Data = rawData.split(',')[1];
       } else {
-        base64Data = imageData;
+        base64Data = rawData;
       }
-      
-      // Validate base64 data is not empty
       if (!base64Data || base64Data.trim().length === 0) {
         throw new Error('Invalid file data: base64 content is empty. Please ensure the file is valid and not corrupted.');
       }
-      
-      // Validate base64 format (basic check)
       if (!/^[A-Za-z0-9+/=]+$/.test(base64Data.replace(/\s/g, ''))) {
         throw new Error('Invalid file data: base64 format appears to be invalid. Please try uploading the file again.');
       }
-      
       parts.push({
         inlineData: {
           data: base64Data,
-          mimeType: mimeType
-        }
+          mimeType: mt,
+        },
       });
+    };
+
+    if (imageData && mimeType) {
+      pushInline(imageData, mimeType);
+    }
+    for (const f of extraInlineFiles ?? []) {
+      if (f.data && f.mimeType) pushInline(f.data, f.mimeType);
     }
 
       const response = await ai.models.generateContent({
@@ -520,8 +544,7 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
    */
   generateBusinessProfileSection: async (
     sectionKey: BusinessProfileSectionKey,
-    documentInput: string,
-    options: { mimeType?: string; companyHint?: string } = {}
+    source: BusinessProfileSectionSource = {}
   ): Promise<Record<string, string | null>> => {
     const sec = BUSINESS_PROFILE_SPEC.find((s) => s.key === sectionKey);
     if (!sec) return {};
@@ -534,12 +557,12 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
         keyLines.push(`- "${k}": ${q.label}`);
       }
     }
-    const hintSection = options.companyHint?.trim()
-      ? `\nThe user also provided this company identifier: "${options.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
+    const hintSection = source.companyHint?.trim()
+      ? `\nThe user also provided this company identifier: "${source.companyHint.trim()}". Use your knowledge of this company to enrich where the document does not specify.`
       : '';
     const prompt = `You are an expert at disciplined entrepreneurship and startup documentation.
 
-TASK: Fill in ONLY this section of a Business Profile from the provided document${options.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
+TASK: Fill in ONLY this section of a Business Profile from the provided document(s)${source.companyHint?.trim() ? ' and from your knowledge of the company' : ''}.${hintSection}
 
 SECTION TITLE: ${sec.title}
 
@@ -550,12 +573,12 @@ Each key corresponds to one guided question:
 ${keyLines.join('\n')}
 
 RULES:
-- Extract and infer from the document; for public companies you may use known facts to fill gaps.
+- Extract and infer from all provided sources; for public companies you may use known facts to fill gaps.
 - Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - If a field cannot be determined, use null for that key.
 - Output only the JSON object.`;
 
-    const rawResult = await runBusinessProfileGeneration(documentInput, options.mimeType, prompt);
+    const rawResult = await runBusinessProfileGeneration(prompt, source);
     return normalizeBusinessProfileResult(rawResult, keys);
   },
 
@@ -565,12 +588,25 @@ RULES:
    */
   generateBusinessProfileFromDocument: async (
     documentInput: string,
-    options: { mimeType?: string; companyHint?: string } = {}
+    options: {
+      mimeType?: string;
+      companyHint?: string;
+      extraInlineFiles?: { data: string; mimeType: string; name?: string }[];
+    } = {}
   ): Promise<Record<string, string | null>> => {
+    const inlineFiles: { data: string; mimeType: string; name?: string }[] = [...(options.extraInlineFiles ?? [])];
+    if (options.mimeType && documentInput) {
+      inlineFiles.unshift({ data: documentInput, mimeType: options.mimeType, name: 'document' });
+    }
+    const textOnly = documentInput.trim() && !options.mimeType;
+    const sectionSource: BusinessProfileSectionSource = {
+      companyHint: options.companyHint,
+      textCorpus: textOnly ? documentInput : undefined,
+      inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
+    };
+
     const parts = await Promise.all(
-      BUSINESS_PROFILE_SPEC.map((sec) =>
-        geminiService.generateBusinessProfileSection(sec.key, documentInput, options)
-      )
+      BUSINESS_PROFILE_SPEC.map((sec) => geminiService.generateBusinessProfileSection(sec.key, sectionSource))
     );
     const result: Record<string, string | null> = {};
     for (const part of parts) {

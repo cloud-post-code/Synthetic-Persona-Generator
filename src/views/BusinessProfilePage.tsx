@@ -16,7 +16,12 @@ import {
 } from 'lucide-react';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { DescribeBusinessProfileBar } from '../components/DescribeBusinessProfileBar.js';
-import { geminiService, GEMINI_FILE_INPUT_ACCEPT, type BusinessProfileVoiceDraft } from '../services/gemini.js';
+import {
+  geminiService,
+  GEMINI_FILE_INPUT_ACCEPT,
+  type BusinessProfileSectionSource,
+  type BusinessProfileVoiceDraft,
+} from '../services/gemini.js';
 import { businessProfileFormSchema } from '../forms/index.js';
 import { fieldTargetId } from '../forms/types.js';
 import {
@@ -28,6 +33,60 @@ import {
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
 
 type VoiceFieldRef = { id: string; label: string };
+
+const BP_GEN_MAX_FILES = 12;
+
+type BpGenFile = { id: string; name: string; data: string; mimeType?: string };
+
+function bpFileReadsAsBinary(file: File): boolean {
+  const t = file.type || '';
+  if (t.startsWith('application/pdf') || t.startsWith('image/')) return true;
+  return !['text/plain', 'text/csv', 'application/json'].includes(t);
+}
+
+async function readBpGenFile(file: File): Promise<BpGenFile> {
+  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read “${file.name}”.`));
+    reader.onload = () => {
+      const data = String(reader.result ?? '');
+      if (!data.trim()) {
+        reject(new Error(`“${file.name}” appears empty.`));
+        return;
+      }
+      if (bpFileReadsAsBinary(file)) {
+        resolve({
+          id,
+          name: file.name,
+          data,
+          mimeType: file.type || 'application/octet-stream',
+        });
+      } else {
+        resolve({ id, name: file.name, data });
+      }
+    };
+    if (bpFileReadsAsBinary(file)) reader.readAsDataURL(file);
+    else reader.readAsText(file);
+  });
+}
+
+function buildBpGenerationSource(files: BpGenFile[], companyHint: string): BusinessProfileSectionSource {
+  const textParts: string[] = [];
+  const inlineFiles: { data: string; mimeType: string; name?: string }[] = [];
+  for (const f of files) {
+    if (f.mimeType) {
+      inlineFiles.push({ data: f.data, mimeType: f.mimeType, name: f.name });
+    } else {
+      textParts.push(`--- ${f.name} ---\n${f.data}`);
+    }
+  }
+  return {
+    companyHint: companyHint.trim() || undefined,
+    textCorpus: textParts.length ? textParts.join('\n\n') : undefined,
+    inlineFiles: inlineFiles.length ? inlineFiles : undefined,
+  };
+}
 
 function emptyAnswers(): Record<string, string> {
   const o: Record<string, string> = {};
@@ -111,8 +170,7 @@ const BusinessProfilePage: React.FC = () => {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateStage, setGenerateStage] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generateFileName, setGenerateFileName] = useState('');
-  const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
+  const [generateFiles, setGenerateFiles] = useState<BpGenFile[]>([]);
   const [companyHint, setCompanyHint] = useState('');
   const generateCancelledRef = useRef(false);
 
@@ -205,29 +263,33 @@ const BusinessProfilePage: React.FC = () => {
     window.print();
   };
 
-  const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      setGenerateFileName('');
-      setGenerateFileData(null);
+  const handleGenerateFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    e.target.value = '';
+    if (!list?.length) return;
+    setGenerateError(null);
+    const remaining = BP_GEN_MAX_FILES - generateFiles.length;
+    if (remaining <= 0) {
+      setGenerateError(`You can add at most ${BP_GEN_MAX_FILES} files. Remove some to add more.`);
       return;
     }
-    setGenerateFileName(file.name);
-    setGenerateError(null);
-    const isBinary = ['application/pdf', 'image/'].some((t) => (file.type || '').startsWith(t));
-    if (isBinary || !['text/plain', 'text/csv', 'application/json'].includes(file.type)) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setGenerateFileData({ data: (ev.target?.result as string) || '', mimeType: file.type || 'application/octet-stream' });
-      };
-      reader.readAsDataURL(file);
-    } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setGenerateFileData({ data: (ev.target?.result as string) || '' });
-      };
-      reader.readAsText(file);
+    const toAdd = Array.from(list).slice(0, remaining);
+    try {
+      const entries = await Promise.all(toAdd.map((f) => readBpGenFile(f)));
+      setGenerateFiles((prev) => [...prev, ...entries]);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to read file.');
     }
+  };
+
+  const removeGenerateFile = (id: string) => {
+    setGenerateFiles((prev) => prev.filter((f) => f.id !== id));
+    setGenerateError(null);
+  };
+
+  const clearGenerateFiles = () => {
+    setGenerateFiles([]);
+    setGenerateError(null);
   };
 
   const mergeGenerated = (partial: Record<string, string | null>) => {
@@ -296,21 +358,20 @@ const BusinessProfilePage: React.FC = () => {
   }, [setActiveTab]);
 
   const handleGenerate = async () => {
-    if (!generateFileData?.data && !companyHint.trim()) {
-      setGenerateError('Upload a document and/or enter a company name or website to generate from.');
+    const source = buildBpGenerationSource(generateFiles, companyHint);
+    if (!source.textCorpus && !source.inlineFiles?.length && !source.companyHint) {
+      setGenerateError('Upload one or more documents and/or enter a company name or website to generate from.');
       return;
     }
     generateCancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
     setGenerateStage(null);
-    const opts = { mimeType: generateFileData?.mimeType, companyHint: companyHint.trim() || undefined };
-    const input = generateFileData?.data ?? companyHint.trim();
     try {
       for (const sec of BUSINESS_PROFILE_SPEC) {
         if (generateCancelledRef.current) return;
         setGenerateStage(`Filling: ${sec.title}…`);
-        const part = await geminiService.generateBusinessProfileSection(sec.key, input, opts);
+        const part = await geminiService.generateBusinessProfileSection(sec.key, source);
         mergeGenerated(part);
       }
       if (!generateCancelledRef.current) {
@@ -415,23 +476,65 @@ const BusinessProfilePage: React.FC = () => {
                 Generate with AI
               </h3>
               <p className="text-xs text-indigo-900/80">
-                Upload a document and/or a company hint. We fill each section (six model calls) into your profile.
+                Upload one or more documents (PDF, images, Word, text, CSV, JSON) and/or a company hint. We fill each
+                section (six model calls) into your profile.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Document (optional)</label>
-                  <div className="flex flex-col items-center rounded-lg border border-dashed border-indigo-200 bg-white/80 py-4">
-                    <Upload className="mb-2 h-8 w-8 text-indigo-300" />
-                    <input
-                      type="file"
-                      id="bp-gen-file"
-                      className="hidden"
-                      accept={GEMINI_FILE_INPUT_ACCEPT}
-                      onChange={handleGenerateFileChange}
-                    />
-                    <label htmlFor="bp-gen-file" className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
-                      {generateFileName || 'Choose file'}
-                    </label>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    Documents (optional, multiple)
+                  </label>
+                  <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-white/80 px-3 py-3">
+                    <div className="mb-3 flex flex-col items-center py-2">
+                      <Upload className="mb-2 h-8 w-8 text-indigo-300" />
+                      <input
+                        type="file"
+                        id="bp-gen-file"
+                        className="hidden"
+                        multiple
+                        accept={GEMINI_FILE_INPUT_ACCEPT}
+                        onChange={(ev) => void handleGenerateFileChange(ev)}
+                      />
+                      <label
+                        htmlFor="bp-gen-file"
+                        className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                      >
+                        {generateFiles.length ? 'Add more files' : 'Choose files'}
+                      </label>
+                      <p className="mt-2 text-center text-[11px] text-indigo-900/70">
+                        Up to {BP_GEN_MAX_FILES} files · hold Cmd/Ctrl to select several
+                      </p>
+                    </div>
+                    {generateFiles.length > 0 && (
+                      <ul className="max-h-40 space-y-1.5 overflow-y-auto border-t border-indigo-100 pt-2 text-xs text-gray-800">
+                        {generateFiles.map((f) => (
+                          <li
+                            key={f.id}
+                            className="flex items-center justify-between gap-2 rounded-md bg-white/90 px-2 py-1.5 ring-1 ring-gray-100"
+                          >
+                            <span className="min-w-0 truncate font-medium" title={f.name}>
+                              {f.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeGenerateFile(f.id)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {generateFiles.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearGenerateFiles}
+                        className="mt-2 text-center text-[11px] font-semibold text-indigo-800 underline hover:text-indigo-950"
+                      >
+                        Clear all files
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -463,7 +566,7 @@ const BusinessProfilePage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={generateLoading || (!generateFileData?.data && !companyHint.trim())}
+                  disabled={generateLoading || (!generateFiles.length && !companyHint.trim())}
                   onClick={() => void handleGenerate()}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
