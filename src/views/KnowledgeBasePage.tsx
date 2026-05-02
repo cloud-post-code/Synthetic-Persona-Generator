@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Upload } from 'lucide-react';
+import { AlertTriangle, Loader2, Upload } from 'lucide-react';
 import { commandBus } from '../voice/commandBus.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
-import { KB_MAX_DOCS, readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
+import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocumentUpload.js';
 
 function normalizeDocs(raw: unknown): BusinessProfileKnowledgeDocument[] {
   if (!Array.isArray(raw)) return [];
@@ -29,6 +29,7 @@ const KnowledgeBasePage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [convertingFile, setConvertingFile] = useState<string | null>(null);
   const loadedRef = useRef(false);
 
   useEffect(() => {
@@ -76,17 +77,24 @@ const KnowledgeBasePage: React.FC = () => {
     e.target.value = '';
     if (!list?.length) return;
     setUploadError(null);
-    const remaining = KB_MAX_DOCS - docs.length;
+    let remaining = KB_MAX_DOCS - docs.length;
     if (remaining <= 0) {
       setUploadError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
     try {
-      const entries = await Promise.all(toAdd.slice(0, remaining).map((f) => readBpGenFile(f)));
-      setDocs((prev) => [...prev, ...entries]);
+      for (const f of toAdd) {
+        if (remaining <= 0) break;
+        setConvertingFile(f.name);
+        const entry = await readAndConvertToMarkdownDoc(f);
+        setDocs((prev) => [...prev, entry]);
+        remaining -= 1;
+      }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Failed to read file.');
+      setUploadError(err instanceof Error ? err.message : 'Failed to read or convert file.');
+    } finally {
+      setConvertingFile(null);
     }
   };
 
@@ -123,12 +131,11 @@ const KnowledgeBasePage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Knowledge base</h1>
             <p className="mt-1 max-w-xl text-sm text-gray-500">
-              Documents available to your business profile, persona builder, and simulations. Uploads here are the same
-              library as under{' '}
+              Each upload is converted to Markdown and stored here. The same library is used under{' '}
               <Link to="/business-profile" className="font-semibold text-indigo-600 hover:text-indigo-800">
                 Business Profile
-              </Link>
-              .
+              </Link>{' '}
+              for AI generation, persona builder, and simulations.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">{saveBadge}</div>
@@ -138,26 +145,36 @@ const KnowledgeBasePage: React.FC = () => {
           <div className="py-16 text-center text-sm text-gray-500">Loading…</div>
         ) : (
           <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               <input
                 type="file"
                 id="kb-add-files"
                 className="hidden"
                 multiple
                 accept={GEMINI_FILE_INPUT_ACCEPT}
+                disabled={convertingFile != null}
                 onChange={(ev) => void handleFileChange(ev)}
               />
               <label
                 htmlFor="kb-add-files"
-                className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
+                  convertingFile != null
+                    ? 'cursor-not-allowed opacity-50'
+                    : 'cursor-pointer hover:bg-indigo-700'
+                }`}
               >
                 <Upload className="h-4 w-4" aria-hidden />
                 Add documents
               </label>
               <span className="text-xs text-gray-500">
-                Up to {KB_MAX_DOCS} files · same types as Business Profile generation (PDF, images, Word, text, CSV,
-                JSON)
+                Up to {KB_MAX_DOCS} files · PDF, images, Word, text, CSV, JSON (saved as Markdown)
               </span>
+              {convertingFile && (
+                <span className="inline-flex items-center gap-2 text-xs font-medium text-indigo-800">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
+                  Converting “{convertingFile}”…
+                </span>
+              )}
             </div>
 
             {uploadError && (
@@ -173,7 +190,11 @@ const KnowledgeBasePage: React.FC = () => {
                 <p className="mb-4 text-sm text-gray-600">No documents yet. Add files to build your library.</p>
                 <label
                   htmlFor="kb-add-files-empty"
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                  className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
+                    convertingFile != null
+                      ? 'cursor-not-allowed opacity-50'
+                      : 'cursor-pointer hover:bg-indigo-700'
+                  }`}
                 >
                   Choose files
                 </label>
@@ -183,6 +204,7 @@ const KnowledgeBasePage: React.FC = () => {
                   className="hidden"
                   multiple
                   accept={GEMINI_FILE_INPUT_ACCEPT}
+                  disabled={convertingFile != null}
                   onChange={(ev) => void handleFileChange(ev)}
                 />
               </div>

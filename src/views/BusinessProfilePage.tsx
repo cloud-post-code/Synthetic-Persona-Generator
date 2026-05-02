@@ -33,7 +33,7 @@ import {
   getAnswerKeysForSection,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
-import { KB_MAX_DOCS, readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
+import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocumentUpload.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 
@@ -46,10 +46,17 @@ function buildBpGenerationSource(
   const textParts: string[] = [];
   const inlineFiles: { data: string; mimeType: string; name?: string }[] = [];
   for (const f of files) {
-    if (f.mimeType) {
-      inlineFiles.push({ data: f.data, mimeType: f.mimeType, name: f.name });
-    } else {
+    const mt = (f.mimeType ?? '').toLowerCase();
+    if (
+      !mt ||
+      mt.startsWith('text/') ||
+      mt === 'application/json' ||
+      mt === 'text/csv' ||
+      mt === 'application/csv'
+    ) {
       textParts.push(`--- ${f.name} ---\n${f.data}`);
+    } else {
+      inlineFiles.push({ data: f.data, mimeType: f.mimeType || 'application/octet-stream', name: f.name });
     }
   }
   return {
@@ -144,6 +151,10 @@ const BusinessProfilePage: React.FC = () => {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [knowledgeFiles, setKnowledgeFiles] = useState<BusinessProfileKnowledgeDocument[]>([]);
   const [companyHint, setCompanyHint] = useState('');
+  const [selectedSections, setSelectedSections] = useState<Set<BusinessProfileSectionKey>>(
+    () => new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)),
+  );
+  const [convertingFile, setConvertingFile] = useState<string | null>(null);
   const generateCancelledRef = useRef(false);
 
   useVoiceTarget({
@@ -313,17 +324,24 @@ const BusinessProfilePage: React.FC = () => {
     e.target.value = '';
     if (!list?.length) return;
     setGenerateError(null);
-    const remaining = KB_MAX_DOCS - knowledgeFiles.length;
+    let remaining = KB_MAX_DOCS - knowledgeFiles.length;
     if (remaining <= 0) {
       setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
     try {
-      const entries = await Promise.all(toAdd.map((f) => readBpGenFile(f)));
-      setKnowledgeFiles((prev) => [...prev, ...entries]);
+      for (const f of toAdd) {
+        if (remaining <= 0) break;
+        setConvertingFile(f.name);
+        const entry = await readAndConvertToMarkdownDoc(f);
+        setKnowledgeFiles((prev) => [...prev, entry]);
+        remaining -= 1;
+      }
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to read file.');
+      setGenerateError(err instanceof Error ? err.message : 'Failed to read or convert file.');
+    } finally {
+      setConvertingFile(null);
     }
   };
 
@@ -409,11 +427,8 @@ const BusinessProfilePage: React.FC = () => {
     setGenerateError(null);
     setGenerateStage(null);
     try {
-      setGenerateStage('Finding profile sections that match your documents…');
-      const sectionKeysToRun = await geminiService.routeBusinessProfileSectionKeys(source);
-      for (const secKey of sectionKeysToRun) {
-        const sec = BUSINESS_PROFILE_SPEC.find((s) => s.key === secKey);
-        if (!sec) continue;
+      const sectionsToRun = BUSINESS_PROFILE_SPEC.filter((s) => selectedSections.has(s.key));
+      for (const sec of sectionsToRun) {
         if (generateCancelledRef.current) return;
         setGenerateStage(`Filling: ${sec.title}…`);
         const sectionKeys = getAnswerKeysForSection(sec.key);
@@ -424,9 +439,9 @@ const BusinessProfilePage: React.FC = () => {
         }
         const secSource: BusinessProfileSectionSource = {
           ...source,
-          ...(Object.keys(existingAnswers).length > 0 ? { existingAnswers } : {}),
+          existingAnswers,
         };
-        const part = await geminiService.generateBusinessProfileSection(secKey, secSource);
+        const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
         mergeGenerated(part);
       }
       if (!generateCancelledRef.current) {
@@ -557,7 +572,7 @@ const BusinessProfilePage: React.FC = () => {
 
             <DescribeBusinessProfileBar
               onApplyDraft={handleVoiceDraft}
-              disabled={generateLoading}
+              disabled={generateLoading || convertingFile != null}
               existingAnswers={answers}
             />
 
@@ -567,13 +582,58 @@ const BusinessProfilePage: React.FC = () => {
                 Generate with AI
               </h3>
               <p className="text-xs text-indigo-900/80">
-                Upload one or more documents (PDF, images, Word, text, CSV, JSON). When we have readable text from
-                your uploads, we first pick which of the six profile sections plausibly match that content, then run
-                generation only for those tabs—each field is still filled only where the sources clearly support it.
-                PDF- or image-only uploads run all sections against the files. Optionally add a company name or website
-                for general-knowledge grounding. With neither documents nor a hint, generation still runs using
-                conservative, non-specific guidance (many fields may stay empty).
+                Pick which of the six sections you want filled, then upload supporting documents and/or add a company
+                name or website. Each upload is automatically converted to Markdown and saved to your Knowledge base. We
+                use only those Markdown sources (plus your hint) to fill the selected sections. Anything you have already
+                typed into a section is treated as the source of truth — we only append new explicit facts from your
+                docs, never overwrite. Empty fields can be filled either from the docs or with a clearly-stated safe
+                assumption. With neither documents nor a hint, generation still runs using conservative, non-specific
+                guidance (many fields may stay empty).
               </p>
+              <div className="space-y-2">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Sections to fill</span>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-indigo-950">
+                  {BUSINESS_PROFILE_SPEC.map((sec) => (
+                    <label key={sec.key} className="inline-flex cursor-pointer items-center gap-1.5 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={selectedSections.has(sec.key)}
+                        onChange={() => {
+                          setSelectedSections((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(sec.key)) next.delete(sec.key);
+                            else next.add(sec.key);
+                            return next;
+                          });
+                        }}
+                        disabled={generateLoading || convertingFile != null}
+                        className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-400"
+                      />
+                      {sec.shortLabel}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    disabled={generateLoading || convertingFile != null}
+                    onClick={() =>
+                      setSelectedSections(new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)))
+                    }
+                    className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    disabled={generateLoading || convertingFile != null}
+                    onClick={() => setSelectedSections(new Set())}
+                    className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Documents (optional, multiple)
@@ -587,14 +647,25 @@ const BusinessProfilePage: React.FC = () => {
                         className="hidden"
                         multiple
                         accept={GEMINI_FILE_INPUT_ACCEPT}
+                        disabled={generateLoading || convertingFile != null}
                         onChange={(ev) => void handleGenerateFileChange(ev)}
                       />
                       <label
                         htmlFor="bp-gen-file"
-                        className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                        className={`rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white ${
+                          generateLoading || convertingFile != null
+                            ? 'cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-indigo-700'
+                        }`}
                       >
                         {knowledgeFiles.length ? 'Add more files' : 'Choose files'}
                       </label>
+                      {convertingFile && (
+                        <p className="mt-2 flex items-center justify-center gap-2 text-center text-[11px] font-medium text-indigo-900">
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                          Converting “{convertingFile}” to Markdown…
+                        </p>
+                      )}
                       <p className="mt-2 text-center text-[11px] text-indigo-900/70">
                         Up to {KB_MAX_DOCS} files · hold Cmd/Ctrl to select several
                       </p>
@@ -656,7 +727,9 @@ const BusinessProfilePage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={generateLoading}
+                  disabled={
+                    generateLoading || selectedSections.size === 0 || convertingFile != null
+                  }
                   onClick={() => void handleGenerate()}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >

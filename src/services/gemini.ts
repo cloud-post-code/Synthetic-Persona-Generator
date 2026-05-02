@@ -162,19 +162,32 @@ function formatBusinessProfileCurrentValuesBlock(
   existing: Record<string, string> | undefined
 ): string {
   const sliced = sliceExistingAnswersForKeys(existing, keys);
-  if (Object.keys(sliced).length === 0) return '';
   const lines: string[] = [
     '',
-    '## CURRENT VALUES (user profile — treat as authoritative by default; long text may be truncated)',
+    '## GROUND TRUTH (existing profile — DO NOT OVERWRITE; treat as authoritative)',
   ];
+  let any = false;
   for (const k of keys) {
-    const cur = sliced[k];
-    if (!cur) continue;
     const label = labelByKey[k] ?? k;
-    lines.push(`### ${k} (${label})`);
-    lines.push(truncate(cur, BP_EXISTING_VALUE_PROMPT_MAX));
+    const cur = sliced[k];
+    if (cur) {
+      any = true;
+      lines.push(`### ${k}`);
+      lines.push(`Question: ${label}`);
+      lines.push('');
+      lines.push(truncate(cur, BP_EXISTING_VALUE_PROMPT_MAX));
+      lines.push('');
+    } else {
+      lines.push(`### ${k}`);
+      lines.push(`Question: ${label}`);
+      lines.push('_(empty — no current value)_');
+      lines.push('');
+    }
   }
-  return lines.join('\n');
+  if (!any) {
+    lines.splice(2, 0, '_(no current values for this section — every key is empty)_', '');
+  }
+  return lines.join('\n').trimEnd();
 }
 
 function formatBusinessProfileExistingSummaryForVoice(existing: Record<string, string> | undefined): string {
@@ -194,23 +207,24 @@ function formatBusinessProfileExistingSummaryForVoice(existing: Record<string, s
 }
 
 function mergeCertaintyBlockDocumentBacked(): string {
-  return `MERGE + CERTAINTY (together with RULES above):
-- **Evidence bar:** For each key, every factual claim in a non-null value must be traceable to explicit wording or a direct, verifiable entailment from the provided files or plain-text excerpts in this request. If you cannot meet that bar, use JSON null for that key—even if CURRENT VALUES for that key is empty.
-- **Preserve when no new fact:** If CURRENT VALUES has text for a key and the materials do not add any **new**, **explicit** fact for that key, use JSON null (leave the field unchanged on the client).
-- **Additive merge:** If materials add a new explicit fact that does **not** contradict CURRENT, return the **full merged** text: keep applicable prior text and integrate the new fact in plain language without filler. If you are unsure whether facts contradict, use JSON null for that key.
-- **Replace only on clear conflict:** Replace or substantially edit CURRENT only when the materials **explicitly** contradict it and the corrected text is **directly** stated or unmistakably implied by the materials. If the conflict is unclear or arguable, use JSON null.
-- **No invention from hints alone:** Do not use the company identifier or general web knowledge to fabricate content when materials are attached; materials and excerpts are the primary evidence.`;
+  return `MERGE + CERTAINTY (precedence: GROUND TRUTH > document facts > safe assumption > null):
+- **GROUND TRUTH is final for non-empty keys.** If the GROUND TRUTH block has any text for a key, you MUST keep that text intact. You may only return a non-null value for that key if the materials provide a NEW, EXPLICIT fact you can append/integrate without contradicting the existing text. Otherwise return JSON null.
+- **Never replace or rephrase** the existing text. When integrating a new explicit fact, return the full prior text plus the added sentence(s). If you cannot add cleanly without rewording, return JSON null.
+- **Hard contradictions only:** Replace existing text only when the materials explicitly state the prior text is wrong AND give the corrected fact. If the conflict is implicit, ambiguous, or stylistic, return JSON null.
+- **Empty keys (no GROUND TRUTH):** Fill from the materials when supported. If the materials describe the business but the specific question is only partially addressed, you MAY add a conservative inference phrased plainly (e.g. "Likely…", "Based on the described offering…") without inventing numbers, named customers, URLs, revenue, or dates. Prefer JSON null only when there is no usable signal at all.
+- **No fabricated specifics anywhere:** Numbers, named people/customers, URLs, revenue, dates require explicit support in the materials. Otherwise null.
+- **No invention from hints alone:** Do not use the company identifier or general web knowledge to fabricate content; the Markdown materials are the primary evidence.`;
 }
 
 function mergeCertaintyBlockNoDocument(hint: boolean): string {
   if (hint) {
     return `MERGE + CERTAINTY (together with RULES above):
-- **Existing text:** When CURRENT VALUES has text for a key, use JSON null unless reliable general knowledge supports a **specific** factual update with **very high** confidence. When in doubt, use JSON null and keep the prior answer.
-- **Additive / replace:** Only output non-null text when the update is clearly factual and non-speculative. If the new text would contradict CURRENT without explicit support from general knowledge, use JSON null.
-- Treat CURRENT as authoritative when any update would be vague, stylistic, or assumed.`;
+- **Existing text:** When GROUND TRUTH has text for a key, use JSON null unless reliable general knowledge supports a **specific** factual update with **very high** confidence. When in doubt, use JSON null and keep the prior answer.
+- **Additive / replace:** Only output non-null text when the update is clearly factual and non-speculative. If the new text would contradict GROUND TRUTH without explicit support from general knowledge, use JSON null.
+- Treat GROUND TRUTH as authoritative when any update would be vague, stylistic, or assumed.`;
   }
   return `MERGE + CERTAINTY:
-- When CURRENT VALUES has text for a key, use JSON null unless you can answer from industry-agnostic guidance without implying a specific entity. Prefer null over weak guesses.`;
+- When GROUND TRUTH has text for a key, use JSON null unless you can answer from industry-agnostic guidance without implying a specific entity. Prefer null over weak guesses.`;
 }
 
 async function runBusinessProfileGeneration(
@@ -659,6 +673,69 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
   },
 
   /**
+   * Convert an uploaded document into clean Markdown.
+   * Text/CSV/JSON inputs are wrapped locally without an LLM call. Binary inputs (PDF, images,
+   * Word) are sent to Gemini multimodal which transcribes them faithfully into Markdown.
+   * Returns the Markdown body only (no surrounding code fences).
+   */
+  convertDocumentToMarkdown: async (file: {
+    data: string;
+    mimeType?: string;
+    name?: string;
+  }): Promise<string> => {
+    const rawData = file.data ?? '';
+    if (!rawData) throw new Error('Cannot convert empty document.');
+    const mime = (file.mimeType ?? '').toLowerCase();
+    const baseName = (file.name ?? 'document').replace(/\.[^.]+$/, '') || 'document';
+
+    const decodeDataUrlText = (data: string): string | null => {
+      if (!data.startsWith('data:')) return data;
+      const i = data.indexOf(',');
+      if (i === -1) return null;
+      try {
+        return atob(data.slice(i + 1));
+      } catch {
+        return null;
+      }
+    };
+
+    const isText = !mime || mime.startsWith('text/') || mime === 'application/json' || mime === 'application/csv';
+    if (isText) {
+      const decoded = decodeDataUrlText(rawData);
+      if (decoded == null) {
+        throw new Error('Could not decode the uploaded text file.');
+      }
+      const body = decoded.trim();
+      if (mime === 'application/json' || mime === 'text/json') {
+        return `# ${baseName}\n\n\`\`\`json\n${body}\n\`\`\`\n`;
+      }
+      if (mime === 'text/csv' || mime === 'application/csv') {
+        return `# ${baseName}\n\n\`\`\`csv\n${body}\n\`\`\`\n`;
+      }
+      return `# ${baseName}\n\n${body}\n`;
+    }
+
+    const conversionPrompt = `Convert the attached document into clean, faithful Markdown.\n\nRules:\n- Preserve headings, lists, tables, and quoted text as the source presents them.\n- Do NOT summarize, omit, or invent content.\n- For images: transcribe every visible word, then add a short literal description of any chart, diagram, or non-text visual.\n- For tables: emit GitHub-flavored Markdown tables when rows align, otherwise keep them as a fenced text block.\n- Do NOT wrap the entire output in a single code fence.\n\nReturn ONLY the Markdown body — no preamble, no explanation, no closing notes.`;
+
+    const md = await geminiService.runSimulation(
+      conversionPrompt,
+      rawData,
+      file.mimeType || 'application/octet-stream',
+      [],
+      'business_profile'
+    );
+    const trimmed = (md ?? '').trim();
+    if (!trimmed) {
+      throw new Error('Markdown conversion returned empty content.');
+    }
+    return trimmed;
+  },
+
+  /**
+   * @deprecated The Business Profile page now uses a manual section picker instead of AI routing.
+   * Still used by [BusinessProfileInlineGenerate](../components/BusinessProfileInlineGenerate.tsx)
+   * via {@link generateBusinessProfileFromDocument}.
+   *
    * From plain-text excerpts (plus optional filenames), pick which Business Profile section tabs
    * plausibly relate to the material. Returns keys in spec order.
    * When there is no text excerpt (e.g. PDF-only uploads), returns all six sections so each file-backed pass still runs.
@@ -719,10 +796,12 @@ Allowed keys only: ${BUSINESS_PROFILE_SPEC.map((s) => `"${s.key}"`).join(', ')}`
           ? (raw as { sections: unknown[] }).sections
           : null;
       if (!arr || arr.length === 0) return allOrdered;
-      const allowed = new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key));
-      const picked = new Set<string>();
+      const allowed = new Set<BusinessProfileSectionKey>(BUSINESS_PROFILE_SPEC.map((s) => s.key));
+      const picked = new Set<BusinessProfileSectionKey>();
       for (const item of arr) {
-        if (typeof item === 'string' && allowed.has(item)) picked.add(item);
+        if (typeof item === 'string' && allowed.has(item as BusinessProfileSectionKey)) {
+          picked.add(item as BusinessProfileSectionKey);
+        }
       }
       if (picked.size === 0) return allOrdered;
       return allOrdered.filter((k) => picked.has(k));
@@ -777,9 +856,10 @@ Allowed keys only: ${BUSINESS_PROFILE_SPEC.map((s) => `"${s.key}"`).join(', ')}`
 
     const sourcingRules = hasMaterial
       ? `RULES:
-- **Grounding:** Every non-null value must be clearly supported by the provided files or plain-text excerpts (explicit text or a direct, verifiable inference from that text).
-- Prefer JSON null over guessing. If the materials do not address a question, use null for that key.
-- Do not fill gaps from unrelated public facts, “typical startup” boilerplate, or general web memory.
+- **GROUND TRUTH first:** Anything in the GROUND TRUTH block is the user's authoritative answer for that key. Never overwrite or rephrase it; you may only append a new explicit fact from the materials when one is present.
+- **Grounding for new content:** When you produce text for a key that has no GROUND TRUTH, every factual claim must be clearly supported by the Markdown materials (explicit text or a direct, verifiable inference from that text).
+- **Safe assumptions for empty keys only:** If a key has no GROUND TRUTH and the materials describe the business but only partially address the question, you MAY add a conservative, plainly-phrased inference (e.g. "Likely…", "Based on the described offering…"). Never use this license to add specifics (numbers, named customers, URLs, revenue, dates) and never use it to overwrite GROUND TRUTH.
+- Do not fill gaps from unrelated public facts, "typical startup" boilerplate, or general web memory.
 - Keep each value concise but informative (1–4 short paragraphs max per field unless the question clearly needs a list).
 - Do not use placeholder strings (e.g. "N/A", "not specified", "TBD"); use JSON null instead.
 - Output only the JSON object.`
@@ -819,6 +899,10 @@ ${mergeBlock}`;
   },
 
   /**
+   * @deprecated The Business Profile page now uses a manual section picker and Markdown-only
+   * sources via {@link generateBusinessProfileSection}. This wrapper remains only for the
+   * inline component used in build/sim flows.
+   *
    * Generate structured business profile fields from a document (parallel section calls).
    * When plain-text excerpts exist, a short routing pass selects which section tabs to run; PDF-only
    * uploads run all six sections against the files. Returns answerKey -> string|null.
