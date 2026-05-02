@@ -9,7 +9,7 @@ export const simulationTemplateFormSchema: FormSchema = {
   page: '/simulations',
   title: 'Simulation template editor',
   purpose:
-    'Create or edit a simulation template. Type and inputs control how the simulation runs.',
+    'Create or edit a simulation template. Voice-first describe bar fills fields from speech; other inputs control how the simulation runs.',
   persistsTo: ['simulations'],
   submitTargetId: 'simulations.template.save',
   fields: [
@@ -28,21 +28,8 @@ export const simulationTemplateFormSchema: FormSchema = {
       ],
     },
     {
-      key: 'describe',
-      label: 'Describe your simulation',
-      type: 'textarea',
-      description:
-        'Natural-language brief for the AI builder: type or dictate what you want, then use Build it for me to fill the whole template.',
-    },
-    {
       key: 'mic_toggle',
-      label: 'Voice describe simulation',
-      type: 'button',
-      action: 'click',
-    },
-    {
-      key: 'generate',
-      label: 'Build simulation from description',
+      label: 'Tap to speak your simulation; tap again to build from what you said',
       type: 'button',
       action: 'click',
     },

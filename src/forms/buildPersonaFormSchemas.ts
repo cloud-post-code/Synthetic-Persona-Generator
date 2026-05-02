@@ -1,21 +1,19 @@
 import type { FormSchema } from './types.js';
 
-/** Voice + LLM assistant strip on /build (describe, mic, build). */
+/** Voice + LLM assistant strip on /build (mic, build on second tap). */
 export const buildPersonaAssistantSchema: FormSchema = {
   formKey: 'build.persona.assistant',
   page: '/build',
   title: 'Build persona — voice assistant',
   purpose:
-    'Natural-language and voice input to route Synthetic user vs Advisor, pick sub-method, and pre-fill build forms.',
+    'Voice-first: tap the mic to describe what you need, tap again to route Synthetic user vs Advisor, pick sub-method, and pre-fill build forms.',
   fields: [
     {
-      key: 'describe',
-      label: 'Describe your persona',
-      type: 'textarea',
-      description: 'Type or dictate; Build it for me fills the wizard.',
+      key: 'mic_toggle',
+      label: 'Tap to speak your persona; tap again to build from what you said',
+      type: 'button',
+      action: 'click',
     },
-    { key: 'mic_toggle', label: 'Voice describe persona', type: 'button', action: 'click' },
-    { key: 'generate', label: 'Build persona form from description', type: 'button', action: 'click' },
   ],
 };
 

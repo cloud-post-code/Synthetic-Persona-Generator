@@ -88,11 +88,14 @@ export const ALL_FORMS: BackendFormSchema[] = [
     page: '/build',
     title: 'Build persona — voice assistant',
     purpose:
-      'Voice and text describe; Build it for me routes to Synthetic user or Advisor and fills fields.',
+      'Voice-first: tap the mic to describe what you need, tap again to route to Synthetic user or Advisor and fill fields.',
     fields: [
-      { key: 'describe', label: 'Describe your persona', type: 'textarea' },
-      { key: 'mic_toggle', label: 'Voice describe persona', type: 'button', action: 'click' },
-      { key: 'generate', label: 'Build persona form from description', type: 'button', action: 'click' },
+      {
+        key: 'mic_toggle',
+        label: 'Tap to speak your persona; tap again to build from what you said',
+        type: 'button',
+        action: 'click',
+      },
     ],
   },
   {
@@ -123,17 +126,14 @@ export const ALL_FORMS: BackendFormSchema[] = [
     page: '/business-profile',
     title: 'Business profile — voice assistant',
     purpose:
-      'Natural-language and voice input to map descriptions across Business Profile sections (sparse keys); staged UI apply.',
+      'Voice-first: tap the mic to describe your business, tap again to map speech into Business Profile sections (sparse keys); staged UI apply.',
     fields: [
       {
-        key: 'describe',
-        label: 'Describe your business',
-        type: 'textarea',
-        description:
-          'Type or dictate; Build it for me routes content to the relevant profile sections and fields.',
+        key: 'mic_toggle',
+        label: 'Tap to speak your business; tap again to build from what you said',
+        type: 'button',
+        action: 'click',
       },
-      { key: 'mic_toggle', label: 'Voice describe business profile', type: 'button', action: 'click' },
-      { key: 'generate', label: 'Fill profile from description', type: 'button', action: 'click' },
     ],
   },
   {
@@ -247,7 +247,7 @@ export const ALL_FORMS: BackendFormSchema[] = [
     page: '/simulations',
     title: 'Simulation template editor',
     purpose:
-      'Create or edit a simulation template. The AI builder uses Gemini 2.5 Flash to fill fields from your description; image, PDF, and table runner inputs still need manual upload.',
+      'Create or edit a simulation template. Voice-first describe bar uses Gemini 2.5 Flash to fill fields from speech; image, PDF, and table runner inputs still need manual upload.',
     persistsTo: ['simulations'],
     submitTargetId: 'simulations.template.save',
     fields: [
@@ -263,14 +263,11 @@ export const ALL_FORMS: BackendFormSchema[] = [
         ],
       },
       {
-        key: 'describe',
-        label: 'Describe your simulation',
-        type: 'textarea',
-        description:
-          'Natural-language brief for the AI builder (Gemini 2.5 Flash): type or dictate what you want, then use Build it for me to fill the template. File, image, PDF, and table inputs are not filled by voice or the builder—upload those manually where the form asks.',
+        key: 'mic_toggle',
+        label: 'Tap to speak your simulation; tap again to build from what you said',
+        type: 'button',
+        action: 'click',
       },
-      { key: 'mic_toggle', label: 'Voice describe simulation', type: 'button', action: 'click' },
-      { key: 'generate', label: 'Build simulation from description', type: 'button', action: 'click' },
       { key: 'continue_to_form', label: 'Continue to template details', type: 'button', action: 'click' },
       { key: 'title', label: 'Title', type: 'text', dbColumn: 'title', required: true },
       { key: 'description', label: 'What is this simulation about?', type: 'textarea', dbColumn: 'description', required: true },
