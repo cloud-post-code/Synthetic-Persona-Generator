@@ -38,7 +38,28 @@ import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocu
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 
-type VoiceFieldRef = { id: string; label: string };
+type PendingFile = {
+  localId: string;
+  file: File;
+  status: 'queued' | 'converting' | 'error';
+  error?: string;
+};
+
+type GenerateSectionProgress = {
+  key: BusinessProfileSectionKey;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  message?: string;
+};
+
+function newLocalId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function formatApproxSize(chars: number): string {
+  if (chars < 1000) return `${chars} chars`;
+  return `~${Math.round(chars / 1000)}k chars`;
+}
 
 function buildBpGenerationSource(
   files: BusinessProfileKnowledgeDocument[],
@@ -81,11 +102,6 @@ function answersForApi(a: Record<string, string>): Record<string, string> {
   }
   return out;
 }
-
-const bp = (key: string): VoiceFieldRef => ({
-  id: fieldTargetId(businessProfileFormSchema.formKey, key),
-  label: businessProfileFormSchema.fields.find((f) => f.key === key)?.label ?? key,
-});
 
 const TextArea: React.FC<{
   qKey: string;
@@ -154,15 +170,23 @@ const BusinessProfilePage: React.FC = () => {
   const companyHintInputRef = useRef<HTMLInputElement>(null);
 
   const [generateLoading, setGenerateLoading] = useState(false);
-  const [generateStage, setGenerateStage] = useState<string | null>(null);
+  const [generateProgress, setGenerateProgress] = useState<GenerateSectionProgress[] | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [knowledgeFiles, setKnowledgeFiles] = useState<BusinessProfileKnowledgeDocument[]>([]);
   const [companyHint, setCompanyHint] = useState('');
   const [selectedSections, setSelectedSections] = useState<Set<BusinessProfileSectionKey>>(
-    () => new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)),
+    () => new Set(),
   );
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [processing, setProcessing] = useState(false);
+  const [expandedKbDocIds, setExpandedKbDocIds] = useState<Record<string, boolean>>({});
   const [convertingFile, setConvertingFile] = useState<string | null>(null);
   const generateCancelledRef = useRef(false);
+
+  const ingestionBusy =
+    processing ||
+    pendingFiles.some((p) => p.status === 'queued' || p.status === 'converting');
 
   useVoiceTarget({
     id: 'business.save',
@@ -305,6 +329,8 @@ const BusinessProfilePage: React.FC = () => {
         setAnswers(next);
         setKnowledgeFiles([]);
         setCompanyHint('');
+        setPendingFiles([]);
+        setGenerateProgress(null);
         setGenerateError(null);
         setSaveState('saved');
         setSaveMessage('Business profile cleared.');
@@ -343,39 +369,92 @@ const BusinessProfilePage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const printPdf = () => {
-    window.print();
+  const downloadPdf = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const margin = 48;
+      const maxWidth = doc.internal.pageSize.getWidth() - margin * 2;
+      const body = mdExport || 'No answers yet.';
+      const lines = doc.splitTextToSize(body, maxWidth);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      let y = margin;
+      const lineHeight = 14;
+      const pageBottom = doc.internal.pageSize.getHeight() - margin;
+      for (const line of lines) {
+        if (y > pageBottom) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+      }
+      doc.save('business-profile.pdf');
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not create PDF.');
+    }
   };
 
-  const handleGenerateFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     e.target.value = '';
     if (!list?.length) return;
     setGenerateError(null);
-    let remaining = KB_MAX_DOCS - knowledgeFiles.length;
-    if (remaining <= 0) {
+    const slots = KB_MAX_DOCS - knowledgeFiles.length - pendingFiles.length;
+    if (slots <= 0) {
       setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
-    const added: BusinessProfileKnowledgeDocument[] = [];
-    try {
-      for (const f of toAdd) {
-        if (remaining <= 0) break;
-        setConvertingFile(f.name);
-        const entry = await readAndConvertToMarkdownDoc(f);
-        added.push(entry);
-        setKnowledgeFiles((prev) => [...prev, entry]);
-        remaining -= 1;
-      }
-      if (added.length > 0) {
-        await persist(answersForApi(answers), [...knowledgeFiles, ...added], companyHint);
-      }
-    } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to read or convert file.');
-    } finally {
-      setConvertingFile(null);
+    const newPending: PendingFile[] = [];
+    for (const f of toAdd) {
+      if (newPending.length >= slots) break;
+      newPending.push({ localId: newLocalId(), file: f, status: 'queued' });
     }
+    if (newPending.length < toAdd.length) {
+      setGenerateError(
+        `Only ${slots} slot(s) left (max ${KB_MAX_DOCS} total). Extra files were not added.`,
+      );
+    }
+    setPendingFiles((prev) => [...prev, ...newPending]);
+  };
+
+  const removePendingFile = (localId: string) => {
+    setPendingFiles((prev) => prev.filter((p) => p.localId !== localId));
+    setGenerateError(null);
+  };
+
+  const handleProcessDocuments = async () => {
+    const queued = pendingFiles.filter((p) => p.status === 'queued');
+    if (queued.length === 0) return;
+    setProcessing(true);
+    setGenerateError(null);
+    for (const p of queued) {
+      setPendingFiles((prev) =>
+        prev.map((x) => (x.localId === p.localId ? { ...x, status: 'converting' } : x)),
+      );
+      setConvertingFile(p.file.name);
+      try {
+        const entry = await readAndConvertToMarkdownDoc(p.file);
+        setKnowledgeFiles((prev) => {
+          const next = [...prev, entry];
+          const { answers: a, companyHint: h } = persistPayloadRef.current;
+          void persist(answersForApi(a), next, h);
+          return next;
+        });
+        setPendingFiles((prev) => prev.filter((x) => x.localId !== p.localId));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
+        setPendingFiles((prev) =>
+          prev.map((x) =>
+            x.localId === p.localId ? { ...x, status: 'error', error: msg } : x,
+          ),
+        );
+      }
+    }
+    setConvertingFile(null);
+    setProcessing(false);
   };
 
   const removeKnowledgeFile = (id: string) => {
@@ -458,12 +537,23 @@ const BusinessProfilePage: React.FC = () => {
     generateCancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
-    setGenerateStage(null);
+    const sectionsToRun = BUSINESS_PROFILE_SPEC.filter((s) => selectedSections.has(s.key));
+    setGenerateProgress(
+      sectionsToRun.map((s) => ({
+        key: s.key,
+        label: s.shortLabel,
+        status: 'pending' as const,
+      })),
+    );
+    let hadAnyError = false;
     try {
-      const sectionsToRun = BUSINESS_PROFILE_SPEC.filter((s) => selectedSections.has(s.key));
       for (const sec of sectionsToRun) {
-        if (generateCancelledRef.current) return;
-        setGenerateStage(`Filling: ${sec.title}…`);
+        if (generateCancelledRef.current) break;
+        setGenerateProgress((prev) =>
+          (prev ?? []).map((row) =>
+            row.key === sec.key ? { ...row, status: 'running' } : row,
+          ),
+        );
         const sectionKeys = getAnswerKeysForSection(sec.key);
         const existingAnswers: Record<string, string> = {};
         for (const k of sectionKeys) {
@@ -474,22 +564,36 @@ const BusinessProfilePage: React.FC = () => {
           ...source,
           existingAnswers,
         };
-        const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
-        if (generateCancelledRef.current) return;
-        mergeGenerated(part);
+        try {
+          const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
+          if (generateCancelledRef.current) break;
+          mergeGenerated(part);
+          setGenerateProgress((prev) =>
+            (prev ?? []).map((row) =>
+              row.key === sec.key ? { ...row, status: 'done' } : row,
+            ),
+          );
+        } catch (err) {
+          hadAnyError = true;
+          const msg = err instanceof Error ? err.message : 'Generation failed.';
+          setGenerateProgress((prev) =>
+            (prev ?? []).map((row) =>
+              row.key === sec.key ? { ...row, status: 'error', message: msg } : row,
+            ),
+          );
+        }
       }
       if (!generateCancelledRef.current) {
-        setSaveMessage('Generated. Review answers; auto-save will sync.');
-        setTimeout(() => setSaveMessage(null), 4000);
-      }
-    } catch (err) {
-      if (!generateCancelledRef.current) {
-        setGenerateError(err instanceof Error ? err.message : 'Generation failed.');
+        if (hadAnyError) {
+          setGenerateError('One or more sections failed. See details below.');
+        } else if (sectionsToRun.length > 0) {
+          setSaveMessage('Generated. Review answers; auto-save will sync.');
+          setTimeout(() => setSaveMessage(null), 4000);
+        }
       }
     } finally {
       if (!generateCancelledRef.current) {
         setGenerateLoading(false);
-        setGenerateStage(null);
       }
     }
   };
@@ -539,7 +643,7 @@ const BusinessProfilePage: React.FC = () => {
               <span className="w-px self-stretch bg-gray-200" />
               <button
                 type="button"
-                onClick={printPdf}
+                onClick={() => void downloadPdf()}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
               >
                 <Printer className="h-4 w-4" />
@@ -614,7 +718,7 @@ const BusinessProfilePage: React.FC = () => {
 
             <DescribeBusinessProfileBar
               onApplyDraft={handleVoiceDraft}
-              disabled={generateLoading || convertingFile != null}
+              disabled={generateLoading || ingestionBusy}
               existingAnswers={answers}
             />
 
@@ -623,15 +727,6 @@ const BusinessProfilePage: React.FC = () => {
                 <Sparkles className="h-4 w-4 text-indigo-600" />
                 Generate with AI
               </h3>
-              <p className="text-xs text-indigo-900/80">
-                Pick which of the six sections you want filled, then upload supporting documents and/or add a company
-                name or website. Each upload is automatically converted to Markdown and saved to your Knowledge base. We
-                use only those Markdown sources (plus your hint) to fill the selected sections. Anything you have already
-                typed into a section is treated as the source of truth — we only append new explicit facts from your
-                docs, never overwrite. Empty fields can be filled either from the docs or with a clearly-stated safe
-                assumption. With neither documents nor a hint, generation still runs using conservative, non-specific
-                guidance (many fields may stay empty).
-              </p>
               {!isGeminiApiKeyConfigured() && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] leading-snug text-amber-950">
                   <span className="font-semibold">Gemini API key missing.</span> PDF, Word, and image conversion and
@@ -639,165 +734,336 @@ const BusinessProfilePage: React.FC = () => {
                   in your frontend environment. Plain text, Markdown, CSV, and JSON files convert locally without it.
                 </div>
               )}
+
               <div className="space-y-2">
-                <span className="mb-1 block text-xs font-medium text-gray-600">Sections to fill</span>
-                <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-indigo-950">
-                  {BUSINESS_PROFILE_SPEC.map((sec) => (
-                    <label key={sec.key} className="inline-flex cursor-pointer items-center gap-1.5 font-medium">
-                      <input
-                        type="checkbox"
-                        checked={selectedSections.has(sec.key)}
-                        onChange={() => {
-                          setSelectedSections((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(sec.key)) next.delete(sec.key);
-                            else next.add(sec.key);
-                            return next;
-                          });
-                        }}
-                        disabled={generateLoading || convertingFile != null}
-                        className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-400"
-                      />
-                      {sec.shortLabel}
-                    </label>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2 text-[11px]">
-                  <button
-                    type="button"
-                    disabled={generateLoading || convertingFile != null}
-                    onClick={() =>
-                      setSelectedSections(new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)))
-                    }
-                    className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    disabled={generateLoading || convertingFile != null}
-                    onClick={() => setSelectedSections(new Set())}
-                    className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
-                  >
-                    Clear all
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setSectionsOpen((o) => !o)}
+                  disabled={generateLoading || processing}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span>
+                    Sections to fill — {selectedSections.size} of {BUSINESS_PROFILE_SPEC.length} selected
+                  </span>
+                  {sectionsOpen ? (
+                    <ChevronDown className="h-5 w-5 shrink-0 text-indigo-700" aria-hidden />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 shrink-0 text-indigo-700" aria-hidden />
+                  )}
+                </button>
+                {sectionsOpen && (
+                  <div className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap gap-2">
+                      {BUSINESS_PROFILE_SPEC.map((sec) => {
+                        const on = selectedSections.has(sec.key);
+                        return (
+                          <button
+                            key={sec.key}
+                            type="button"
+                            disabled={generateLoading || processing}
+                            onClick={() => {
+                              setSelectedSections((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(sec.key)) next.delete(sec.key);
+                                else next.add(sec.key);
+                                return next;
+                              });
+                            }}
+                            className={`rounded-full px-5 py-2.5 text-sm font-semibold transition disabled:opacity-50 ${
+                              on
+                                ? 'bg-indigo-600 text-white shadow-sm hover:bg-indigo-700'
+                                : 'border-2 border-indigo-300 bg-white text-indigo-950 hover:bg-indigo-50'
+                            }`}
+                          >
+                            {sec.shortLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                      <button
+                        type="button"
+                        disabled={generateLoading || processing}
+                        onClick={() =>
+                          setSelectedSections(new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)))
+                        }
+                        className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        disabled={generateLoading || processing}
+                        onClick={() => setSelectedSections(new Set())}
+                        className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
+
+              <div className="rounded-lg border border-indigo-200 bg-white/95 p-4 shadow-sm">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-900">
+                  Step 1 — Upload &amp; convert
+                </p>
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Documents (optional, multiple)
                 </label>
-                <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-white/80 px-3 py-3">
-                    <div className="mb-3 flex flex-col items-center py-2">
-                      <Upload className="mb-2 h-8 w-8 text-indigo-300" />
-                      <input
-                        type="file"
-                        id="bp-gen-file"
-                        className="hidden"
-                        multiple
-                        accept={GEMINI_FILE_INPUT_ACCEPT}
-                        disabled={generateLoading || convertingFile != null}
-                        onChange={(ev) => void handleGenerateFileChange(ev)}
-                      />
-                      <label
-                        htmlFor="bp-gen-file"
-                        className={`rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white ${
-                          generateLoading || convertingFile != null
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:bg-indigo-700'
-                        }`}
+                <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 px-3 py-3">
+                  <div className="flex flex-col items-center py-2">
+                    <Upload className="mb-2 h-8 w-8 text-indigo-300" />
+                    <input
+                      type="file"
+                      id="bp-gen-file"
+                      className="hidden"
+                      multiple
+                      accept={GEMINI_FILE_INPUT_ACCEPT}
+                      disabled={generateLoading || processing}
+                      onChange={handleGenerateFileChange}
+                    />
+                    <label
+                      htmlFor="bp-gen-file"
+                      className={`rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white ${
+                        generateLoading || processing
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer hover:bg-indigo-700'
+                      }`}
+                    >
+                      {knowledgeFiles.length || pendingFiles.length ? 'Add more files' : 'Choose files'}
+                    </label>
+                    {convertingFile && (
+                      <p className="mt-2 flex items-center justify-center gap-2 text-center text-xs font-medium text-indigo-900">
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                        Converting “{convertingFile}” to Markdown…
+                      </p>
+                    )}
+                    <p className="mt-2 text-center text-[11px] text-indigo-900/70">
+                      Up to {KB_MAX_DOCS} files · queue files here, then click Process documents
+                    </p>
+                    <p className="mt-1 text-center text-[11px] text-indigo-900/70">
+                      Saved Markdown appears in your{' '}
+                      <Link
+                        to="/knowledge-base"
+                        className="font-semibold text-indigo-800 underline hover:text-indigo-950"
                       >
-                        {knowledgeFiles.length ? 'Add more files' : 'Choose files'}
-                      </label>
-                      {convertingFile && (
-                        <p className="mt-2 flex items-center justify-center gap-2 text-center text-[11px] font-medium text-indigo-900">
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                          Converting “{convertingFile}” to Markdown…
-                        </p>
+                        Knowledge base
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                </div>
+
+                {pendingFiles.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-indigo-100 bg-white p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-indigo-950">Upload queue</span>
+                      {pendingFiles.some((p) => p.status === 'queued') && (
+                        <button
+                          type="button"
+                          disabled={generateLoading || processing}
+                          onClick={() => void handleProcessDocuments()}
+                          className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          Process documents
+                        </button>
                       )}
-                      <p className="mt-2 text-center text-[11px] text-indigo-900/70">
-                        Up to {KB_MAX_DOCS} files · hold Cmd/Ctrl to select several
-                      </p>
-                      <p className="mt-1 text-center text-[11px] text-indigo-900/70">
-                        Saved files appear in your{' '}
-                        <Link to="/knowledge-base" className="font-semibold text-indigo-800 underline hover:text-indigo-950">
-                          Knowledge base
-                        </Link>
-                        .
-                      </p>
                     </div>
-                    {knowledgeFiles.length > 0 && (
-                      <ul className="max-h-[min(50vh,22rem)] space-y-2 overflow-y-auto border-t border-indigo-100 pt-2 text-xs text-gray-800">
-                        {knowledgeFiles.map((f) => (
-                          <li
-                            key={f.id}
-                            className="rounded-md bg-white/90 px-2 py-2 ring-1 ring-gray-100"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="min-w-0 truncate font-medium" title={f.name}>
-                                {f.name}
+                    <ul className="space-y-2 text-xs">
+                      {pendingFiles.map((p) => (
+                        <li
+                          key={p.localId}
+                          className="flex flex-col gap-1 rounded-md border border-gray-100 bg-gray-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="truncate font-medium text-gray-900" title={p.file.name}>
+                              {p.file.name}
+                            </span>
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                p.status === 'queued'
+                                  ? 'bg-slate-200 text-slate-800'
+                                  : p.status === 'converting'
+                                    ? 'bg-amber-100 text-amber-900'
+                                    : 'bg-red-100 text-red-800'
+                              }`}
+                            >
+                              {p.status === 'queued'
+                                ? 'Queued'
+                                : p.status === 'converting'
+                                  ? 'Converting…'
+                                  : 'Error'}
+                            </span>
+                            {p.status === 'converting' && (
+                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-indigo-600" aria-hidden />
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {p.error && (
+                              <span className="max-w-[min(100%,28rem)] text-[11px] text-red-700" title={p.error}>
+                                {p.error}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => removeKnowledgeFile(f.id)}
-                                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                            <KnowledgeDocumentUploadPreview doc={f} maxTextChars={480} />
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {knowledgeFiles.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={clearKnowledgeFiles}
-                        className="mt-2 text-center text-[11px] font-semibold text-indigo-800 underline hover:text-indigo-950"
-                      >
-                        Clear all files
-                      </button>
-                    )}
-                </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removePendingFile(p.localId)}
+                              disabled={p.status === 'converting' || processing}
+                              className="rounded px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-              {generateError && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  {generateError}
-                </div>
-              )}
-              {saveMessage && !generateError && (
-                <div className="flex items-center gap-2 text-sm text-emerald-800">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {saveMessage}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={
-                    generateLoading || selectedSections.size === 0 || convertingFile != null
-                  }
-                  onClick={() => void handleGenerate()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {generateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {generateLoading ? generateStage || 'Generating…' : 'Generate with AI'}
-                </button>
-                {generateLoading && (
+
+              {knowledgeFiles.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
+                  <h4 className="mb-3 text-sm font-semibold text-indigo-950">Processed documents (Markdown)</h4>
+                  <ul className="max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-xs text-gray-800">
+                    {knowledgeFiles.map((f) => {
+                      const expanded = Boolean(expandedKbDocIds[f.id]);
+                      return (
+                        <li
+                          key={f.id}
+                          className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm ring-1 ring-gray-100"
+                        >
+                          <div className="flex items-start gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedKbDocIds((prev) => ({ ...prev, [f.id]: !prev[f.id] }))
+                              }
+                              className="mt-0.5 shrink-0 rounded p-0.5 text-gray-500 hover:bg-gray-100"
+                              aria-expanded={expanded}
+                              aria-label={expanded ? 'Collapse preview' : 'Expand preview'}
+                            >
+                              {expanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </button>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-semibold text-gray-900" title={f.name}>
+                                  {f.name}
+                                </span>
+                                <span className="text-[10px] font-medium text-gray-500">
+                                  {formatApproxSize(f.data.length)}
+                                </span>
+                              </div>
+                              {expanded && (
+                                <KnowledgeDocumentUploadPreview
+                                  doc={f}
+                                  maxTextChars={20000}
+                                  density="comfortable"
+                                  className="mt-2"
+                                />
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeKnowledgeFile(f.id)}
+                              className="shrink-0 rounded px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                   <button
                     type="button"
-                    onClick={() => {
-                      generateCancelledRef.current = true;
-                      setGenerateLoading(false);
-                      setGenerateStage(null);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                    onClick={clearKnowledgeFiles}
+                    className="mt-3 text-xs font-semibold text-indigo-800 underline hover:text-indigo-950"
                   >
-                    <X className="h-4 w-4" />
-                    Cancel
+                    Clear all processed files
                   </button>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-indigo-200 bg-white/90 p-4 shadow-sm">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-900">
+                  Step 2 — Generate sections
+                </p>
+                {generateError && (
+                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {generateError}
+                  </div>
+                )}
+                {saveMessage && !generateError && (
+                  <div className="mb-3 flex items-center gap-2 text-sm text-emerald-800">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {saveMessage}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      generateLoading ||
+                      selectedSections.size === 0 ||
+                      ingestionBusy
+                    }
+                    onClick={() => void handleGenerate()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {generateLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {generateLoading ? 'Generating…' : 'Generate with AI'}
+                  </button>
+                  {generateLoading && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        generateCancelledRef.current = true;
+                        setGenerateLoading(false);
+                        setGenerateProgress(null);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                    >
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                {generateProgress && generateProgress.length > 0 && (
+                  <ul className="mt-4 space-y-2 border-t border-indigo-100 pt-3 text-xs">
+                    {generateProgress.map((row) => (
+                      <li
+                        key={row.key}
+                        className="flex flex-wrap items-start gap-2 rounded-md bg-indigo-50/60 px-3 py-2"
+                      >
+                        <span className="min-w-[7rem] font-semibold text-indigo-950">{row.label}</span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                            row.status === 'pending'
+                              ? 'bg-slate-200 text-slate-800'
+                              : row.status === 'running'
+                                ? 'bg-amber-100 text-amber-900'
+                                : row.status === 'done'
+                                  ? 'bg-emerald-100 text-emerald-900'
+                                  : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {row.status}
+                        </span>
+                        {row.message && (
+                          <span className="min-w-0 flex-1 text-red-700">{row.message}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </section>
