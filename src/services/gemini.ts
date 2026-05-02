@@ -52,6 +52,12 @@ export const GEMINI_ACCEPTED_MIME_TYPES = [
 export const GEMINI_FILE_INPUT_ACCEPT =
   '.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.gif,.heic,.txt,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/png,image/jpeg,image/webp,image/gif,image/heic,text/plain,text/csv,application/json';
 
+/** True when the bundled Gemini client can call the API (PDF/Word/image conversion and generation). */
+export function isGeminiApiKeyConfigured(): boolean {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+  return Boolean(apiKey && apiKey !== 'your-gemini-api-key-here');
+}
+
 /** Per-type description of expected output and behavior; passed when generating the system prompt. */
 export const SIMULATION_TYPE_OUTPUT_SPECS: Record<string, string> = {
   report:

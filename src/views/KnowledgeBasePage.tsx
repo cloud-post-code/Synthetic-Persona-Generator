@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Loader2, Upload } from 'lucide-react';
 import { commandBus } from '../voice/commandBus.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
-import { GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
+import { GEMINI_FILE_INPUT_ACCEPT, isGeminiApiKeyConfigured } from '../services/gemini.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocumentUpload.js';
@@ -30,16 +30,25 @@ const KnowledgeBasePage: React.FC = () => {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [convertingFile, setConvertingFile] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  const docsRef = useRef<BusinessProfileKnowledgeDocument[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     getBusinessProfile()
       .then((profile) => {
         if (cancelled) return;
         setDocs(normalizeDocs(profile?.knowledge_documents));
         loadedRef.current = true;
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : 'Could not load knowledge base.');
+          loadedRef.current = true;
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -72,6 +81,15 @@ const KnowledgeBasePage: React.FC = () => {
     return () => window.clearTimeout(id);
   }, [docs, loading, persist]);
 
+  docsRef.current = docs;
+
+  useEffect(() => {
+    return () => {
+      if (!loadedRef.current) return;
+      void saveBusinessProfile({ knowledge_documents: docsRef.current }).catch(() => {});
+    };
+  }, []);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     e.target.value = '';
@@ -83,13 +101,18 @@ const KnowledgeBasePage: React.FC = () => {
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
+    const added: BusinessProfileKnowledgeDocument[] = [];
     try {
       for (const f of toAdd) {
         if (remaining <= 0) break;
         setConvertingFile(f.name);
         const entry = await readAndConvertToMarkdownDoc(f);
+        added.push(entry);
         setDocs((prev) => [...prev, entry]);
         remaining -= 1;
+      }
+      if (added.length > 0) {
+        await persist([...docs, ...added]);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Failed to read or convert file.');
@@ -145,6 +168,20 @@ const KnowledgeBasePage: React.FC = () => {
           <div className="py-16 text-center text-sm text-gray-500">Loading…</div>
         ) : (
           <div className="space-y-6">
+            {loadError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <span className="font-semibold">Could not load documents. </span>
+                {loadError}
+              </div>
+            )}
+            {!isGeminiApiKeyConfigured() && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+                <span className="font-semibold">Gemini API key missing. </span>
+                PDF, Word, and image conversion needs{' '}
+                <code className="rounded bg-amber-100 px-1 text-xs">VITE_GEMINI_API_KEY</code> in your frontend
+                environment. Plain text, Markdown, CSV, and JSON convert locally without it.
+              </div>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               <input
                 type="file"

@@ -20,6 +20,7 @@ import { DescribeBusinessProfileBar } from '../components/DescribeBusinessProfil
 import {
   geminiService,
   GEMINI_FILE_INPUT_ACCEPT,
+  isGeminiApiKeyConfigured,
   type BusinessProfileSectionSource,
   type BusinessProfileVoiceDraft,
 } from '../services/gemini.js';
@@ -140,9 +141,15 @@ const BusinessProfilePage: React.FC = () => {
   const [collapsedFw, setCollapsedFw] = useState<Record<string, boolean>>({});
   const [viewFull, setViewFull] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  const persistPayloadRef = useRef({
+    answers: {} as Record<string, string>,
+    knowledgeFiles: [] as BusinessProfileKnowledgeDocument[],
+    companyHint: '',
+  });
   const saveBtnRef = useRef<HTMLButtonElement>(null);
   const companyHintInputRef = useRef<HTMLInputElement>(null);
 
@@ -182,6 +189,7 @@ const BusinessProfilePage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     getBusinessProfile()
       .then((profile) => {
         if (cancelled) return;
@@ -209,6 +217,12 @@ const BusinessProfilePage: React.FC = () => {
         const hint = profile?.company_hint;
         setCompanyHint(typeof hint === 'string' ? hint : '');
         loadedRef.current = true;
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : 'Could not load business profile.');
+          loadedRef.current = true;
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -248,6 +262,20 @@ const BusinessProfilePage: React.FC = () => {
     }, 750);
     return () => window.clearTimeout(id);
   }, [answers, knowledgeFiles, companyHint, loading, persist]);
+
+  persistPayloadRef.current = { answers, knowledgeFiles, companyHint };
+
+  useEffect(() => {
+    return () => {
+      if (!loadedRef.current) return;
+      const { answers: a, knowledgeFiles: k, companyHint: h } = persistPayloadRef.current;
+      void saveBusinessProfile({
+        answers: answersForApi(a),
+        knowledge_documents: k,
+        company_hint: h.trim() ? h.trim() : null,
+      }).catch(() => {});
+    };
+  }, []);
 
   const handleManualSave = () => {
     void persist(answersForApi(answers), knowledgeFiles, companyHint);
@@ -330,13 +358,18 @@ const BusinessProfilePage: React.FC = () => {
       return;
     }
     const toAdd = Array.from(list as FileList) as File[];
+    const added: BusinessProfileKnowledgeDocument[] = [];
     try {
       for (const f of toAdd) {
         if (remaining <= 0) break;
         setConvertingFile(f.name);
         const entry = await readAndConvertToMarkdownDoc(f);
+        added.push(entry);
         setKnowledgeFiles((prev) => [...prev, entry]);
         remaining -= 1;
+      }
+      if (added.length > 0) {
+        await persist(answersForApi(answers), [...knowledgeFiles, ...added], companyHint);
       }
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Failed to read or convert file.');
@@ -442,6 +475,7 @@ const BusinessProfilePage: React.FC = () => {
           existingAnswers,
         };
         const part = await geminiService.generateBusinessProfileSection(sec.key, secSource);
+        if (generateCancelledRef.current) return;
         mergeGenerated(part);
       }
       if (!generateCancelledRef.current) {
@@ -542,12 +576,20 @@ const BusinessProfilePage: React.FC = () => {
 
         {loading ? (
           <div className="py-16 text-center text-sm text-gray-500">Loading…</div>
-        ) : viewFull ? (
-          <article className="prose prose-sm max-w-none rounded-xl border border-gray-200 bg-white p-8 prose-headings:font-semibold print:border-0 print:shadow-none">
-            <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{mdExport || '_No answers yet._'}</pre>
-          </article>
         ) : (
           <>
+            {loadError && (
+              <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
+                <span className="font-semibold">Could not load profile. </span>
+                {loadError}
+              </div>
+            )}
+            {viewFull ? (
+              <article className="prose prose-sm max-w-none rounded-xl border border-gray-200 bg-white p-8 prose-headings:font-semibold print:border-0 print:shadow-none">
+                <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{mdExport || '_No answers yet._'}</pre>
+              </article>
+            ) : (
+              <>
             <section className="mb-6 print:hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Company name or website (optional)
@@ -590,6 +632,13 @@ const BusinessProfilePage: React.FC = () => {
                 assumption. With neither documents nor a hint, generation still runs using conservative, non-specific
                 guidance (many fields may stay empty).
               </p>
+              {!isGeminiApiKeyConfigured() && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] leading-snug text-amber-950">
+                  <span className="font-semibold">Gemini API key missing.</span> PDF, Word, and image conversion and
+                  &quot;Generate with AI&quot; need <code className="rounded bg-amber-100 px-1">VITE_GEMINI_API_KEY</code>{' '}
+                  in your frontend environment. Plain text, Markdown, CSV, and JSON files convert locally without it.
+                </div>
+              )}
               <div className="space-y-2">
                 <span className="mb-1 block text-xs font-medium text-gray-600">Sections to fill</span>
                 <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-indigo-950">
@@ -816,6 +865,8 @@ const BusinessProfilePage: React.FC = () => {
                 </>
               ) : null}
             </div>
+              </>
+            )}
           </>
         )}
 
