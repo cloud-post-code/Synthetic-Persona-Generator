@@ -27,6 +27,12 @@ function recordGeminiResponseUsage(response: { usageMetadata?: unknown }, bucket
 const MAX_PART_CHARS = 500000;
 const MAX_SYSTEM_CHARS = 200000;
 
+/**
+ * Human-readable label for the Gemini model used in simulation build/draft flows
+ * (`generateBasic` with `gemini-2.5-flash`). Keep UI copy aligned with the API model id.
+ */
+export const SIMULATION_GEMINI_AGENT_DISPLAY_NAME = 'Gemini 2.5 Flash';
+
 /** MIME types supported by Gemini for inline data (images, PDF, and other documents). */
 export const GEMINI_ACCEPTED_MIME_TYPES = [
   'image/png',

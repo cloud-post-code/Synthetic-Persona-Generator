@@ -246,7 +246,8 @@ export const ALL_FORMS: BackendFormSchema[] = [
     formKey: 'simulations.template',
     page: '/simulations',
     title: 'Simulation template editor',
-    purpose: 'Create or edit a simulation template that drives how a simulation runs.',
+    purpose:
+      'Create or edit a simulation template. The AI builder uses Gemini 2.5 Flash to fill fields from your description; image, PDF, and table runner inputs still need manual upload.',
     persistsTo: ['simulations'],
     submitTargetId: 'simulations.template.save',
     fields: [
@@ -266,7 +267,7 @@ export const ALL_FORMS: BackendFormSchema[] = [
         label: 'Describe your simulation',
         type: 'textarea',
         description:
-          'Natural-language brief for the AI builder: type or dictate what you want, then use Build it for me to fill the whole template.',
+          'Natural-language brief for the AI builder (Gemini 2.5 Flash): type or dictate what you want, then use Build it for me to fill the template. File, image, PDF, and table inputs are not filled by voice or the builder—upload those manually where the form asks.',
       },
       { key: 'mic_toggle', label: 'Voice describe simulation', type: 'button', action: 'click' },
       { key: 'generate', label: 'Build simulation from description', type: 'button', action: 'click' },

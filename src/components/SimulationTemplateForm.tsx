@@ -18,6 +18,7 @@ import { fieldTargetId } from '../forms/types.js';
 import { sanitizeDraft, type SimulationDraft } from '../services/simulationDraft.js';
 import { BusinessProfileScopePicker } from './BusinessProfileScopePicker.js';
 import { normalizeBusinessProfileScope } from '../constants/businessProfileSpec.js';
+import { SimulationBuildAgentBadge } from './SimulationBuildAgentBadge.js';
 
 const SIMULATION_TYPES: { id: SimulationType; label: string; description: string; icon: string }[] = [
   { id: 'report', label: 'Report', description: 'A single downloadable report from the persona’s perspective: one paragraph of reasoning, then a structured report. No chat or follow-up.', icon: 'FileText' },
@@ -521,8 +522,11 @@ ${description.trim() || '(empty - please create an initial description based on 
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 gap-y-2">
+              <h2 className="text-lg font-semibold text-gray-900">Review system prompt</h2>
+              <SimulationBuildAgentBadge />
+            </div>
             <p className="text-sm text-gray-600">Edit the generated prompt if needed, then click Save to finalize.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -671,7 +675,10 @@ ${description.trim() || '(empty - please create an initial description based on 
 
       {/* 3. What is this simulation about? */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-900">What is this simulation about?</h2>
+        <div className="flex flex-wrap items-center gap-2 gap-y-2">
+          <h2 className="text-lg font-semibold text-gray-900">What is this simulation about?</h2>
+          <SimulationBuildAgentBadge />
+        </div>
         <p className="text-sm text-gray-600">
           This description is used by AI to generate the simulation’s system prompt. Write clearly so the AI can infer purpose, tone, and behavior—it will not be shown verbatim to the persona.
         </p>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
+import { Loader2, Mic, MicOff } from 'lucide-react';
 import { geminiService } from '../services/gemini.js';
+import { SimulationBuildAgentBadge } from './SimulationBuildAgentBadge.js';
 import type { SimulationRunDraft } from '../services/simulationRunDraft.js';
 import type { Persona } from '../models/types.js';
 import type { SimulationTemplate } from '../services/simulationTemplateApi.js';
@@ -12,9 +13,6 @@ import {
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import { simulateRunAssistantSchema } from '../forms/simulateRunAssistantSchema.js';
 import { fieldTargetId } from '../forms/types.js';
-
-/** Display label for the model that builds the run (see `generateBasic` in gemini.ts — `gemini-2.5-flash`). */
-const BUILD_AGENT_LABEL = 'Gemini 2.5 Flash';
 
 export type DescribeSimulateRunBarProps = {
   templates: SimulationTemplate[];
@@ -168,13 +166,7 @@ export const DescribeSimulateRunBar: React.FC<DescribeSimulateRunBarProps> = ({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 gap-y-2">
             <h3 className="text-lg font-bold text-slate-900">Describe your simulation run</h3>
-            <span
-              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
-              title={`Build agent: ${BUILD_AGENT_LABEL}`}
-            >
-              <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Agent: {BUILD_AGENT_LABEL}
-            </span>
+            <SimulationBuildAgentBadge />
           </div>
           <p className="mt-1 text-sm text-slate-600">
             Tap the mic, speak your run, tap again to build. Image, PDF, and table inputs still need manual upload.{' '}

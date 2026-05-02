@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
 import { geminiService } from '../services/gemini.js';
+import { SimulationBuildAgentBadge } from './SimulationBuildAgentBadge.js';
 import { sanitizeDraft } from '../services/simulationDraft.js';
 import type { SimulationTemplateFormHandle } from './SimulationTemplateForm.js';
 import {
@@ -140,11 +141,16 @@ export const DescribeSimulationBar: React.FC<DescribeSimulationBarProps> = ({ fo
   return (
     <div className="mb-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm ring-1 ring-indigo-950/5 sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Describe your simulation</h3>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 gap-y-2">
+            <h3 className="text-lg font-bold text-slate-900">Describe your simulation</h3>
+            <SimulationBuildAgentBadge />
+          </div>
           <p className="mt-1 text-sm text-slate-600">
             Type or use the mic, then <span className="font-semibold text-indigo-700">Build it for me</span> to fill
-            every field. You stay on this page—click <span className="font-semibold text-slate-800">Create Simulation</span> when you want the system prompt step.
+            every field. Image, PDF, and table inputs still need manual upload where the template asks for files. You
+            stay on this page—click <span className="font-semibold text-slate-800">Create Simulation</span> when you
+            want the system prompt step.
           </p>
         </div>
       </div>
