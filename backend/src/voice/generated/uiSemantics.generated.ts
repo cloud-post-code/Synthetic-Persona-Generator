@@ -4,8 +4,8 @@
 import type { UiSemanticDoc, UiSemanticsCorpus } from '../uiSemantics.js';
 
 export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
-  "hash": "8c6d97d9acfa4ec84f8a5ad938ebf4638647b1926d765efab798e4b22f9ac644",
-  "generatedAt": "2026-05-02T22:05:41.647Z",
+  "hash": "73d68a3a89dcb1f97ec64c8426e726d1c9e85587d2d07651728782daa32ae5cf",
+  "generatedAt": "2026-05-02T23:41:50.538Z",
   "docs": [
     {
       "type": "ui_node",
@@ -216,6 +216,12 @@ export const GENERATED_UI_SEMANTICS: UiSemanticsCorpus = {
       "id": "POST /api/auth/login",
       "title": "API — POST /api/auth/login",
       "body": "# API POST /api/auth/login\n\nController: authController.login\nAuth: none\nPurpose: Authenticate and receive a JWT.\n"
+    },
+    {
+      "type": "api_route",
+      "id": "GET /api/auth/me",
+      "title": "API — GET /api/auth/me",
+      "body": "# API GET /api/auth/me\n\nController: authController.me\nAuth: user\nPurpose: Validate JWT and return current user.\n"
     },
     {
       "type": "api_route",

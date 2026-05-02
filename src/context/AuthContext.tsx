@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../models/types.js';
+import { ApiClientError } from '../services/api.js';
 import { authApi, RegisterRequest, LoginRequest } from '../services/authApi.js';
 
 interface AuthContextType {
@@ -19,27 +20,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in (token exists)
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      // Token exists, but we don't have user info
-      // In a real app, you might want to verify the token and fetch user info
-      // For now, we'll just check if token exists
+    let cancelled = false;
+
+    const normalizeAdminUser = (raw: User): User => {
+      const isAdminValue =
+        raw.is_admin === true ||
+        raw.is_admin === 'true' ||
+        raw.is_admin === 1 ||
+        raw.isAdmin === true;
+      return {
+        ...raw,
+        isAdmin: isAdminValue,
+        is_admin: isAdminValue,
+      };
+    };
+
+    const restoreUserFromStorage = (): User | null => {
       const savedUser = localStorage.getItem('auth_user');
-      if (savedUser) {
-        try {
-          const parsedUser = JSON.parse(savedUser);
-          // Ensure isAdmin is set for backwards compatibility
-          const isAdminValue = parsedUser.is_admin === true || parsedUser.is_admin === 'true' || parsedUser.is_admin === 1 || parsedUser.isAdmin === true;
-          parsedUser.isAdmin = isAdminValue;
-          parsedUser.is_admin = isAdminValue;
-          setUser(parsedUser);
-        } catch (e) {
-          console.error('Failed to parse saved user', e);
-        }
+      if (!savedUser) return null;
+      try {
+        const parsedUser = JSON.parse(savedUser) as User;
+        return normalizeAdminUser(parsedUser);
+      } catch (e) {
+        console.error('Failed to parse saved user', e);
+        return null;
       }
-    }
-    setLoading(false);
+    };
+
+    void (async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      try {
+        const { user: meUser } = await authApi.me();
+        if (cancelled) return;
+        const userData = normalizeAdminUser(meUser);
+        setUser(userData);
+        localStorage.setItem('auth_user', JSON.stringify(userData));
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ApiClientError && (e.status === 401 || e.status === 403)) {
+          authApi.logout();
+          setUser(null);
+          localStorage.removeItem('auth_user');
+        } else {
+          const fallback = restoreUserFromStorage();
+          if (fallback) {
+            setUser(fallback);
+          } else {
+            authApi.logout();
+            setUser(null);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (data: LoginRequest) => {

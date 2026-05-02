@@ -84,3 +84,21 @@ export async function loginUser(data: LoginRequest): Promise<{ user: Omit<User, 
     token,
   };
 }
+
+/** Public user row for session validation (`GET /auth/me`). */
+export async function getUserPublicById(userId: string): Promise<Omit<User, 'password_hash'> | null> {
+  const result = await pool.query(
+    `SELECT id, username, email, is_admin, created_at, updated_at FROM users WHERE id = $1`,
+    [userId]
+  );
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    is_admin: row.is_admin === true || row.is_admin === 'true' || row.is_admin === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}

@@ -118,6 +118,7 @@ type ApiRoute = {
 const API_ROUTES: ApiRoute[] = [
   { method: 'POST', path: '/api/auth/register', controller: 'authController.register', purpose: 'Create a new user account.', auth: 'none' },
   { method: 'POST', path: '/api/auth/login', controller: 'authController.login', purpose: 'Authenticate and receive a JWT.', auth: 'none' },
+  { method: 'GET', path: '/api/auth/me', controller: 'authController.me', purpose: 'Validate JWT and return current user.', auth: 'user' },
 
   { method: 'GET', path: '/api/personas/library', controller: 'personaController.getLibraryPersonas', purpose: 'List all library-shared personas.', auth: 'user' },
   { method: 'GET', path: '/api/personas/starred', controller: 'personaController.getStarredPersonas', purpose: 'List personas the current user has starred.', auth: 'user' },

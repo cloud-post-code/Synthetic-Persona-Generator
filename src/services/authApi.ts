@@ -18,6 +18,11 @@ export interface AuthResponse {
 }
 
 export const authApi = {
+  /** Validates the stored Bearer token and returns the current user (or throws). */
+  me: async (): Promise<{ user: User }> => {
+    return apiClient.get<{ user: User }>('/auth/me');
+  },
+
   register: async (data: RegisterRequest): Promise<AuthResponse> => {
     const response = await apiClient.post<AuthResponse>('/auth/register', data);
     if (response.token) {

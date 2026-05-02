@@ -23,6 +23,17 @@ if (import.meta.env.PROD && (!import.meta.env.VITE_API_URL || import.meta.env.VI
   );
 }
 
+/** Thrown on non-OK HTTP responses so callers can distinguish 401/403 from network errors. */
+export class ApiClientError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.status = status;
+  }
+}
+
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
@@ -79,7 +90,7 @@ class ApiClient {
       const error = await response.json().catch(() => ({ error: 'Unknown error' }));
       // Use message field if available (development mode), otherwise use error field
       const errorMessage = error.message || error.error || `HTTP error! status: ${response.status}`;
-      throw new Error(errorMessage);
+      throw new ApiClientError(errorMessage, response.status);
     }
 
     // Handle 204 No Content

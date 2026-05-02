@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { registerUser, loginUser } from '../services/authService.js';
+import { AuthRequest } from '../middleware/auth.js';
+import { registerUser, loginUser, getUserPublicById } from '../services/authService.js';
 import { RegisterRequest, LoginRequest } from '../types/index.js';
 
 export async function register(req: Request, res: Response, next: NextFunction) {
@@ -62,3 +63,18 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export async function me(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.userId;
+    if (!userId || typeof userId !== 'string') {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const user = await getUserPublicById(userId);
+    if (!user) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+}
