@@ -183,6 +183,8 @@ const BusinessProfilePage: React.FC = () => {
   const [expandedKbDocIds, setExpandedKbDocIds] = useState<Record<string, boolean>>({});
   const [convertingFile, setConvertingFile] = useState<string | null>(null);
   const generateCancelledRef = useRef(false);
+  /** Serialize markdown conversion so overlapping file picks chain instead of corrupting state. */
+  const processChainRef = useRef(Promise.resolve());
 
   const ingestionBusy =
     processing ||
@@ -277,6 +279,53 @@ const BusinessProfilePage: React.FC = () => {
       }
     },
     [],
+  );
+
+  const processPendingBatch = useCallback(
+    async (batch: PendingFile[]) => {
+      const toRun = batch.filter((p) => p.status === 'queued');
+      if (toRun.length === 0) return;
+      setGenerateError(null);
+      setProcessing(true);
+      try {
+        for (const p of toRun) {
+          setPendingFiles((prev) =>
+            prev.map((x) => (x.localId === p.localId ? { ...x, status: 'converting' } : x)),
+          );
+          setConvertingFile(p.file.name);
+          try {
+            const entry = await readAndConvertToMarkdownDoc(p.file);
+            setKnowledgeFiles((prev) => {
+              const next = [...prev, entry];
+              const { answers: a, companyHint: h } = persistPayloadRef.current;
+              void persist(answersForApi(a), next, h);
+              return next;
+            });
+            setPendingFiles((prev) => prev.filter((x) => x.localId !== p.localId));
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
+            setPendingFiles((prev) =>
+              prev.map((x) =>
+                x.localId === p.localId ? { ...x, status: 'error', error: msg } : x,
+              ),
+            );
+          }
+        }
+      } finally {
+        setConvertingFile(null);
+        setProcessing(false);
+      }
+    },
+    [persist],
+  );
+
+  const scheduleProcessBatch = useCallback(
+    (batch: PendingFile[]) => {
+      processChainRef.current = processChainRef.current
+        .catch(() => {})
+        .then(() => processPendingBatch(batch));
+    },
+    [processPendingBatch],
   );
 
   useEffect(() => {
@@ -417,7 +466,9 @@ const BusinessProfilePage: React.FC = () => {
         `Only ${slots} slot(s) left (max ${KB_MAX_DOCS} total). Extra files were not added.`,
       );
     }
+    if (newPending.length === 0) return;
     setPendingFiles((prev) => [...prev, ...newPending]);
+    scheduleProcessBatch(newPending);
   };
 
   const removePendingFile = (localId: string) => {
@@ -425,36 +476,10 @@ const BusinessProfilePage: React.FC = () => {
     setGenerateError(null);
   };
 
-  const handleProcessDocuments = async () => {
+  const handleProcessDocuments = () => {
     const queued = pendingFiles.filter((p) => p.status === 'queued');
     if (queued.length === 0) return;
-    setProcessing(true);
-    setGenerateError(null);
-    for (const p of queued) {
-      setPendingFiles((prev) =>
-        prev.map((x) => (x.localId === p.localId ? { ...x, status: 'converting' } : x)),
-      );
-      setConvertingFile(p.file.name);
-      try {
-        const entry = await readAndConvertToMarkdownDoc(p.file);
-        setKnowledgeFiles((prev) => {
-          const next = [...prev, entry];
-          const { answers: a, companyHint: h } = persistPayloadRef.current;
-          void persist(answersForApi(a), next, h);
-          return next;
-        });
-        setPendingFiles((prev) => prev.filter((x) => x.localId !== p.localId));
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
-        setPendingFiles((prev) =>
-          prev.map((x) =>
-            x.localId === p.localId ? { ...x, status: 'error', error: msg } : x,
-          ),
-        );
-      }
-    }
-    setConvertingFile(null);
-    setProcessing(false);
+    scheduleProcessBatch(queued);
   };
 
   const removeKnowledgeFile = (id: string) => {
@@ -840,7 +865,7 @@ const BusinessProfilePage: React.FC = () => {
                       </p>
                     )}
                     <p className="mt-2 text-center text-[11px] text-indigo-900/70">
-                      Up to {KB_MAX_DOCS} files · queue files here, then click Process documents
+                      Up to {KB_MAX_DOCS} files · conversion starts automatically after you choose files
                     </p>
                     <p className="mt-1 text-center text-[11px] text-indigo-900/70">
                       Saved Markdown appears in your{' '}
@@ -863,10 +888,10 @@ const BusinessProfilePage: React.FC = () => {
                         <button
                           type="button"
                           disabled={generateLoading || processing}
-                          onClick={() => void handleProcessDocuments()}
+                          onClick={handleProcessDocuments}
                           className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                         >
-                          Process documents
+                          Process queued
                         </button>
                       )}
                     </div>
