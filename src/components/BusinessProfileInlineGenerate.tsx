@@ -4,7 +4,7 @@ import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import type { BusinessProfile } from '../models/types.js';
-import { KnowledgeDocumentUploadPreview } from './KnowledgeDocumentUploadPreview.js';
+import { readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
 
 export type BusinessProfileInlineGenerateProps = {
   onSaved: (profile: BusinessProfile) => void;
@@ -34,6 +34,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateFileName, setGenerateFileName] = useState('');
   const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
+  const [readingFile, setReadingFile] = useState(false);
   const [companyHint, setCompanyHint] = useState('');
   const cancelledRef = useRef(false);
 
@@ -51,6 +52,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) {
       setGenerateFileName('');
       setGenerateFileData(null);
@@ -58,27 +60,22 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
     }
     setGenerateFileName(file.name);
     setGenerateError(null);
-    const mime = file.type || '';
-    const isBinary =
-      mime === 'application/pdf' ||
-      mime.startsWith('image/') ||
-      (!['text/plain', 'text/csv', 'application/json'].includes(mime) && mime !== '');
-    if (isBinary || !['text/plain', 'text/csv', 'application/json'].includes(mime)) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
+    void (async () => {
+      setReadingFile(true);
+      try {
+        const doc = await readBpGenFile(file);
         setGenerateFileData({
-          data: (ev.target?.result as string) || '',
-          mimeType: mime || 'application/octet-stream',
+          data: doc.data,
+          mimeType: doc.mimeType,
         });
-      };
-      reader.readAsDataURL(file);
-    } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setGenerateFileData({ data: (ev.target?.result as string) || '' });
-      };
-      reader.readAsText(file);
-    }
+      } catch (err) {
+        setGenerateFileName('');
+        setGenerateFileData(null);
+        setGenerateError(err instanceof Error ? err.message : 'Could not read file.');
+      } finally {
+        setReadingFile(false);
+      }
+    })();
   };
 
   const handleGenerate = async () => {
@@ -103,7 +100,6 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
       const hintTrim = companyHint.trim();
       const saved = await saveBusinessProfile({
         answers,
-        knowledge_documents: latest?.knowledge_documents,
         company_hint: hintTrim ? hintTrim : null,
       });
       if (cancelledRef.current) return;
@@ -165,33 +161,41 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
         </div>
         <div>
           <label className={labelClass}>Document (optional)</label>
-          <div className="border-2 border-dashed border-indigo-200 rounded-xl p-4 flex flex-col items-center text-center bg-white/60">
-            <Upload className="w-8 h-8 text-indigo-300 mb-2" />
+          <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-sky-300 transition-all bg-gray-50/50 group">
+            <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-sky-500 shrink-0" aria-hidden />
+            <p className="text-sm font-bold text-gray-600 mb-3 max-w-md">
+              Upload business plan, market research, or other strategy docs
+            </p>
             <input
               type="file"
               id="inline-bp-generate-file"
               className="hidden"
               accept={GEMINI_FILE_INPUT_ACCEPT}
+              disabled={generateLoading || readingFile}
               onChange={handleGenerateFileChange}
             />
             <label
               htmlFor="inline-bp-generate-file"
-              className="cursor-pointer px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700"
+              className={`px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg transition-colors text-sm ${
+                generateLoading || readingFile
+                  ? 'cursor-not-allowed opacity-50 pointer-events-none'
+                  : 'cursor-pointer hover:bg-sky-700'
+              }`}
             >
-              {generateFileName || 'Select document'}
+              {readingFile ? 'Reading…' : generateFileName || 'Select Document'}
             </label>
-            {generateFileData?.data ? (
-              <div className="mt-3 w-full text-left">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Uploaded sample</p>
-                <KnowledgeDocumentUploadPreview
-                  doc={{
-                    data: generateFileData.data,
-                    mimeType: generateFileData.mimeType,
-                    name: generateFileName || undefined,
-                  }}
-                  maxTextChars={520}
-                />
-              </div>
+            {generateFileData?.data && !readingFile ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerateFileName('');
+                  setGenerateFileData(null);
+                }}
+                disabled={generateLoading}
+                className="mt-3 text-xs font-semibold text-sky-800 underline hover:text-sky-950 disabled:opacity-40"
+              >
+                Remove document
+              </button>
             ) : null}
           </div>
         </div>
@@ -205,7 +209,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
         <button
           type="button"
           onClick={() => void handleGenerate()}
-          disabled={generateLoading}
+          disabled={generateLoading || readingFile}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50"
         >
           {generateLoading ? (

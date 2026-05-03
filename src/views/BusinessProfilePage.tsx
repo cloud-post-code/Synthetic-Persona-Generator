@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { commandBus } from '../voice/commandBus.js';
 import { useVoiceTarget } from '../voice/useVoiceTarget.js';
 import {
@@ -35,16 +35,8 @@ import {
   getAnswerKeysForSection,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
-import { KB_MAX_DOCS, readKnowledgeDocumentForStorage } from '../utils/knowledgeDocumentUpload.js';
+import { readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
-import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
-
-type PendingFile = {
-  localId: string;
-  file: File;
-  status: 'queued' | 'reading' | 'error';
-  error?: string;
-};
 
 type GenerateSectionProgress = {
   key: BusinessProfileSectionKey;
@@ -52,15 +44,6 @@ type GenerateSectionProgress = {
   status: 'pending' | 'running' | 'done' | 'error';
   message?: string;
 };
-
-function newLocalId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-}
-
-function formatApproxSize(chars: number): string {
-  if (chars < 1000) return `${chars} chars`;
-  return `~${Math.round(chars / 1000)}k chars`;
-}
 
 function buildBpGenerationSource(
   files: BusinessProfileKnowledgeDocument[],
@@ -166,29 +149,26 @@ const BusinessProfilePage: React.FC = () => {
   const profileFetchOkRef = useRef(false);
   const persistPayloadRef = useRef({
     answers: {} as Record<string, string>,
-    knowledgeFiles: [] as BusinessProfileKnowledgeDocument[],
     companyHint: '',
   });
   const saveBtnRef = useRef<HTMLButtonElement>(null);
   const companyHintInputRef = useRef<HTMLInputElement>(null);
+  const generateFileLabelRef = useRef<HTMLLabelElement>(null);
 
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateProgress, setGenerateProgress] = useState<GenerateSectionProgress[] | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateNotice, setGenerateNotice] = useState<string | null>(null);
-  const [knowledgeFiles, setKnowledgeFiles] = useState<BusinessProfileKnowledgeDocument[]>([]);
+  /** In-memory only for “Generate with AI”; not saved with the profile. */
+  const [generateDoc, setGenerateDoc] = useState<BusinessProfileKnowledgeDocument | null>(null);
+  const [generateDocFileName, setGenerateDocFileName] = useState('');
+  const [readingGenFile, setReadingGenFile] = useState(false);
   const [companyHint, setCompanyHint] = useState('');
   const [selectedSections, setSelectedSections] = useState<Set<BusinessProfileSectionKey>>(
     () => new Set(),
   );
   const [sectionsOpen, setSectionsOpen] = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [processing, setProcessing] = useState(false);
-  const [expandedKbDocIds, setExpandedKbDocIds] = useState<Record<string, boolean>>({});
-  const [readingFile, setReadingFile] = useState<string | null>(null);
   const generateCancelledRef = useRef(false);
-  /** Serialize file reads so overlapping file picks chain instead of corrupting state. */
-  const processChainRef = useRef(Promise.resolve());
   const generateNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showGenerateNotice = useCallback((message: string) => {
@@ -200,9 +180,7 @@ const BusinessProfilePage: React.FC = () => {
     }, 6000);
   }, []);
 
-  const ingestionBusy =
-    processing ||
-    pendingFiles.some((p) => p.status === 'queued' || p.status === 'reading');
+  const ingestionBusy = readingGenFile;
 
   useVoiceTarget({
     id: 'business.save',
@@ -225,6 +203,13 @@ const BusinessProfilePage: React.FC = () => {
     ref: companyHintInputRef as React.RefObject<HTMLElement | null>,
     enabled: !loading,
   });
+  useVoiceTarget({
+    id: fieldTargetId(businessProfileFormSchema.formKey, 'generate_file'),
+    label: 'Document for AI generation (optional)',
+    action: 'click',
+    ref: generateFileLabelRef as React.RefObject<HTMLElement | null>,
+    enabled: !loading && !loadError && !generateLoading,
+  });
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -240,29 +225,13 @@ const BusinessProfilePage: React.FC = () => {
         }
       }
       setAnswers(next);
-      setKnowledgeFiles(
-        Array.isArray(profile?.knowledge_documents)
-          ? profile.knowledge_documents.filter(
-              (d) =>
-                d &&
-                typeof d.id === 'string' &&
-                typeof d.name === 'string' &&
-                typeof d.data === 'string' &&
-                d.id.trim() &&
-                d.name.trim() &&
-                d.data,
-            )
-          : [],
-      );
       const hint = profile?.company_hint;
       setCompanyHint(typeof hint === 'string' ? hint : '');
     } catch (err) {
       profileFetchOkRef.current = false;
       loadedRef.current = true;
       setAnswers(emptyAnswers());
-      setKnowledgeFiles([]);
       setCompanyHint('');
-      setPendingFiles([]);
       setLoadError(err instanceof Error ? err.message : 'Could not load business profile.');
     } finally {
       setLoading(false);
@@ -277,93 +246,41 @@ const BusinessProfilePage: React.FC = () => {
     void loadProfile();
   }, [loadProfile]);
 
-  const persist = useCallback(
-    async (payload: Record<string, string>, docs: BusinessProfileKnowledgeDocument[], hint: string) => {
-      setSaveState('saving');
-      setSaveMessage(null);
-      try {
-        const t = hint.trim();
-        await saveBusinessProfile({
-          answers: payload,
-          knowledge_documents: docs,
-          company_hint: t ? t : null,
-        });
-        commandBus.emit({ type: 'business_profile:saved' });
-        setSaveState('saved');
-        setTimeout(() => setSaveState('idle'), 2000);
-      } catch (err) {
-        setSaveState('error');
-        setSaveMessage(err instanceof Error ? err.message : 'Save failed');
-        setTimeout(() => setSaveState('idle'), 4000);
-      }
-    },
-    [],
-  );
-
-  const processPendingBatch = useCallback(
-    async (batch: PendingFile[]) => {
-      const toRun = batch.filter((p) => p.status === 'queued');
-      if (toRun.length === 0) return;
-      setGenerateError(null);
-      setProcessing(true);
-      try {
-        for (const p of toRun) {
-          setPendingFiles((prev) =>
-            prev.map((x) => (x.localId === p.localId ? { ...x, status: 'reading' } : x)),
-          );
-          setReadingFile(p.file.name);
-          try {
-            const entry = await readKnowledgeDocumentForStorage(p.file);
-            setKnowledgeFiles((prev) => {
-              const next = [...prev, entry];
-              const { answers: a, companyHint: h } = persistPayloadRef.current;
-              void persist(answersForApi(a), next, h);
-              return next;
-            });
-            setPendingFiles((prev) => prev.filter((x) => x.localId !== p.localId));
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
-            setPendingFiles((prev) =>
-              prev.map((x) =>
-                x.localId === p.localId ? { ...x, status: 'error', error: msg } : x,
-              ),
-            );
-          }
-        }
-      } finally {
-        setReadingFile(null);
-        setProcessing(false);
-      }
-    },
-    [persist],
-  );
-
-  const scheduleProcessBatch = useCallback(
-    (batch: PendingFile[]) => {
-      processChainRef.current = processChainRef.current
-        .catch(() => {})
-        .then(() => processPendingBatch(batch));
-    },
-    [processPendingBatch],
-  );
+  const persist = useCallback(async (payload: Record<string, string>, hint: string) => {
+    setSaveState('saving');
+    setSaveMessage(null);
+    try {
+      const t = hint.trim();
+      await saveBusinessProfile({
+        answers: payload,
+        company_hint: t ? t : null,
+      });
+      commandBus.emit({ type: 'business_profile:saved' });
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } catch (err) {
+      setSaveState('error');
+      setSaveMessage(err instanceof Error ? err.message : 'Save failed');
+      setTimeout(() => setSaveState('idle'), 4000);
+    }
+  }, []);
 
   useEffect(() => {
     if (!loadedRef.current || loading || !profileFetchOkRef.current) return;
     const id = window.setTimeout(() => {
-      void persist(answersForApi(answers), knowledgeFiles, companyHint);
+      void persist(answersForApi(answers), companyHint);
     }, 750);
     return () => window.clearTimeout(id);
-  }, [answers, knowledgeFiles, companyHint, loading, persist]);
+  }, [answers, companyHint, loading, persist]);
 
-  persistPayloadRef.current = { answers, knowledgeFiles, companyHint };
+  persistPayloadRef.current = { answers, companyHint };
 
   useEffect(() => {
     return () => {
       if (!loadedRef.current || !profileFetchOkRef.current) return;
-      const { answers: a, knowledgeFiles: k, companyHint: h } = persistPayloadRef.current;
+      const { answers: a, companyHint: h } = persistPayloadRef.current;
       void saveBusinessProfile({
         answers: answersForApi(a),
-        knowledge_documents: k,
         company_hint: h.trim() ? h.trim() : null,
       }).catch(() => {});
     };
@@ -371,19 +288,19 @@ const BusinessProfilePage: React.FC = () => {
 
   const handleManualSave = () => {
     if (!profileFetchOkRef.current || loadError) return;
-    void persist(answersForApi(answers), knowledgeFiles, companyHint);
+    void persist(answersForApi(answers), companyHint);
   };
 
   const hasBusinessProfileContent = useMemo(() => {
     const hasAnswers = getAllBusinessProfileAnswerKeys().some((k) => (answers[k] ?? '').trim());
-    return hasAnswers || knowledgeFiles.length > 0 || companyHint.trim().length > 0;
-  }, [answers, knowledgeFiles, companyHint]);
+    return hasAnswers || companyHint.trim().length > 0;
+  }, [answers, companyHint]);
 
   const handleClearBusinessProfile = () => {
     if (!hasBusinessProfileContent || loading) return;
     if (
       !window.confirm(
-        'Clear the entire business profile? This removes all section answers, every file in your Knowledge base, and the company or website hint used for generation. This cannot be undone.',
+        'Clear the entire business profile? This removes all section answers and the company or website hint. This cannot be undone.',
       )
     ) {
       return;
@@ -396,9 +313,9 @@ const BusinessProfilePage: React.FC = () => {
         await saveBusinessProfile({ answers: {}, knowledge_documents: [], company_hint: null });
         commandBus.emit({ type: 'business_profile:saved' });
         setAnswers(next);
-        setKnowledgeFiles([]);
         setCompanyHint('');
-        setPendingFiles([]);
+        setGenerateDoc(null);
+        setGenerateDocFileName('');
         setGenerateProgress(null);
         setGenerateError(null);
         setSaveState('saved');
@@ -466,14 +383,16 @@ const BusinessProfilePage: React.FC = () => {
   };
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
+    const file = e.target.files?.[0];
     e.target.value = '';
-    if (!list?.length) {
-      showGenerateNotice('No file was selected — nothing was added.');
+    if (!file) {
+      showGenerateNotice('No file was selected.');
       return;
     }
     if (loadError || !profileFetchOkRef.current) {
-      setGenerateError('Load your business profile first (fix the error above or use Retry) before uploading documents.');
+      setGenerateError(
+        'Load your business profile first (fix the error above or use Retry) before choosing a document.',
+      );
       return;
     }
     setGenerateError(null);
@@ -482,72 +401,30 @@ const BusinessProfilePage: React.FC = () => {
       clearTimeout(generateNoticeTimerRef.current);
       generateNoticeTimerRef.current = null;
     }
-    const slots = KB_MAX_DOCS - knowledgeFiles.length - pendingFiles.length;
-    if (slots <= 0) {
-      setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
-      return;
-    }
-    const toAdd = Array.from(list as FileList) as File[];
-    const newPending: PendingFile[] = [];
-    for (const f of toAdd) {
-      if (newPending.length >= slots) break;
-      newPending.push({ localId: newLocalId(), file: f, status: 'queued' });
-    }
-    if (newPending.length < toAdd.length) {
-      const extra = toAdd.length - newPending.length;
-      setGenerateError(
-        `Only ${slots} slot(s) left (max ${KB_MAX_DOCS} total). ${extra} file(s) were not added.${
-          newPending.length > 0 ? ` ${newPending.length} file(s) were queued.` : ''
-        }`,
-      );
-    }
-    if (newPending.length === 0) return;
-    setPendingFiles((prev) => [...prev, ...newPending]);
-    scheduleProcessBatch(newPending);
-  };
-
-  const removePendingFile = (localId: string) => {
-    setPendingFiles((prev) => {
-      const removed = prev.find((p) => p.localId === localId);
-      const next = prev.filter((p) => p.localId !== localId);
-      if (removed) {
+    void (async () => {
+      setReadingGenFile(true);
+      setGenerateDocFileName(file.name);
+      try {
+        const doc = await readBpGenFile(file);
+        setGenerateDoc(doc);
         showGenerateNotice(
-          `“${removed.file.name}” was removed from the upload queue — it was not saved to your library.`,
+          `Loaded “${file.name}” for Generate with AI in this browser only—it is not stored on the server.`,
         );
+      } catch (err) {
+        setGenerateDoc(null);
+        setGenerateDocFileName('');
+        setGenerateError(err instanceof Error ? err.message : 'Failed to read file.');
+      } finally {
+        setReadingGenFile(false);
       }
-      return next;
-    });
-    setGenerateError(null);
+    })();
   };
 
-  const handleProcessDocuments = () => {
-    const queued = pendingFiles.filter((p) => p.status === 'queued');
-    if (queued.length === 0) return;
-    scheduleProcessBatch(queued);
-  };
-
-  const removeKnowledgeFile = (id: string) => {
-    setKnowledgeFiles((prev) => {
-      const removed = prev.find((f) => f.id === id);
-      const next = prev.filter((f) => f.id !== id);
-      if (removed) {
-        showGenerateNotice(`“${removed.name}” was removed from saved documents (auto-save runs next).`);
-      }
-      return next;
-    });
+  const clearGenerateDocument = () => {
+    setGenerateDoc(null);
+    setGenerateDocFileName('');
     setGenerateError(null);
-  };
-
-  const clearKnowledgeFiles = () => {
-    setKnowledgeFiles((prev) => {
-      if (prev.length > 0) {
-        showGenerateNotice(
-          'All saved documents were removed from this list (auto-save runs next). Nothing new was added.',
-        );
-      }
-      return [];
-    });
-    setGenerateError(null);
+    showGenerateNotice('Document removed. Choose another file when you are ready.');
   };
 
   const mergeGenerated = (partial: Record<string, string | null>) => {
@@ -620,7 +497,7 @@ const BusinessProfilePage: React.FC = () => {
       setGenerateError('Load your business profile first before generating.');
       return;
     }
-    const source = buildBpGenerationSource(knowledgeFiles, companyHint);
+    const source = buildBpGenerationSource(generateDoc ? [generateDoc] : [], companyHint);
     generateCancelledRef.current = false;
     setGenerateLoading(true);
     setGenerateError(null);
@@ -703,7 +580,7 @@ const BusinessProfilePage: React.FC = () => {
               type="button"
               onClick={handleClearBusinessProfile}
               disabled={loading || generateLoading || !hasBusinessProfileContent}
-              title="Remove all business profile answers, knowledge documents, and generation hint"
+              title="Remove all business profile answers and generation hint"
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <RotateCcw className="h-4 w-4" />
@@ -776,8 +653,8 @@ const BusinessProfilePage: React.FC = () => {
                   {loadError}
                 </p>
                 <p className="mt-2 text-amber-950/90">
-                  Editing, uploads, and auto-save stay off until loading succeeds so your saved answers and knowledge
-                  files are not overwritten with empty data.
+                  Editing and auto-save stay off until loading succeeds so your saved answers are not overwritten with
+                  empty data.
                 </p>
                 <button
                   type="button"
@@ -832,7 +709,7 @@ const BusinessProfilePage: React.FC = () => {
                 <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] leading-snug text-amber-950">
                   <span className="font-semibold">Gemini API key missing.</span> &quot;Generate with AI&quot; needs{' '}
                   <code className="rounded bg-amber-100 px-1">VITE_GEMINI_API_KEY</code> in your frontend environment.
-                  Document uploads still save to your profile without it.
+                  You can still edit answers and save without it.
                 </div>
               )}
               {generateNotice && !generateError && (
@@ -846,7 +723,7 @@ const BusinessProfilePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSectionsOpen((o) => !o)}
-                  disabled={generateLoading || processing || !!loadError}
+                  disabled={generateLoading || readingGenFile || !!loadError}
                   className="flex w-full items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50/80 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span>
@@ -867,7 +744,7 @@ const BusinessProfilePage: React.FC = () => {
                           <button
                             key={sec.key}
                             type="button"
-                            disabled={generateLoading || processing || !!loadError}
+                            disabled={generateLoading || readingGenFile || !!loadError}
                             onClick={() => {
                               setSelectedSections((prev) => {
                                 const next = new Set(prev);
@@ -890,7 +767,7 @@ const BusinessProfilePage: React.FC = () => {
                     <div className="mt-3 flex flex-wrap gap-3 text-xs">
                       <button
                         type="button"
-                        disabled={generateLoading || processing || !!loadError}
+                        disabled={generateLoading || readingGenFile || !!loadError}
                         onClick={() =>
                           setSelectedSections(new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)))
                         }
@@ -900,7 +777,7 @@ const BusinessProfilePage: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        disabled={generateLoading || processing || !!loadError}
+                        disabled={generateLoading || readingGenFile || !!loadError}
                         onClick={() => setSelectedSections(new Set())}
                         className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
                       >
@@ -913,187 +790,55 @@ const BusinessProfilePage: React.FC = () => {
 
               <div className="rounded-lg border border-indigo-200 bg-white/95 p-4 shadow-sm">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-900">
-                  Step 1 — Upload documents
+                  Step 1 — Document (optional)
                 </p>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
-                  Documents (optional, multiple)
+                <label className="mb-2 block text-xs font-medium text-gray-600">
+                  One file for this session — same flow as Supporting Docs on Build; not saved with your profile.
                 </label>
-                <div className="flex flex-col rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 px-3 py-3">
-                  <div className="flex flex-col items-center py-2">
-                    <Upload className="mb-2 h-8 w-8 text-indigo-300" />
-                    <input
-                      type="file"
-                      id="bp-gen-file"
-                      className="hidden"
-                      multiple
-                      accept={GEMINI_FILE_INPUT_ACCEPT}
-                      disabled={generateLoading || processing || !!loadError}
-                      onChange={handleGenerateFileChange}
-                    />
-                    <label
-                      htmlFor="bp-gen-file"
-                      className={`rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white ${
-                        generateLoading || processing || !!loadError
-                          ? 'cursor-not-allowed opacity-50'
-                          : 'cursor-pointer hover:bg-indigo-700'
-                      }`}
-                    >
-                      {knowledgeFiles.length || pendingFiles.length ? 'Add more files' : 'Choose files'}
-                    </label>
-                    {readingFile && (
-                      <p className="mt-2 flex items-center justify-center gap-2 text-center text-xs font-medium text-indigo-900">
-                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                        Reading “{readingFile}”…
-                      </p>
-                    )}
-                    <p className="mt-2 text-center text-[11px] text-indigo-900/70">
-                      Up to {KB_MAX_DOCS} files · processing starts automatically after you choose files
-                    </p>
-                    <p className="mt-1 text-center text-[11px] text-indigo-900/70">
-                      Saved files also appear in your{' '}
-                      <Link
-                        to="/knowledge-base"
-                        className="font-semibold text-indigo-800 underline hover:text-indigo-950"
-                      >
-                        Knowledge base
-                      </Link>
-                      .
-                    </p>
-                  </div>
-                </div>
-
-                {pendingFiles.length > 0 && (
-                  <div className="mt-4 rounded-lg border border-indigo-100 bg-white p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-indigo-950">Upload queue</span>
-                      {pendingFiles.some((p) => p.status === 'queued') && (
-                        <button
-                          type="button"
-                          disabled={generateLoading || processing || !!loadError}
-                          onClick={handleProcessDocuments}
-                          className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-                        >
-                          Process queued
-                        </button>
-                      )}
-                    </div>
-                    <ul className="space-y-2 text-xs">
-                      {pendingFiles.map((p) => (
-                        <li
-                          key={p.localId}
-                          className="flex flex-col gap-1 rounded-md border border-gray-100 bg-gray-50/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div className="flex min-w-0 flex-1 items-center gap-2">
-                            <span className="truncate font-medium text-gray-900" title={p.file.name}>
-                              {p.file.name}
-                            </span>
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                                p.status === 'queued'
-                                  ? 'bg-slate-200 text-slate-800'
-                                  : p.status === 'reading'
-                                    ? 'bg-amber-100 text-amber-900'
-                                    : 'bg-red-100 text-red-800'
-                              }`}
-                            >
-                              {p.status === 'queued'
-                                ? 'Queued'
-                                : p.status === 'reading'
-                                  ? 'Reading…'
-                                  : 'Error'}
-                            </span>
-                            {p.status === 'reading' && (
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-indigo-600" aria-hidden />
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {p.error && (
-                              <span className="max-w-[min(100%,28rem)] text-[11px] text-red-700" title={p.error}>
-                                {p.error}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removePendingFile(p.localId)}
-                              disabled={p.status === 'reading' || processing}
-                              className="rounded px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              {knowledgeFiles.length > 0 && (
-                <div className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
-                  <h4 className="mb-3 text-sm font-semibold text-indigo-950">Saved documents</h4>
-                  <ul className="max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-xs text-gray-800">
-                    {knowledgeFiles.map((f) => {
-                      const expanded = Boolean(expandedKbDocIds[f.id]);
-                      return (
-                        <li
-                          key={f.id}
-                          className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm ring-1 ring-gray-100"
-                        >
-                          <div className="flex items-start gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedKbDocIds((prev) => ({ ...prev, [f.id]: !prev[f.id] }))
-                              }
-                              className="mt-0.5 shrink-0 rounded p-0.5 text-gray-500 hover:bg-gray-100"
-                              aria-expanded={expanded}
-                              aria-label={expanded ? 'Collapse preview' : 'Expand preview'}
-                            >
-                              {expanded ? (
-                                <ChevronDown className="h-4 w-4" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4" />
-                              )}
-                            </button>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-semibold text-gray-900" title={f.name}>
-                                  {f.name}
-                                </span>
-                                <span className="text-[10px] font-medium text-gray-500">
-                                  {formatApproxSize(f.data.length)}
-                                </span>
-                              </div>
-                              {expanded && (
-                                <KnowledgeDocumentUploadPreview
-                                  doc={f}
-                                  maxTextChars={20000}
-                                  density="comfortable"
-                                  className="mt-2"
-                                />
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeKnowledgeFile(f.id)}
-                              className="shrink-0 rounded px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <button
-                    type="button"
-                    onClick={clearKnowledgeFiles}
-                    className="mt-3 text-xs font-semibold text-indigo-800 underline hover:text-indigo-950"
+                <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-10 flex flex-col items-center justify-center text-center hover:border-sky-300 transition-all bg-gray-50/50 group">
+                  <Upload className="w-12 h-12 text-gray-300 mb-4 group-hover:text-sky-500" aria-hidden />
+                  <p className="text-lg font-bold text-gray-600 mb-4">
+                    Upload business plan, market research, or other strategy docs
+                  </p>
+                  <input
+                    type="file"
+                    id="bp-gen-file"
+                    className="hidden"
+                    accept={GEMINI_FILE_INPUT_ACCEPT}
+                    disabled={generateLoading || readingGenFile || !!loadError}
+                    onChange={handleGenerateFileChange}
+                  />
+                  <label
+                    ref={generateFileLabelRef}
+                    htmlFor="bp-gen-file"
+                    data-voice-target={fieldTargetId(businessProfileFormSchema.formKey, 'generate_file')}
+                    aria-label="Document for AI generation"
+                    className={`cursor-pointer px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl shadow-lg transition-colors ${
+                      generateLoading || readingGenFile || !!loadError
+                        ? 'cursor-not-allowed opacity-50 pointer-events-none'
+                        : 'hover:bg-sky-700'
+                    }`}
                   >
-                    Clear all processed files
-                  </button>
+                    {readingGenFile ? 'Reading…' : generateDocFileName || 'Select Document'}
+                  </label>
+                  {readingGenFile && (
+                    <p className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-600">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                      Reading file…
+                    </p>
+                  )}
+                  {generateDoc && !readingGenFile && (
+                    <button
+                      type="button"
+                      onClick={clearGenerateDocument}
+                      disabled={generateLoading || !!loadError}
+                      className="mt-4 text-xs font-semibold text-sky-800 underline hover:text-sky-950 disabled:opacity-40"
+                    >
+                      Remove document
+                    </button>
+                  )}
                 </div>
-              )}
+              </div>
 
               <div className="rounded-lg border border-indigo-200 bg-white/90 p-4 shadow-sm">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-900">

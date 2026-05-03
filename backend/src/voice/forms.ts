@@ -78,6 +78,14 @@ function businessProfileBackendFormFields(): BackendFormFieldDef[] {
       }
     }
   }
+  fields.push({
+    key: 'generate_file',
+    label: 'Document for AI generation (optional)',
+    type: 'button',
+    action: 'click',
+    description:
+      'Optional file for Generate with AI on this device only; not stored on the server (pick again after reload).',
+  });
   fields.push({ key: 'save', label: 'Save business profile (sync)', type: 'button', action: 'click' });
   return fields;
 }
