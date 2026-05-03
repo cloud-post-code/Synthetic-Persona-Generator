@@ -1,5 +1,4 @@
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
-import { geminiService } from '../services/gemini.js';
 
 /** Align with backend `BP_KNOWLEDGE_MAX_DOCS` (business_profiles.knowledge_documents cap). */
 export const KB_MAX_DOCS = 12;
@@ -77,21 +76,11 @@ export async function readBpGenFile(file: File): Promise<BusinessProfileKnowledg
 }
 
 /**
- * Read an upload and convert it to Markdown via Gemini (binary) or local wrapping (text).
- * The knowledge base stores only the `.md` result; original bytes are not retained.
+ * Read an upload for storage: text/JSON/CSV as UTF-8 string; PDF/images/Word as a data URL
+ * string suitable for multimodal generation elsewhere. No server-side or Gemini conversion.
  */
-export async function readAndConvertToMarkdownDoc(file: File): Promise<BusinessProfileKnowledgeDocument> {
-  const raw = await readBpGenFile(file);
-  const md = await geminiService.convertDocumentToMarkdown({
-    data: raw.data,
-    mimeType: raw.mimeType,
-    name: raw.name,
-  });
-  const baseName = file.name.replace(/\.[^.]+$/, '') || 'document';
-  return {
-    id: raw.id,
-    name: `${baseName}.md`,
-    data: md,
-    mimeType: 'text/markdown',
-  };
+export async function readKnowledgeDocumentForStorage(
+  file: File,
+): Promise<BusinessProfileKnowledgeDocument> {
+  return readBpGenFile(file);
 }

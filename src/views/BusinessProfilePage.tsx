@@ -34,14 +34,14 @@ import {
   getAnswerKeysForSection,
 } from '../constants/businessProfileSpec.js';
 import { compileBusinessProfileMarkdown } from '../utils/businessProfile.js';
-import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocumentUpload.js';
+import { KB_MAX_DOCS, readKnowledgeDocumentForStorage } from '../utils/knowledgeDocumentUpload.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
 
 type PendingFile = {
   localId: string;
   file: File;
-  status: 'queued' | 'converting' | 'error';
+  status: 'queued' | 'reading' | 'error';
   error?: string;
 };
 
@@ -183,14 +183,14 @@ const BusinessProfilePage: React.FC = () => {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [processing, setProcessing] = useState(false);
   const [expandedKbDocIds, setExpandedKbDocIds] = useState<Record<string, boolean>>({});
-  const [convertingFile, setConvertingFile] = useState<string | null>(null);
+  const [readingFile, setReadingFile] = useState<string | null>(null);
   const generateCancelledRef = useRef(false);
-  /** Serialize markdown conversion so overlapping file picks chain instead of corrupting state. */
+  /** Serialize file reads so overlapping file picks chain instead of corrupting state. */
   const processChainRef = useRef(Promise.resolve());
 
   const ingestionBusy =
     processing ||
-    pendingFiles.some((p) => p.status === 'queued' || p.status === 'converting');
+    pendingFiles.some((p) => p.status === 'queued' || p.status === 'reading');
 
   useVoiceTarget({
     id: 'business.save',
@@ -297,11 +297,11 @@ const BusinessProfilePage: React.FC = () => {
       try {
         for (const p of toRun) {
           setPendingFiles((prev) =>
-            prev.map((x) => (x.localId === p.localId ? { ...x, status: 'converting' } : x)),
+            prev.map((x) => (x.localId === p.localId ? { ...x, status: 'reading' } : x)),
           );
-          setConvertingFile(p.file.name);
+          setReadingFile(p.file.name);
           try {
-            const entry = await readAndConvertToMarkdownDoc(p.file);
+            const entry = await readKnowledgeDocumentForStorage(p.file);
             setKnowledgeFiles((prev) => {
               const next = [...prev, entry];
               const { answers: a, companyHint: h } = persistPayloadRef.current;
@@ -319,7 +319,7 @@ const BusinessProfilePage: React.FC = () => {
           }
         }
       } finally {
-        setConvertingFile(null);
+        setReadingFile(null);
         setProcessing(false);
       }
     },
@@ -784,9 +784,9 @@ const BusinessProfilePage: React.FC = () => {
               </h3>
               {!isGeminiApiKeyConfigured() && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] leading-snug text-amber-950">
-                  <span className="font-semibold">Gemini API key missing.</span> PDF, Word, and image conversion and
-                  &quot;Generate with AI&quot; need <code className="rounded bg-amber-100 px-1">VITE_GEMINI_API_KEY</code>{' '}
-                  in your frontend environment. Plain text, Markdown, CSV, and JSON files convert locally without it.
+                  <span className="font-semibold">Gemini API key missing.</span> &quot;Generate with AI&quot; needs{' '}
+                  <code className="rounded bg-amber-100 px-1">VITE_GEMINI_API_KEY</code> in your frontend environment.
+                  Document uploads still save to your profile without it.
                 </div>
               )}
 
@@ -861,7 +861,7 @@ const BusinessProfilePage: React.FC = () => {
 
               <div className="rounded-lg border border-indigo-200 bg-white/95 p-4 shadow-sm">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-900">
-                  Step 1 — Upload &amp; convert
+                  Step 1 — Upload documents
                 </p>
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Documents (optional, multiple)
@@ -888,17 +888,17 @@ const BusinessProfilePage: React.FC = () => {
                     >
                       {knowledgeFiles.length || pendingFiles.length ? 'Add more files' : 'Choose files'}
                     </label>
-                    {convertingFile && (
+                    {readingFile && (
                       <p className="mt-2 flex items-center justify-center gap-2 text-center text-xs font-medium text-indigo-900">
                         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                        Converting “{convertingFile}” to Markdown…
+                        Reading “{readingFile}”…
                       </p>
                     )}
                     <p className="mt-2 text-center text-[11px] text-indigo-900/70">
-                      Up to {KB_MAX_DOCS} files · conversion starts automatically after you choose files
+                      Up to {KB_MAX_DOCS} files · processing starts automatically after you choose files
                     </p>
                     <p className="mt-1 text-center text-[11px] text-indigo-900/70">
-                      Saved Markdown appears in your{' '}
+                      Saved files also appear in your{' '}
                       <Link
                         to="/knowledge-base"
                         className="font-semibold text-indigo-800 underline hover:text-indigo-950"
@@ -939,18 +939,18 @@ const BusinessProfilePage: React.FC = () => {
                               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                                 p.status === 'queued'
                                   ? 'bg-slate-200 text-slate-800'
-                                  : p.status === 'converting'
+                                  : p.status === 'reading'
                                     ? 'bg-amber-100 text-amber-900'
                                     : 'bg-red-100 text-red-800'
                               }`}
                             >
                               {p.status === 'queued'
                                 ? 'Queued'
-                                : p.status === 'converting'
-                                  ? 'Converting…'
+                                : p.status === 'reading'
+                                  ? 'Reading…'
                                   : 'Error'}
                             </span>
-                            {p.status === 'converting' && (
+                            {p.status === 'reading' && (
                               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-indigo-600" aria-hidden />
                             )}
                           </div>
@@ -963,7 +963,7 @@ const BusinessProfilePage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => removePendingFile(p.localId)}
-                              disabled={p.status === 'converting' || processing}
+                              disabled={p.status === 'reading' || processing}
                               className="rounded px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
                             >
                               Remove
@@ -978,7 +978,7 @@ const BusinessProfilePage: React.FC = () => {
 
               {knowledgeFiles.length > 0 && (
                 <div className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
-                  <h4 className="mb-3 text-sm font-semibold text-indigo-950">Processed documents (Markdown)</h4>
+                  <h4 className="mb-3 text-sm font-semibold text-indigo-950">Saved documents</h4>
                   <ul className="max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-xs text-gray-800">
                     {knowledgeFiles.map((f) => {
                       const expanded = Boolean(expandedKbDocIds[f.id]);

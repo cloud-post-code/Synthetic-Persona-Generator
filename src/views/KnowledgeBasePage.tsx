@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Loader2, Upload } from 'lucide-react';
 import { commandBus } from '../voice/commandBus.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
-import { GEMINI_FILE_INPUT_ACCEPT, isGeminiApiKeyConfigured } from '../services/gemini.js';
+import { GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import type { BusinessProfileKnowledgeDocument } from '../models/types.js';
 import { KnowledgeDocumentUploadPreview } from '../components/KnowledgeDocumentUploadPreview.js';
-import { KB_MAX_DOCS, readAndConvertToMarkdownDoc } from '../utils/knowledgeDocumentUpload.js';
+import { KB_MAX_DOCS, readKnowledgeDocumentForStorage } from '../utils/knowledgeDocumentUpload.js';
 
 function normalizeDocs(raw: unknown): BusinessProfileKnowledgeDocument[] {
   if (!Array.isArray(raw)) return [];
@@ -29,7 +29,7 @@ const KnowledgeBasePage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [convertingFile, setConvertingFile] = useState<string | null>(null);
+  const [readingFile, setReadingFile] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadedRef = useRef(false);
   /** True only after a successful GET so we never auto-save or unload-save empty state over the server. */
@@ -114,9 +114,9 @@ const KnowledgeBasePage: React.FC = () => {
     try {
       for (const f of toAdd) {
         if (remaining <= 0) break;
-        setConvertingFile(f.name);
+        setReadingFile(f.name);
         try {
-          const entry = await readAndConvertToMarkdownDoc(f);
+          const entry = await readKnowledgeDocumentForStorage(f);
           added.push(entry);
           setDocs((prev) => [...prev, entry]);
           remaining -= 1;
@@ -132,7 +132,7 @@ const KnowledgeBasePage: React.FC = () => {
         await persist([...docs, ...added]);
       }
     } finally {
-      setConvertingFile(null);
+      setReadingFile(null);
     }
   };
 
@@ -169,7 +169,7 @@ const KnowledgeBasePage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Knowledge base</h1>
             <p className="mt-1 max-w-xl text-sm text-gray-500">
-              Each upload is converted to Markdown and stored here. The same library is used under{' '}
+              Files are stored as you upload them and shared with{' '}
               <Link to="/business-profile" className="font-semibold text-indigo-600 hover:text-indigo-800">
                 Business Profile
               </Link>{' '}
@@ -202,14 +202,6 @@ const KnowledgeBasePage: React.FC = () => {
                 </button>
               </div>
             )}
-            {!isGeminiApiKeyConfigured() && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
-                <span className="font-semibold">Gemini API key missing. </span>
-                PDF, Word, and image conversion needs{' '}
-                <code className="rounded bg-amber-100 px-1 text-xs">VITE_GEMINI_API_KEY</code> in your frontend
-                environment. Plain text, Markdown, CSV, and JSON convert locally without it.
-              </div>
-            )}
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               <input
                 type="file"
@@ -217,13 +209,13 @@ const KnowledgeBasePage: React.FC = () => {
                 className="hidden"
                 multiple
                 accept={GEMINI_FILE_INPUT_ACCEPT}
-                disabled={convertingFile != null || !!loadError || loading}
+                disabled={readingFile != null || !!loadError || loading}
                 onChange={(ev) => void handleFileChange(ev)}
               />
               <label
                 htmlFor="kb-add-files"
                 className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
-                  convertingFile != null || !!loadError || loading
+                  readingFile != null || !!loadError || loading
                     ? 'cursor-not-allowed opacity-50'
                     : 'cursor-pointer hover:bg-indigo-700'
                 }`}
@@ -232,12 +224,12 @@ const KnowledgeBasePage: React.FC = () => {
                 Add documents
               </label>
               <span className="text-xs text-gray-500">
-                Up to {KB_MAX_DOCS} files · PDF, images, Word, text, CSV, JSON (saved as Markdown)
+                Up to {KB_MAX_DOCS} files · PDF, images, Word, text, CSV, JSON
               </span>
-              {convertingFile && (
+              {readingFile && (
                 <span className="inline-flex items-center gap-2 text-xs font-medium text-indigo-800">
                   <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
-                  Converting “{convertingFile}”…
+                  Reading “{readingFile}”…
                 </span>
               )}
             </div>
@@ -256,7 +248,7 @@ const KnowledgeBasePage: React.FC = () => {
                 <label
                   htmlFor="kb-add-files-empty"
                   className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
-                    convertingFile != null || !!loadError || loading
+                    readingFile != null || !!loadError || loading
                       ? 'cursor-not-allowed opacity-50'
                       : 'cursor-pointer hover:bg-indigo-700'
                   }`}
@@ -269,7 +261,7 @@ const KnowledgeBasePage: React.FC = () => {
                   className="hidden"
                   multiple
                   accept={GEMINI_FILE_INPUT_ACCEPT}
-                  disabled={convertingFile != null || !!loadError || loading}
+                  disabled={readingFile != null || !!loadError || loading}
                   onChange={(ev) => void handleFileChange(ev)}
                 />
               </div>
