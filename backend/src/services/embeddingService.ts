@@ -437,7 +437,7 @@ export async function loadFullKnowledgeDocuments(
           push(
             'full_business_knowledge_doc',
             `Business knowledge — ${doc.name} (binary)`,
-            `[File on record: ${doc.name}. Use Business Profile generation or download from the Knowledge base tab to use this document.]`
+            `[File on record: ${doc.name}. Use Business Profile generation or re-upload a text-based copy to use this document in prompts.]`
           );
         }
       }

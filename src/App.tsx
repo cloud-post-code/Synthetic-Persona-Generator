@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes, History, Trash2, Loader2, BookOpen } from 'lucide-react';
+import { User, LayoutDashboard, UserPlus, PlayCircle, Settings, LogOut, Menu, X, Shield, Briefcase, Boxes, History, Trash2, Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { SimulationLogsBridgeProvider, useSimulationLogsBridge } from './context/SimulationLogsBridgeContext.js';
 import HomePage from './views/HomePage.js';
@@ -12,7 +12,6 @@ import GalleryPage from './views/GalleryPage.js';
 import LoginPage from './views/LoginPage.js';
 import SettingsPage from './views/SettingsPage.js';
 import BusinessProfilePage from './views/BusinessProfilePage.js';
-import KnowledgeBasePage from './views/KnowledgeBasePage.js';
 import AdminPage from './views/AdminPage.js';
 import SyntheticUserDetail from './views/info/SyntheticUserDetail.js';
 import AdvisorDetail from './views/info/AdvisorDetail.js';
@@ -149,7 +148,6 @@ const Sidebar: React.FC = () => {
     { label: 'Build Persona', path: '/build', icon: UserPlus },
     { label: 'My Personas', path: '/gallery', icon: User },
     { label: 'Business Profile', path: '/business-profile', icon: Briefcase },
-    { label: 'Knowledge base', path: '/knowledge-base', icon: BookOpen },
     { label: 'Settings', path: '/settings', icon: Settings },
     ...(isAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield }] : []),
   ];
@@ -349,14 +347,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <BusinessProfilePage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/knowledge-base"
-        element={
-          <ProtectedRoute>
-            <KnowledgeBasePage />
           </ProtectedRoute>
         }
       />

@@ -29,34 +29,3 @@ export function extractKnowledgeDocumentText(doc: {
   }
   return null;
 }
-
-export type KnowledgeDocumentUploadPreview =
-  | { kind: 'text'; text: string; truncated: boolean }
-  | { kind: 'image'; src: string }
-  | { kind: 'binary'; mimeLabel: string };
-
-/**
- * What to show after upload: text snippet, image thumbnail, or a short note for PDF/other binary.
- */
-export function getKnowledgeDocumentUploadPreview(
-  doc: { data: string; mimeType?: string },
-  options?: { maxTextChars?: number },
-): KnowledgeDocumentUploadPreview | null {
-  if (!doc.data?.trim()) return null;
-  const maxTextChars = options?.maxTextChars ?? 500;
-  const mime = doc.mimeType ?? '';
-  if (mime.startsWith('image/') && doc.data.startsWith('data:')) {
-    return { kind: 'image', src: doc.data };
-  }
-  const fullText = extractKnowledgeDocumentText(doc);
-  if (fullText?.trim()) {
-    const t = fullText.trim();
-    const truncated = t.length > maxTextChars;
-    return {
-      kind: 'text',
-      text: truncated ? t.slice(0, maxTextChars) : t,
-      truncated,
-    };
-  }
-  return { kind: 'binary', mimeLabel: mime || 'Binary file' };
-}

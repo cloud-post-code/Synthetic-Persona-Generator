@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { geminiService, GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
-import type { BusinessProfile } from '../models/types.js';
-import { readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
+import type { BusinessProfile, BusinessProfileKnowledgeDocument } from '../models/types.js';
+import { buildBusinessProfileGenerationSource } from '../utils/businessProfileGenerationSource.js';
+import { KB_MAX_DOCS, readBpGenFile } from '../utils/knowledgeDocumentUpload.js';
 
 export type BusinessProfileInlineGenerateProps = {
   onSaved: (profile: BusinessProfile) => void;
@@ -32,8 +33,9 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
 }) => {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generateFileName, setGenerateFileName] = useState('');
-  const [generateFileData, setGenerateFileData] = useState<{ data: string; mimeType?: string } | null>(null);
+  const [generateDocs, setGenerateDocs] = useState<BusinessProfileKnowledgeDocument[]>([]);
+  const generateDocsRef = useRef<BusinessProfileKnowledgeDocument[]>([]);
+  generateDocsRef.current = generateDocs;
   const [readingFile, setReadingFile] = useState(false);
   const [companyHint, setCompanyHint] = useState('');
   const cancelledRef = useRef(false);
@@ -51,53 +53,78 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
   }, []);
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const list = e.target.files;
     e.target.value = '';
-    if (!file) {
-      setGenerateFileName('');
-      setGenerateFileData(null);
+    if (!list?.length) {
       return;
     }
-    setGenerateFileName(file.name);
     setGenerateError(null);
+    const picked = Array.from(list) as File[];
     void (async () => {
       setReadingFile(true);
+      const failures: string[] = [];
+      const newDocs: BusinessProfileKnowledgeDocument[] = [];
       try {
-        const doc = await readBpGenFile(file);
-        setGenerateFileData({
-          data: doc.data,
-          mimeType: doc.mimeType,
-        });
-      } catch (err) {
-        setGenerateFileName('');
-        setGenerateFileData(null);
-        setGenerateError(err instanceof Error ? err.message : 'Could not read file.');
+        const room = KB_MAX_DOCS - generateDocsRef.current.length;
+        if (room <= 0) {
+          setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some before adding more.`);
+          return;
+        }
+        const toRead = picked.slice(0, room);
+        if (picked.length > room) {
+          failures.push(`${picked.length - room} file(s) skipped (max ${KB_MAX_DOCS} total).`);
+        }
+        for (const file of toRead) {
+          try {
+            newDocs.push(await readBpGenFile(file));
+          } catch (err) {
+            failures.push(`${file.name}: ${err instanceof Error ? err.message : 'failed'}`);
+          }
+        }
+        if (newDocs.length) {
+          setGenerateDocs((prev) => [...prev, ...newDocs]);
+        }
+        if (failures.length) {
+          setGenerateError(failures.join('\n'));
+        }
       } finally {
         setReadingFile(false);
       }
     })();
   };
 
+  const removeDoc = (id: string) => {
+    setGenerateDocs((prev) => prev.filter((d) => d.id !== id));
+    setGenerateError(null);
+  };
+
+  const clearDocs = () => {
+    setGenerateDocs([]);
+    setGenerateError(null);
+  };
+
   const handleGenerate = async () => {
     cancelledRef.current = false;
+    const hintTrim = companyHint.trim();
+    if (generateDocs.length === 0 && !hintTrim) {
+      setGenerateError('Add at least one file or a company / website hint.');
+      return;
+    }
     setGenerateLoading(true);
     setGenerateError(null);
-    const input = generateFileData?.data ?? companyHint.trim();
     try {
       const snapshot = await getBusinessProfile();
       if (cancelledRef.current) return;
-      const opts = {
-        mimeType: generateFileData?.mimeType,
-        companyHint: companyHint.trim() || undefined,
+      const prebuilt = buildBusinessProfileGenerationSource(generateDocs, hintTrim);
+      const merged = await geminiService.generateBusinessProfileFromDocument('', {
+        prebuiltSource: prebuilt,
         ...(snapshot?.answers && Object.keys(snapshot.answers).length > 0
           ? { existingAnswers: snapshot.answers as Record<string, string> }
           : {}),
-      };
-      const merged = await geminiService.generateBusinessProfileFromDocument(input, opts);
+      });
       if (cancelledRef.current) return;
       const latest = await getBusinessProfile();
       const answers = mergeGeneratedIntoAnswers(latest?.answers, merged);
-      const hintTrim = companyHint.trim();
       const saved = await saveBusinessProfile({
         answers,
         company_hint: hintTrim ? hintTrim : null,
@@ -128,11 +155,8 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
             Generate with AI
           </h4>
           <p className="text-xs text-indigo-800/80 mt-1 max-w-xl">
-            Optionally upload a deck, plan, or 10-K and/or enter a company or website hint (pre-filled from your
-            Business Profile when set there). With text we can read from your files, we first choose which profile
-            sections match the material, then fill only what those sources clearly support. PDF- or image-only runs
-            every section against the file. With neither file nor hint, generation stays conservative (entity-specific
-            fields often stay empty). Same pipeline as the{' '}
+            Optionally upload decks, plans, or research (multiple files at once, up to {KB_MAX_DOCS}) and/or enter a
+            company or website hint (pre-filled from your Business Profile when set there). Same pipeline as the{' '}
             <Link to="/business-profile" className="font-semibold text-indigo-700 underline hover:text-indigo-900">
               Business Profile
             </Link>{' '}
@@ -160,7 +184,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
           </p>
         </div>
         <div>
-          <label className={labelClass}>Document (optional)</label>
+          <label className={labelClass}>Documents (optional)</label>
           <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-sky-300 transition-all bg-gray-50/50 group">
             <Upload className="w-10 h-10 text-gray-300 mb-3 group-hover:text-sky-500 shrink-0" aria-hidden />
             <p className="text-sm font-bold text-gray-600 mb-3 max-w-md">
@@ -170,6 +194,7 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
               type="file"
               id="inline-bp-generate-file"
               className="hidden"
+              multiple
               accept={GEMINI_FILE_INPUT_ACCEPT}
               disabled={generateLoading || readingFile}
               onChange={handleGenerateFileChange}
@@ -182,27 +207,49 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
                   : 'cursor-pointer hover:bg-sky-700'
               }`}
             >
-              {readingFile ? 'Reading…' : generateFileName || 'Select Document'}
+              {readingFile
+                ? 'Reading…'
+                : generateDocs.length > 0
+                  ? `Add more (${generateDocs.length}/${KB_MAX_DOCS})`
+                  : 'Select Documents'}
             </label>
-            {generateFileData?.data && !readingFile ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setGenerateFileName('');
-                  setGenerateFileData(null);
-                }}
-                disabled={generateLoading}
-                className="mt-3 text-xs font-semibold text-sky-800 underline hover:text-sky-950 disabled:opacity-40"
-              >
-                Remove document
-              </button>
-            ) : null}
+            {generateDocs.length > 0 && !readingFile && (
+              <div className="mt-4 w-full max-w-md text-left">
+                <ul className="max-h-36 space-y-1.5 overflow-y-auto rounded-xl border border-gray-100 bg-white px-3 py-2 text-xs">
+                  {generateDocs.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate font-medium text-gray-900" title={d.name}>
+                        {d.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeDoc(d.id)}
+                        disabled={generateLoading}
+                        className="shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={clearDocs}
+                  disabled={generateLoading}
+                  className="mt-2 text-xs font-semibold text-sky-800 underline hover:text-sky-950 disabled:opacity-40"
+                >
+                  Clear all files
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {generateError && (
-        <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{generateError}</p>
+        <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2 whitespace-pre-wrap">
+          {generateError}
+        </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">

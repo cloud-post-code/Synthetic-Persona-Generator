@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, MicOff } from 'lucide-react';
+import { Loader2, Mic, MicOff, Pause, Play, XCircle } from 'lucide-react';
 import {
   createSpeechRecognition,
   isSpeechRecognitionSupported,
@@ -46,7 +46,8 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [interim, setInterim] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
+  type MicPhase = 'idle' | 'listening' | 'paused';
+  const [micPhase, setMicPhase] = useState<MicPhase>('idle');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successSummary, setSuccessSummary] = useState<string | null>(null);
@@ -67,11 +68,46 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
     enabled: !disabled && voiceSupported && !isGenerating,
   });
 
-  const stopRec = useCallback(() => {
-    recRef.current?.stop();
-    recRef.current = null;
-    setIsRecording(false);
-    setInterim('');
+  const attachRecognition = useCallback(() => {
+    const rec = createSpeechRecognition({
+      onResult: (t, isFinal) => {
+        if (!isFinal) {
+          interimRef.current = t;
+          setInterim(t);
+          return;
+        }
+        interimRef.current = '';
+        setInterim('');
+        setText((prev) => {
+          const next = prev ? `${prev.trimEnd()}\n\n${t.trim()}` : t.trim();
+          textRef.current = next;
+          return next;
+        });
+      },
+      onError: (msg) => {
+        setError(msg);
+        recRef.current?.abort?.();
+        recRef.current = null;
+        setMicPhase('idle');
+        setInterim('');
+      },
+      onEnd: () => {
+        const i = interimRef.current.trim();
+        if (i) {
+          setText((prev) => {
+            const next = prev ? `${prev.trimEnd()}\n\n${i}` : i;
+            textRef.current = next;
+            return next;
+          });
+        }
+        interimRef.current = '';
+        setInterim('');
+        recRef.current = null;
+        setMicPhase((prev) => (prev === 'listening' ? 'paused' : prev));
+      },
+    });
+    recRef.current = rec;
+    rec.start();
   }, []);
 
   useEffect(() => {
@@ -104,6 +140,7 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
         setInterim('');
         textRef.current = '';
         interimRef.current = '';
+        setMicPhase('idle');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Something went wrong.');
       } finally {
@@ -113,15 +150,72 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
     [disabled, emptyError, isGenerating, onBuild, text],
   );
 
+  const pauseListening = useCallback(() => {
+    if (micPhase !== 'listening' || isGenerating) return;
+    const merged = [textRef.current.trim(), interimRef.current.trim()].filter(Boolean).join('\n\n').trim();
+    setText(merged);
+    textRef.current = merged;
+    setInterim('');
+    interimRef.current = '';
+    setMicPhase('paused');
+    try {
+      recRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    recRef.current = null;
+  }, [micPhase, isGenerating]);
+
+  const cancelListening = useCallback(() => {
+    if ((micPhase !== 'listening' && micPhase !== 'paused') || isGenerating) return;
+    try {
+      recRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+    recRef.current = null;
+    setMicPhase('idle');
+    setText('');
+    setInterim('');
+    textRef.current = '';
+    interimRef.current = '';
+    setError(null);
+    setSuccessSummary(null);
+  }, [micPhase, isGenerating]);
+
+  const stopAndBuildFromPaused = useCallback(() => {
+    if (disabled || isGenerating || micPhase !== 'paused') return;
+    const merged = [textRef.current.trim(), interimRef.current.trim()].filter(Boolean).join('\n\n').trim();
+    void handleGenerate(merged);
+  }, [disabled, isGenerating, micPhase, handleGenerate]);
+
   const toggleMic = useCallback(() => {
     if (disabled || !voiceSupported || isGenerating) return;
-    if (isRecording) {
+    if (micPhase === 'listening') {
       const merged = [textRef.current.trim(), interimRef.current.trim()].filter(Boolean).join('\n\n').trim();
-      stopRec();
+      setMicPhase('idle');
+      try {
+        recRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      recRef.current = null;
       setText(merged);
       textRef.current = merged;
+      setInterim('');
       interimRef.current = '';
       void handleGenerate(merged);
+      return;
+    }
+    if (micPhase === 'paused') {
+      setError(null);
+      setMicPhase('listening');
+      try {
+        attachRecognition();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not resume voice input.');
+        setMicPhase('paused');
+      }
       return;
     }
     setError(null);
@@ -130,37 +224,14 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
     setInterim('');
     textRef.current = '';
     interimRef.current = '';
-    setIsRecording(true);
+    setMicPhase('listening');
     try {
-      const rec = createSpeechRecognition({
-        onResult: (t, isFinal) => {
-          if (!isFinal) {
-            setInterim(t);
-            return;
-          }
-          setInterim('');
-          setText((prev) => {
-            const next = prev ? `${prev.trimEnd()}\n\n${t.trim()}` : t.trim();
-            textRef.current = next;
-            return next;
-          });
-        },
-        onError: (msg) => {
-          setError(msg);
-          stopRec();
-        },
-        onEnd: () => {
-          setIsRecording(false);
-          setInterim('');
-        },
-      });
-      recRef.current = rec;
-      rec.start();
+      attachRecognition();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start voice input.');
-      setIsRecording(false);
+      setMicPhase('idle');
     }
-  }, [disabled, voiceSupported, isGenerating, isRecording, stopRec, handleGenerate]);
+  }, [attachRecognition, disabled, handleGenerate, isGenerating, micPhase, voiceSupported]);
 
   if (disabled) return null;
 
@@ -168,9 +239,11 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
     ? 'Voice not available in this browser'
     : isGenerating
       ? micBuildingTitle
-      : isRecording
+      : micPhase === 'listening'
         ? micRecordingTitle
-        : micIdleTitle;
+        : micPhase === 'paused'
+          ? 'Resume dictation'
+          : micIdleTitle;
 
   return (
     <div className="mb-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm ring-1 ring-indigo-950/5 sm:p-6">
@@ -191,7 +264,7 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
         </p>
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-        <div className="flex shrink-0 flex-col sm:max-w-[220px]">
+        <div className="flex shrink-0 flex-col gap-2 sm:max-w-[220px]">
           <button
             ref={micRef}
             type="button"
@@ -201,7 +274,7 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
             className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${
               isGenerating
                 ? 'cursor-wait border-slate-200 bg-slate-100 text-slate-600'
-                : isRecording
+                : micPhase === 'listening'
                   ? 'border-red-300 bg-red-50 text-red-700 ring-2 ring-red-200'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40'
             }`}
@@ -211,10 +284,15 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
                 <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
                 Building…
               </>
-            ) : isRecording ? (
+            ) : micPhase === 'listening' ? (
               <>
                 <MicOff className="h-5 w-5" aria-hidden />
                 Stop &amp; build
+              </>
+            ) : micPhase === 'paused' ? (
+              <>
+                <Play className="h-5 w-5" aria-hidden />
+                Resume
               </>
             ) : (
               <>
@@ -223,6 +301,42 @@ export const DescribeBar: React.FC<DescribeBarProps> = ({
               </>
             )}
           </button>
+          {micPhase === 'listening' ? (
+            <button
+              type="button"
+              onClick={pauseListening}
+              disabled={!voiceSupported || isGenerating}
+              title="Pause dictation (no build yet)"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Pause className="h-5 w-5" aria-hidden />
+              Pause
+            </button>
+          ) : null}
+          {micPhase === 'paused' ? (
+            <button
+              type="button"
+              onClick={stopAndBuildFromPaused}
+              disabled={!voiceSupported || isGenerating}
+              title={micRecordingTitle}
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <MicOff className="h-5 w-5" aria-hidden />
+              Stop &amp; build
+            </button>
+          ) : null}
+          {micPhase === 'listening' || micPhase === 'paused' ? (
+            <button
+              type="button"
+              onClick={cancelListening}
+              disabled={!voiceSupported || isGenerating}
+              title="Discard and stop (no build)"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <XCircle className="h-5 w-5" aria-hidden />
+              Cancel
+            </button>
+          ) : null}
         </div>
         <div
           className="min-h-[120px] min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-inner"

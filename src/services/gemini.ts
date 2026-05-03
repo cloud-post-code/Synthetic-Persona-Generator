@@ -861,20 +861,32 @@ ${mergeBlock}`;
       companyHint?: string;
       extraInlineFiles?: { data: string; mimeType: string; name?: string }[];
       existingAnswers?: Record<string, string>;
+      /** When set, used as the generation corpus (e.g. multi-file session uploads); ignores documentInput/mimeType/extraInlineFiles. */
+      prebuiltSource?: Pick<BusinessProfileSectionSource, 'companyHint' | 'textCorpus' | 'inlineFiles'>;
     } = {}
   ): Promise<Record<string, string | null>> => {
-    const inlineFiles: { data: string; mimeType: string; name?: string }[] = [...(options.extraInlineFiles ?? [])];
-    if (options.mimeType && documentInput) {
-      inlineFiles.unshift({ data: documentInput, mimeType: options.mimeType, name: 'document' });
-    }
-    const textOnly = documentInput.trim() && !options.mimeType;
     const fullExisting = options.existingAnswers;
 
-    const sectionSourceBase: BusinessProfileSectionSource = {
-      companyHint: options.companyHint,
-      textCorpus: textOnly ? documentInput : undefined,
-      inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
-    };
+    const sectionSourceBase: BusinessProfileSectionSource = options.prebuiltSource
+      ? {
+          companyHint: options.prebuiltSource.companyHint ?? options.companyHint,
+          textCorpus: options.prebuiltSource.textCorpus,
+          inlineFiles: options.prebuiltSource.inlineFiles,
+        }
+      : (() => {
+          const inlineFiles: { data: string; mimeType: string; name?: string }[] = [
+            ...(options.extraInlineFiles ?? []),
+          ];
+          if (options.mimeType && documentInput) {
+            inlineFiles.unshift({ data: documentInput, mimeType: options.mimeType, name: 'document' });
+          }
+          const textOnly = documentInput.trim() && !options.mimeType;
+          return {
+            companyHint: options.companyHint,
+            textCorpus: textOnly ? documentInput : undefined,
+            inlineFiles: inlineFiles.length > 0 ? inlineFiles : undefined,
+          };
+        })();
 
     const sectionKeysToRun = await geminiService.routeBusinessProfileSectionKeys(sectionSourceBase);
 
