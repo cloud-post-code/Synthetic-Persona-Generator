@@ -32,31 +32,35 @@ const KnowledgeBasePage: React.FC = () => {
   const [convertingFile, setConvertingFile] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  /** True only after a successful GET so we never auto-save or unload-save empty state over the server. */
+  const profileFetchOkRef = useRef(false);
   const docsRef = useRef<BusinessProfileKnowledgeDocument[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadKnowledgeBase = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    getBusinessProfile()
-      .then((profile) => {
-        if (cancelled) return;
-        setDocs(normalizeDocs(profile?.knowledge_documents));
-        loadedRef.current = true;
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : 'Could not load knowledge base.');
-          loadedRef.current = true;
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const profile = await getBusinessProfile();
+      profileFetchOkRef.current = true;
+      loadedRef.current = true;
+      setDocs(normalizeDocs(profile?.knowledge_documents));
+    } catch (err) {
+      profileFetchOkRef.current = false;
+      loadedRef.current = true;
+      setDocs([]);
+      setLoadError(err instanceof Error ? err.message : 'Could not load knowledge base.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadKnowledgeBase();
+  }, [loadKnowledgeBase]);
+
+  const handleRetryLoad = useCallback(() => {
+    void loadKnowledgeBase();
+  }, [loadKnowledgeBase]);
 
   const persist = useCallback(async (nextDocs: BusinessProfileKnowledgeDocument[]) => {
     setSaveState('saving');
@@ -74,7 +78,7 @@ const KnowledgeBasePage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!loadedRef.current || loading) return;
+    if (!loadedRef.current || loading || !profileFetchOkRef.current) return;
     const id = window.setTimeout(() => {
       void persist(docs);
     }, 750);
@@ -85,7 +89,7 @@ const KnowledgeBasePage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      if (!loadedRef.current) return;
+      if (!loadedRef.current || !profileFetchOkRef.current) return;
       void saveBusinessProfile({ knowledge_documents: docsRef.current }).catch(() => {});
     };
   }, []);
@@ -94,6 +98,10 @@ const KnowledgeBasePage: React.FC = () => {
     const list = e.target.files;
     e.target.value = '';
     if (!list?.length) return;
+    if (loadError || !profileFetchOkRef.current) {
+      setUploadError('Your documents could not be loaded from the server. Fix the issue above and use Retry before uploading.');
+      return;
+    }
     setUploadError(null);
     let remaining = KB_MAX_DOCS - docs.length;
     if (remaining <= 0) {
@@ -102,20 +110,27 @@ const KnowledgeBasePage: React.FC = () => {
     }
     const toAdd = Array.from(list as FileList) as File[];
     const added: BusinessProfileKnowledgeDocument[] = [];
+    const failures: string[] = [];
     try {
       for (const f of toAdd) {
         if (remaining <= 0) break;
         setConvertingFile(f.name);
-        const entry = await readAndConvertToMarkdownDoc(f);
-        added.push(entry);
-        setDocs((prev) => [...prev, entry]);
-        remaining -= 1;
+        try {
+          const entry = await readAndConvertToMarkdownDoc(f);
+          added.push(entry);
+          setDocs((prev) => [...prev, entry]);
+          remaining -= 1;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
+          failures.push(`${f.name}: ${msg}`);
+        }
+      }
+      if (failures.length > 0) {
+        setUploadError(failures.join('\n'));
       }
       if (added.length > 0) {
         await persist([...docs, ...added]);
       }
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Failed to read or convert file.');
     } finally {
       setConvertingFile(null);
     }
@@ -142,10 +157,10 @@ const KnowledgeBasePage: React.FC = () => {
         {saveState === 'saving' && 'Saving…'}
         {saveState === 'saved' && 'Saved'}
         {saveState === 'error' && (saveMessage || 'Error')}
-        {saveState === 'idle' && 'Auto-save on'}
+        {saveState === 'idle' && (loadError ? 'Load required' : 'Auto-save on')}
       </span>
     );
-  }, [saveMessage, saveState]);
+  }, [loadError, saveMessage, saveState]);
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
@@ -170,8 +185,21 @@ const KnowledgeBasePage: React.FC = () => {
           <div className="space-y-6">
             {loadError && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <span className="font-semibold">Could not load documents. </span>
-                {loadError}
+                <p>
+                  <span className="font-semibold">Could not load documents. </span>
+                  {loadError}
+                </p>
+                <p className="mt-2 text-amber-950/90">
+                  Uploads are disabled until loading succeeds—otherwise saves can fail and nothing will stick.
+                </p>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleRetryLoad()}
+                  className="mt-3 rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50"
+                >
+                  {loading ? 'Retrying…' : 'Retry'}
+                </button>
               </div>
             )}
             {!isGeminiApiKeyConfigured() && (
@@ -189,13 +217,13 @@ const KnowledgeBasePage: React.FC = () => {
                 className="hidden"
                 multiple
                 accept={GEMINI_FILE_INPUT_ACCEPT}
-                disabled={convertingFile != null}
+                disabled={convertingFile != null || !!loadError || loading}
                 onChange={(ev) => void handleFileChange(ev)}
               />
               <label
                 htmlFor="kb-add-files"
                 className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
-                  convertingFile != null
+                  convertingFile != null || !!loadError || loading
                     ? 'cursor-not-allowed opacity-50'
                     : 'cursor-pointer hover:bg-indigo-700'
                 }`}
@@ -215,7 +243,7 @@ const KnowledgeBasePage: React.FC = () => {
             </div>
 
             {uploadError && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div className="flex items-start gap-2 whitespace-pre-wrap rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 {uploadError}
               </div>
@@ -228,7 +256,7 @@ const KnowledgeBasePage: React.FC = () => {
                 <label
                   htmlFor="kb-add-files-empty"
                   className={`inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white ${
-                    convertingFile != null
+                    convertingFile != null || !!loadError || loading
                       ? 'cursor-not-allowed opacity-50'
                       : 'cursor-pointer hover:bg-indigo-700'
                   }`}
@@ -241,7 +269,7 @@ const KnowledgeBasePage: React.FC = () => {
                   className="hidden"
                   multiple
                   accept={GEMINI_FILE_INPUT_ACCEPT}
-                  disabled={convertingFile != null}
+                  disabled={convertingFile != null || !!loadError || loading}
                   onChange={(ev) => void handleFileChange(ev)}
                 />
               </div>

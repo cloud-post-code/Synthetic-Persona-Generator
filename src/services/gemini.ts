@@ -690,7 +690,12 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
     name?: string;
   }): Promise<string> => {
     const rawData = file.data ?? '';
-    if (!rawData) throw new Error('Cannot convert empty document.');
+    const displayName = file.name?.trim() || 'document';
+    if (!rawData.trim()) {
+      throw new Error(
+        `“${displayName}” has no content to convert. If this is a text file, add text or pick another file.`,
+      );
+    }
     const mime = (file.mimeType ?? '').toLowerCase();
     const baseName = (file.name ?? 'document').replace(/\.[^.]+$/, '') || 'document';
 
@@ -712,6 +717,11 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
         throw new Error('Could not decode the uploaded text file.');
       }
       const body = decoded.trim();
+      if (!body) {
+        throw new Error(
+          `“${displayName}” decoded to no usable text (empty or whitespace only). Add content or choose a different file.`,
+        );
+      }
       if (mime === 'application/json' || mime === 'text/json') {
         return `# ${baseName}\n\n\`\`\`json\n${body}\n\`\`\`\n`;
       }
@@ -732,7 +742,9 @@ Output ONLY the improved profile text. No title line like "Here is" or markdown 
     );
     const trimmed = (md ?? '').trim();
     if (!trimmed) {
-      throw new Error('Markdown conversion returned empty content.');
+      throw new Error(
+        `Conversion produced no text for “${displayName}”. Try another file or check that the PDF/image is readable (not corrupt or password-protected).`,
+      );
     }
     return trimmed;
   },

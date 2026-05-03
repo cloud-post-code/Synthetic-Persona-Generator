@@ -4,6 +4,11 @@ import { geminiService } from '../services/gemini.js';
 /** Align with backend `BP_KNOWLEDGE_MAX_DOCS` (business_profiles.knowledge_documents cap). */
 export const KB_MAX_DOCS = 12;
 
+/** Shown when a text upload has no usable body after reading from disk. */
+export function emptyKnowledgeFileMessage(filename: string): string {
+  return `“${filename}” has no readable text—it’s empty or whitespace only. Add content or choose a different file.`;
+}
+
 /** When the browser omits or misreports MIME type, infer plain-text handling from extension. */
 function inferTextMimeFromFilename(filename: string): string | null {
   const lower = filename.toLowerCase();
@@ -47,7 +52,7 @@ export async function readBpGenFile(file: File): Promise<BusinessProfileKnowledg
     reader.onload = () => {
       const data = String(reader.result ?? '');
       if (!data.trim()) {
-        reject(new Error(`“${file.name}” appears empty.`));
+        reject(new Error(emptyKnowledgeFileMessage(file.name)));
         return;
       }
       if (bpFileReadsAsBinary(file)) {

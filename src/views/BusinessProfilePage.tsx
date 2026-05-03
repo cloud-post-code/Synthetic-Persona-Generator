@@ -161,6 +161,8 @@ const BusinessProfilePage: React.FC = () => {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  /** True only after GET /profile/business succeeds—blocks auto-save/unload-save from wiping server after a failed load. */
+  const profileFetchOkRef = useRef(false);
   const persistPayloadRef = useRef({
     answers: {} as Record<string, string>,
     knowledgeFiles: [] as BusinessProfileKnowledgeDocument[],
@@ -195,14 +197,14 @@ const BusinessProfilePage: React.FC = () => {
     label: 'Save business profile (legacy alias)',
     action: 'click',
     ref: saveBtnRef as React.RefObject<HTMLElement | null>,
-    enabled: !loading,
+    enabled: !loading && !loadError,
   });
   useVoiceTarget({
     id: fieldTargetId(businessProfileFormSchema.formKey, 'save'),
     label: 'Save business profile',
     action: 'click',
     ref: saveBtnRef as React.RefObject<HTMLElement | null>,
-    enabled: !loading,
+    enabled: !loading && !loadError,
   });
   useVoiceTarget({
     id: fieldTargetId(businessProfileFormSchema.formKey, 'company_hint'),
@@ -212,51 +214,56 @@ const BusinessProfilePage: React.FC = () => {
     enabled: !loading,
   });
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    getBusinessProfile()
-      .then((profile) => {
-        if (cancelled) return;
-        const next = emptyAnswers();
-        if (profile?.answers) {
-          for (const [k, v] of Object.entries(profile.answers)) {
-            if (k in next && typeof v === 'string') next[k] = v;
-          }
+    try {
+      const profile = await getBusinessProfile();
+      profileFetchOkRef.current = true;
+      loadedRef.current = true;
+      const next = emptyAnswers();
+      if (profile?.answers) {
+        for (const [k, v] of Object.entries(profile.answers)) {
+          if (k in next && typeof v === 'string') next[k] = v;
         }
-        setAnswers(next);
-        setKnowledgeFiles(
-          Array.isArray(profile?.knowledge_documents)
-            ? profile.knowledge_documents.filter(
-                (d) =>
-                  d &&
-                  typeof d.id === 'string' &&
-                  typeof d.name === 'string' &&
-                  typeof d.data === 'string' &&
-                  d.id.trim() &&
-                  d.name.trim() &&
-                  d.data,
-              )
-            : [],
-        );
-        const hint = profile?.company_hint;
-        setCompanyHint(typeof hint === 'string' ? hint : '');
-        loadedRef.current = true;
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : 'Could not load business profile.');
-          loadedRef.current = true;
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      }
+      setAnswers(next);
+      setKnowledgeFiles(
+        Array.isArray(profile?.knowledge_documents)
+          ? profile.knowledge_documents.filter(
+              (d) =>
+                d &&
+                typeof d.id === 'string' &&
+                typeof d.name === 'string' &&
+                typeof d.data === 'string' &&
+                d.id.trim() &&
+                d.name.trim() &&
+                d.data,
+            )
+          : [],
+      );
+      const hint = profile?.company_hint;
+      setCompanyHint(typeof hint === 'string' ? hint : '');
+    } catch (err) {
+      profileFetchOkRef.current = false;
+      loadedRef.current = true;
+      setAnswers(emptyAnswers());
+      setKnowledgeFiles([]);
+      setCompanyHint('');
+      setPendingFiles([]);
+      setLoadError(err instanceof Error ? err.message : 'Could not load business profile.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  const handleRetryLoadProfile = useCallback(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   const persist = useCallback(
     async (payload: Record<string, string>, docs: BusinessProfileKnowledgeDocument[], hint: string) => {
@@ -329,7 +336,7 @@ const BusinessProfilePage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!loadedRef.current || loading) return;
+    if (!loadedRef.current || loading || !profileFetchOkRef.current) return;
     const id = window.setTimeout(() => {
       void persist(answersForApi(answers), knowledgeFiles, companyHint);
     }, 750);
@@ -340,7 +347,7 @@ const BusinessProfilePage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      if (!loadedRef.current) return;
+      if (!loadedRef.current || !profileFetchOkRef.current) return;
       const { answers: a, knowledgeFiles: k, companyHint: h } = persistPayloadRef.current;
       void saveBusinessProfile({
         answers: answersForApi(a),
@@ -351,6 +358,7 @@ const BusinessProfilePage: React.FC = () => {
   }, []);
 
   const handleManualSave = () => {
+    if (!profileFetchOkRef.current || loadError) return;
     void persist(answersForApi(answers), knowledgeFiles, companyHint);
   };
 
@@ -449,6 +457,10 @@ const BusinessProfilePage: React.FC = () => {
     const list = e.target.files;
     e.target.value = '';
     if (!list?.length) return;
+    if (loadError || !profileFetchOkRef.current) {
+      setGenerateError('Load your business profile first (fix the error above or use Retry) before uploading documents.');
+      return;
+    }
     setGenerateError(null);
     const slots = KB_MAX_DOCS - knowledgeFiles.length - pendingFiles.length;
     if (slots <= 0) {
@@ -558,6 +570,10 @@ const BusinessProfilePage: React.FC = () => {
   }, [setActiveTab]);
 
   const handleGenerate = async () => {
+    if (loadError || !profileFetchOkRef.current) {
+      setGenerateError('Load your business profile first before generating.');
+      return;
+    }
     const source = buildBpGenerationSource(knowledgeFiles, companyHint);
     generateCancelledRef.current = false;
     setGenerateLoading(true);
@@ -689,7 +705,7 @@ const BusinessProfilePage: React.FC = () => {
               {saveState === 'saving' && 'Saving…'}
               {saveState === 'saved' && 'Saved'}
               {saveState === 'error' && (saveMessage || 'Error')}
-              {saveState === 'idle' && 'Auto-save on'}
+              {saveState === 'idle' && (loadError ? 'Load required' : 'Auto-save on')}
             </span>
             <button
               ref={saveBtnRef}
@@ -709,8 +725,22 @@ const BusinessProfilePage: React.FC = () => {
           <>
             {loadError && (
               <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
-                <span className="font-semibold">Could not load profile. </span>
-                {loadError}
+                <p>
+                  <span className="font-semibold">Could not load profile. </span>
+                  {loadError}
+                </p>
+                <p className="mt-2 text-amber-950/90">
+                  Editing, uploads, and auto-save stay off until loading succeeds so your saved answers and knowledge
+                  files are not overwritten with empty data.
+                </p>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleRetryLoadProfile()}
+                  className="mt-3 rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50"
+                >
+                  {loading ? 'Retrying…' : 'Retry'}
+                </button>
               </div>
             )}
             {viewFull ? (
@@ -732,7 +762,7 @@ const BusinessProfilePage: React.FC = () => {
                   setGenerateError(null);
                 }}
                 placeholder="e.g. Acme Inc or https://acme.com"
-                disabled={generateLoading}
+                disabled={generateLoading || !!loadError}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:opacity-60"
               />
               <p className="mt-2 text-[11px] text-gray-500">
@@ -743,7 +773,7 @@ const BusinessProfilePage: React.FC = () => {
 
             <DescribeBusinessProfileBar
               onApplyDraft={handleVoiceDraft}
-              disabled={generateLoading || ingestionBusy}
+              disabled={generateLoading || ingestionBusy || !!loadError}
               existingAnswers={answers}
             />
 
@@ -764,7 +794,7 @@ const BusinessProfilePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSectionsOpen((o) => !o)}
-                  disabled={generateLoading || processing}
+                  disabled={generateLoading || processing || !!loadError}
                   className="flex w-full items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50/80 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span>
@@ -785,7 +815,7 @@ const BusinessProfilePage: React.FC = () => {
                           <button
                             key={sec.key}
                             type="button"
-                            disabled={generateLoading || processing}
+                            disabled={generateLoading || processing || !!loadError}
                             onClick={() => {
                               setSelectedSections((prev) => {
                                 const next = new Set(prev);
@@ -808,7 +838,7 @@ const BusinessProfilePage: React.FC = () => {
                     <div className="mt-3 flex flex-wrap gap-3 text-xs">
                       <button
                         type="button"
-                        disabled={generateLoading || processing}
+                        disabled={generateLoading || processing || !!loadError}
                         onClick={() =>
                           setSelectedSections(new Set(BUSINESS_PROFILE_SPEC.map((s) => s.key)))
                         }
@@ -818,7 +848,7 @@ const BusinessProfilePage: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        disabled={generateLoading || processing}
+                        disabled={generateLoading || processing || !!loadError}
                         onClick={() => setSelectedSections(new Set())}
                         className="font-semibold text-indigo-800 underline hover:text-indigo-950 disabled:opacity-40"
                       >
@@ -845,13 +875,13 @@ const BusinessProfilePage: React.FC = () => {
                       className="hidden"
                       multiple
                       accept={GEMINI_FILE_INPUT_ACCEPT}
-                      disabled={generateLoading || processing}
+                      disabled={generateLoading || processing || !!loadError}
                       onChange={handleGenerateFileChange}
                     />
                     <label
                       htmlFor="bp-gen-file"
                       className={`rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white ${
-                        generateLoading || processing
+                        generateLoading || processing || !!loadError
                           ? 'cursor-not-allowed opacity-50'
                           : 'cursor-pointer hover:bg-indigo-700'
                       }`}
@@ -887,7 +917,7 @@ const BusinessProfilePage: React.FC = () => {
                       {pendingFiles.some((p) => p.status === 'queued') && (
                         <button
                           type="button"
-                          disabled={generateLoading || processing}
+                          disabled={generateLoading || processing || !!loadError}
                           onClick={handleProcessDocuments}
                           className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                         >
@@ -1035,7 +1065,8 @@ const BusinessProfilePage: React.FC = () => {
                     disabled={
                       generateLoading ||
                       selectedSections.size === 0 ||
-                      ingestionBusy
+                      ingestionBusy ||
+                      !!loadError
                     }
                     onClick={() => void handleGenerate()}
                     className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
