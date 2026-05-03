@@ -53,13 +53,13 @@ export const BusinessProfileInlineGenerate: React.FC<BusinessProfileInlineGenera
   }, []);
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    e.target.value = '';
-    if (!list?.length) {
+    const input = e.currentTarget;
+    const picked = input.files?.length ? (Array.from(input.files) as File[]) : [];
+    if (picked.length === 0) {
       return;
     }
     setGenerateError(null);
-    const picked = Array.from(list) as File[];
+    input.value = '';
     void (async () => {
       setReadingFile(true);
       const failures: string[] = [];

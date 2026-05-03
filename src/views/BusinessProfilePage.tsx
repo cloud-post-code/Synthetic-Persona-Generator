@@ -357,25 +357,26 @@ const BusinessProfilePage: React.FC = () => {
   };
 
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    e.target.value = '';
-    if (!list?.length) {
-      showGenerateNotice('No files were selected.');
+    const input = e.currentTarget;
+    // Snapshot before clearing `value` — WebKit empties `files` after reset, which breaks reads.
+    const picked = input.files?.length ? (Array.from(input.files) as File[]) : [];
+    if (picked.length === 0) {
       return;
     }
     if (loadError || !profileFetchOkRef.current) {
       setGenerateError(
         'Load your business profile first (fix the error above or use Retry) before choosing files.',
       );
+      input.value = '';
       return;
     }
+    input.value = '';
     setGenerateError(null);
     setGenerateNotice(null);
     if (generateNoticeTimerRef.current) {
       clearTimeout(generateNoticeTimerRef.current);
       generateNoticeTimerRef.current = null;
     }
-    const picked = Array.from(list) as File[];
     void (async () => {
       setReadingGenFile(true);
       const failures: string[] = [];
