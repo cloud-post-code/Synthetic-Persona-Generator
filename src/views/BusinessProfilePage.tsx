@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileDown,
+  Info,
   Loader2,
   Printer,
   RotateCcw,
@@ -174,6 +175,7 @@ const BusinessProfilePage: React.FC = () => {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateProgress, setGenerateProgress] = useState<GenerateSectionProgress[] | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateNotice, setGenerateNotice] = useState<string | null>(null);
   const [knowledgeFiles, setKnowledgeFiles] = useState<BusinessProfileKnowledgeDocument[]>([]);
   const [companyHint, setCompanyHint] = useState('');
   const [selectedSections, setSelectedSections] = useState<Set<BusinessProfileSectionKey>>(
@@ -187,6 +189,16 @@ const BusinessProfilePage: React.FC = () => {
   const generateCancelledRef = useRef(false);
   /** Serialize file reads so overlapping file picks chain instead of corrupting state. */
   const processChainRef = useRef(Promise.resolve());
+  const generateNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showGenerateNotice = useCallback((message: string) => {
+    if (generateNoticeTimerRef.current) clearTimeout(generateNoticeTimerRef.current);
+    setGenerateNotice(message);
+    generateNoticeTimerRef.current = setTimeout(() => {
+      setGenerateNotice(null);
+      generateNoticeTimerRef.current = null;
+    }, 6000);
+  }, []);
 
   const ingestionBusy =
     processing ||
@@ -456,12 +468,20 @@ const BusinessProfilePage: React.FC = () => {
   const handleGenerateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     e.target.value = '';
-    if (!list?.length) return;
+    if (!list?.length) {
+      showGenerateNotice('No file was selected — nothing was added.');
+      return;
+    }
     if (loadError || !profileFetchOkRef.current) {
       setGenerateError('Load your business profile first (fix the error above or use Retry) before uploading documents.');
       return;
     }
     setGenerateError(null);
+    setGenerateNotice(null);
+    if (generateNoticeTimerRef.current) {
+      clearTimeout(generateNoticeTimerRef.current);
+      generateNoticeTimerRef.current = null;
+    }
     const slots = KB_MAX_DOCS - knowledgeFiles.length - pendingFiles.length;
     if (slots <= 0) {
       setGenerateError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
@@ -474,8 +494,11 @@ const BusinessProfilePage: React.FC = () => {
       newPending.push({ localId: newLocalId(), file: f, status: 'queued' });
     }
     if (newPending.length < toAdd.length) {
+      const extra = toAdd.length - newPending.length;
       setGenerateError(
-        `Only ${slots} slot(s) left (max ${KB_MAX_DOCS} total). Extra files were not added.`,
+        `Only ${slots} slot(s) left (max ${KB_MAX_DOCS} total). ${extra} file(s) were not added.${
+          newPending.length > 0 ? ` ${newPending.length} file(s) were queued.` : ''
+        }`,
       );
     }
     if (newPending.length === 0) return;
@@ -484,7 +507,16 @@ const BusinessProfilePage: React.FC = () => {
   };
 
   const removePendingFile = (localId: string) => {
-    setPendingFiles((prev) => prev.filter((p) => p.localId !== localId));
+    setPendingFiles((prev) => {
+      const removed = prev.find((p) => p.localId === localId);
+      const next = prev.filter((p) => p.localId !== localId);
+      if (removed) {
+        showGenerateNotice(
+          `“${removed.file.name}” was removed from the upload queue — it was not saved to your library.`,
+        );
+      }
+      return next;
+    });
     setGenerateError(null);
   };
 
@@ -495,12 +527,26 @@ const BusinessProfilePage: React.FC = () => {
   };
 
   const removeKnowledgeFile = (id: string) => {
-    setKnowledgeFiles((prev) => prev.filter((f) => f.id !== id));
+    setKnowledgeFiles((prev) => {
+      const removed = prev.find((f) => f.id === id);
+      const next = prev.filter((f) => f.id !== id);
+      if (removed) {
+        showGenerateNotice(`“${removed.name}” was removed from saved documents (auto-save runs next).`);
+      }
+      return next;
+    });
     setGenerateError(null);
   };
 
   const clearKnowledgeFiles = () => {
-    setKnowledgeFiles([]);
+    setKnowledgeFiles((prev) => {
+      if (prev.length > 0) {
+        showGenerateNotice(
+          'All saved documents were removed from this list (auto-save runs next). Nothing new was added.',
+        );
+      }
+      return [];
+    });
     setGenerateError(null);
   };
 
@@ -789,6 +835,12 @@ const BusinessProfilePage: React.FC = () => {
                   Document uploads still save to your profile without it.
                 </div>
               )}
+              {generateNotice && !generateError && (
+                <div className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-[11px] leading-snug text-sky-950">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  {generateNotice}
+                </div>
+              )}
 
               <div className="space-y-2">
                 <button
@@ -1048,7 +1100,7 @@ const BusinessProfilePage: React.FC = () => {
                   Step 2 — Generate sections
                 </p>
                 {generateError && (
-                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  <div className="mb-3 flex items-start gap-2 whitespace-pre-wrap rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     {generateError}
                   </div>

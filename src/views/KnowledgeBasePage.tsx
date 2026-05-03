@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Loader2, Upload } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, Upload } from 'lucide-react';
 import { commandBus } from '../voice/commandBus.js';
 import { getBusinessProfile, saveBusinessProfile } from '../services/businessProfileApi.js';
 import { GEMINI_FILE_INPUT_ACCEPT } from '../services/gemini.js';
@@ -27,6 +27,8 @@ const KnowledgeBasePage: React.FC = () => {
   const [docs, setDocs] = useState<BusinessProfileKnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const uploadNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [readingFile, setReadingFile] = useState<string | null>(null);
@@ -94,15 +96,32 @@ const KnowledgeBasePage: React.FC = () => {
     };
   }, []);
 
+  const showUploadNotice = useCallback((message: string) => {
+    if (uploadNoticeTimerRef.current) clearTimeout(uploadNoticeTimerRef.current);
+    setUploadNotice(message);
+    uploadNoticeTimerRef.current = setTimeout(() => {
+      setUploadNotice(null);
+      uploadNoticeTimerRef.current = null;
+    }, 6000);
+  }, []);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     e.target.value = '';
-    if (!list?.length) return;
+    if (!list?.length) {
+      showUploadNotice('No file was selected — nothing was added.');
+      return;
+    }
     if (loadError || !profileFetchOkRef.current) {
       setUploadError('Your documents could not be loaded from the server. Fix the issue above and use Retry before uploading.');
       return;
     }
     setUploadError(null);
+    setUploadNotice(null);
+    if (uploadNoticeTimerRef.current) {
+      clearTimeout(uploadNoticeTimerRef.current);
+      uploadNoticeTimerRef.current = null;
+    }
     let remaining = KB_MAX_DOCS - docs.length;
     if (remaining <= 0) {
       setUploadError(`You can add at most ${KB_MAX_DOCS} files. Remove some to add more.`);
@@ -111,25 +130,50 @@ const KnowledgeBasePage: React.FC = () => {
     const toAdd = Array.from(list as FileList) as File[];
     const added: BusinessProfileKnowledgeDocument[] = [];
     const failures: string[] = [];
+    let skippedDueToLimit = 0;
     try {
       for (const f of toAdd) {
-        if (remaining <= 0) break;
+        if (remaining <= 0) {
+          skippedDueToLimit += 1;
+          continue;
+        }
         setReadingFile(f.name);
         try {
           const entry = await readKnowledgeDocumentForStorage(f);
           added.push(entry);
-          setDocs((prev) => [...prev, entry]);
           remaining -= 1;
         } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Failed to read or convert file.';
+          const msg = err instanceof Error ? err.message : 'Failed to read file.';
           failures.push(`${f.name}: ${msg}`);
         }
       }
-      if (failures.length > 0) {
-        setUploadError(failures.join('\n'));
+      const limitMsg =
+        skippedDueToLimit > 0
+          ? `${skippedDueToLimit} file(s) were not added — maximum is ${KB_MAX_DOCS} documents. Remove one or more files to add more.`
+          : '';
+      if (failures.length > 0 || limitMsg) {
+        const parts = [...failures, ...(limitMsg ? [limitMsg] : [])];
+        if (added.length > 0) {
+          parts.push(
+            added.length === 1
+              ? '1 other file was added and saved successfully.'
+              : `${added.length} other files were added and saved successfully.`,
+          );
+        }
+        setUploadError(parts.join('\n'));
+      } else if (added.length > 0) {
+        showUploadNotice(
+          added.length === 1
+            ? `Added 1 file and saved to your library.`
+            : `Added ${added.length} files and saved to your library.`,
+        );
       }
       if (added.length > 0) {
-        await persist([...docs, ...added]);
+        setDocs((prev) => {
+          const next = [...prev, ...added];
+          void persist(next);
+          return next;
+        });
       }
     } finally {
       setReadingFile(null);
@@ -137,7 +181,14 @@ const KnowledgeBasePage: React.FC = () => {
   };
 
   const removeDoc = (id: string) => {
-    setDocs((prev) => prev.filter((f) => f.id !== id));
+    setDocs((prev) => {
+      const removed = prev.find((f) => f.id === id);
+      const next = prev.filter((f) => f.id !== id);
+      if (removed) {
+        showUploadNotice(`“${removed.name}” was removed. It is no longer in your library (saving…).`);
+      }
+      return next;
+    });
     setUploadError(null);
   };
 
@@ -238,6 +289,12 @@ const KnowledgeBasePage: React.FC = () => {
               <div className="flex items-start gap-2 whitespace-pre-wrap rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 {uploadError}
+              </div>
+            )}
+            {uploadNotice && !uploadError && (
+              <div className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                {uploadNotice}
               </div>
             )}
 
