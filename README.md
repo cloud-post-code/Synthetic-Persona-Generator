@@ -1,6 +1,8 @@
-# Synthetic Persona Builder
+# Synthetic Persona Generator
 
-A full-stack application for building and managing synthetic personas using Google Gemini AI. The app allows users to create, chat with, and simulate interactions with AI-powered personas.
+Build AI customer personas, chat with them one at a time or as a panel, and run them through simulations (a landing page, a sales pitch, an investor pitch) to see how different audiences react before you ship. Full-stack: React + Vite frontend, Express + TypeScript API, PostgreSQL, Google Gemini.
+
+More docs: [Quickstart](docs/QUICKSTART.md) · [API](docs/API_DOCUMENTATION.md) · [Deployment](docs/DEPLOYMENT.md) · [Database setup](docs/SETUP_DATABASE.md) · [Prompts](docs/PROMPTS.md) · [Architecture diagram](docs/architecture.mermaid)
 
 ## Architecture
 
@@ -199,8 +201,6 @@ The database includes the following tables:
 
 All tables include proper foreign key constraints and indexes for performance.
 
-_Last updated: February 2025_
-
 ## Security
 
 - Passwords are hashed using bcrypt
@@ -211,4 +211,4 @@ _Last updated: February 2025_
 
 ## License
 
-Private project - All rights reserved
+MIT
